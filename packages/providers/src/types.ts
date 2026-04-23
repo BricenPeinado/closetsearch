@@ -1,7 +1,7 @@
-import type { SearchQuery, SearchResult } from "../../shared/src/types";
+import type { Listing, SearchQuery } from "../../shared/src";
 
 export interface Provider {
   id: string;
   name: string;
-  search(query: SearchQuery): Promise<SearchResult[]>;
+  search(query: SearchQuery): Promise<Listing[]>;
 }
