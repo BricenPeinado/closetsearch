@@ -13,7 +13,8 @@ The repo currently contains:
 - root product and architecture docs
 - placeholder app and package folders
 - starter shared TypeScript contracts
-- placeholder root scripts
+- pnpm workspace configuration
+- starter TypeScript configuration
 
 It does not contain a runnable app, real provider integrations, auth, analytics, payments, or AI systems yet.
 
@@ -66,13 +67,16 @@ There is no runnable product yet. For now:
 1. Read [PRODUCT.md](PRODUCT.md) to understand what V1 includes and excludes.
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing code boundaries.
 3. Use [TASKS.md](TASKS.md) to choose the next focused pass.
-4. Record durable choices in [DECISIONS.md](DECISIONS.md).
+4. Follow [ENGINEERING.md](ENGINEERING.md) for workspace and boundary standards.
+5. Record durable choices in [DECISIONS.md](DECISIONS.md).
 
-Root scripts exist as placeholders until Milestone 2 establishes the development toolchain:
+Install dependencies with pnpm before running workspace scripts:
 
 ```sh
-npm run dev
-npm run build
-npm run test
-npm run lint
+pnpm install
+pnpm dev
+pnpm build
+pnpm typecheck
+pnpm test
+pnpm lint
 ```

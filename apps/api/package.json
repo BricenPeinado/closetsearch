@@ -1,0 +1,13 @@
+{
+  "name": "@closetsearch/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo \"No API app shell configured yet.\"",
+    "build": "echo \"No API app build configured yet.\"",
+    "lint": "echo \"No API app linter configured yet.\"",
+    "typecheck": "echo \"No API TypeScript entry points configured yet.\"",
+    "test": "echo \"No API tests configured yet.\""
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@closetsearch/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo \"No web app shell configured yet.\"",
+    "build": "echo \"No web app build configured yet.\"",
+    "lint": "echo \"No web app linter configured yet.\"",
+    "typecheck": "echo \"No web app TypeScript entry points configured yet.\"",
+    "test": "echo \"No web app tests configured yet.\""
+  }
+}
