@@ -3,10 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "description": "AI-friendly monorepo skeleton for a clothing resale search app.",
+  "packageManager": "pnpm@10.0.0",
   "scripts": {
-    "dev": "echo \"No dev server configured yet.\"",
-    "build": "echo \"No build configured yet.\"",
-    "test": "echo \"No test runner configured yet.\"",
-    "lint": "echo \"No linter configured yet.\""
+    "dev": "corepack pnpm -r --parallel --if-present dev",
+    "build": "corepack pnpm -r --if-present build",
+    "lint": "corepack pnpm -r --if-present lint",
+    "typecheck": "corepack pnpm -r --if-present typecheck",
+    "test": "corepack pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
   }
 }

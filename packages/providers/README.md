@@ -1,7 +1,18 @@
 # Providers Package
 
-This package contains provider contracts and, later, marketplace-specific adapters.
+This package contains provider-facing contracts and examples.
 
-Current status: starter TypeScript interfaces only.
+Current source of truth:
 
-Provider implementations should normalize marketplace data into shared ClosetSearch domain types. Avoid adding provider-specific code until the first mocked search flow is ready.
+- `src/types.ts`: provider adapter contract
+- `src/index.ts`: public export surface
+- `src/examples`: no-network examples that demonstrate the contract shape
+
+Provider implementations must accept normalized shared `SearchQuery` input and return normalized shared `Listing` objects through the provider response wrapper.
+
+Do not put these here yet:
+
+- real marketplace integrations
+- network clients
+- provider registry or plugin system
+- API orchestration logic

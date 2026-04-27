@@ -22,9 +22,3 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
-
-#ai
-ARCHITECTURE.md
-DECISIONS.md
-PRODUCT.md
-TASKS.md

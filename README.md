@@ -1,90 +1,34 @@
 # ClosetSearch
 
-ClosetSearch is a fashion resale discovery platform that helps users search across clothing resale marketplaces, browse brands, and discover items through a personalized home feed.
+ClosetSearch is a fashion resale discovery platform. It helps users browse a visual home feed, search across clothing resale marketplaces, and discover brands through a normalized product experience.
 
-The goal is to make secondhand fashion search feel fast, visual, and intelligent. Users should be able to:
-- discover trending and relevant listings on the home feed
-- search for specific items or brands across multiple resale sources
-- filter listings by things like auction vs buy-now, price, brand, category, and more
-- like pieces to improve future recommendations
-- browse brands in a dedicated brand directory
-- eventually access premium analytics and market insights
+The repository is intentionally small and documentation-led. The goal is to make each development pass clear enough for an engineer or AI coding agent to implement without guessing at product scope.
 
-## Product Vision
+## Current Status
 
-ClosetSearch combines:
-- multi-source resale search
-- a visually rich infinite-scroll browsing experience
-- recommendation systems based on popularity and user taste
-- premium market analytics for fashion resale buyers and sellers
+ClosetSearch is in Milestone 1: product and repo foundation.
 
-## Core User Experience
+The repo currently contains:
 
-When a user opens the site, they land on a homepage showing a feed of listings. Each listing should display:
-- item image
-- title
-- brand
-- source marketplace
-- price in the user's chosen currency
+- root product and architecture docs
+- placeholder app and package folders
+- starter shared TypeScript contracts
+- pnpm workspace configuration
+- starter TypeScript configuration
 
-The home feed should support seamless infinite scrolling.
+It does not contain a runnable app, real provider integrations, auth, analytics, payments, or AI systems yet.
 
-For signed-out users, the feed is driven by popularity, marketplace trends, and generalized relevance.
+## Product Direction
 
-For signed-in users, the feed becomes more personalized over time based on:
-- onboarding survey answers
-- liked listings
-- saved preferences
-- engagement behavior
+The core product is a resale discovery experience:
 
-## Planned Navigation
+- The home feed is the primary surface.
+- Search is first-class and separate from feed logic.
+- Brand browsing is part of the core experience.
+- Marketplace providers must be modular and normalize their data.
+- Premium analytics and fake-risk intelligence are planned future areas, but they are not part of the initial build.
 
-Primary mobile-first navigation:
-- Home
-- Search
-- Recent Searches
-- Analytics
-- Profile
-
-Desktop layouts may adapt this navigation while keeping the same information architecture.
-
-## Planned Feature Areas
-
-### Discovery
-- Trending home feed
-- Personalized recommendations
-- Infinite scroll feed
-- Brand browsing
-
-### Search
-- Global search bar
-- Filters for listing type, price, category, source, and sort order
-- Recent searches
-- Multi-marketplace search results
-
-### Accounts
-- Username/password signup
-- Preference survey at onboarding
-- Likes / hearts
-- User profile
-
-### Premium Analytics
-- Market pricing insights
-- Under-market listing detection
-- Alerts for attractive listings
-- Historical and predictive resale analytics
-
-### Trust & Safety Intelligence
-- Future AI-assisted fake-risk scoring using listing price, images, metadata, and market comparisons
-
-## Initial Repository Goals
-
-This repository is being structured for:
-- clean architecture
-- modular provider integrations
-- small-pass AI-assisted development
-- easy iteration with ChatGPT and Codex
-- strong documentation and task tracking
+See [PRODUCT.md](PRODUCT.md) for phased scope and non-goals.
 
 ## Repository Structure
 
@@ -96,6 +40,43 @@ closetsearch/
   TASKS.md
   DECISIONS.md
   apps/
+    web/        Future user-facing web app
+    api/        Future API boundary
   packages/
+    shared/     Shared domain types and utilities
+    providers/  Provider contracts and marketplace adapters
   docs/
-  tests/
+    prompts/              AI development prompts and notes
+    marketplace-notes/    Marketplace research notes
+    runbooks/             Operational and development runbooks
+  tests/       Cross-package or end-to-end tests when introduced
+```
+
+## Development Principles
+
+- Work in small, reviewable passes.
+- Keep feed, search, providers, and future intelligence systems separated.
+- Prefer normalized domain models over source-specific data leaking across the app.
+- Do not add auth, favorites, analytics, payments, or fake-risk systems before the core discovery/search experience is stable.
+- Add tooling and dependencies only when a milestone needs them.
+
+## Getting Started
+
+There is no runnable product yet. For now:
+
+1. Read [PRODUCT.md](PRODUCT.md) to understand what V1 includes and excludes.
+2. Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing code boundaries.
+3. Use [TASKS.md](TASKS.md) to choose the next focused pass.
+4. Follow [ENGINEERING.md](ENGINEERING.md) for workspace and boundary standards.
+5. Record durable choices in [DECISIONS.md](DECISIONS.md).
+
+Install dependencies with pnpm before running workspace scripts:
+
+```sh
+pnpm install
+pnpm dev
+pnpm build
+pnpm typecheck
+pnpm test
+pnpm lint
+```
