@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo \"No API app shell configured yet.\"",
-    "build": "echo \"No API app build configured yet.\"",
-    "lint": "echo \"No API app linter configured yet.\"",
-    "typecheck": "echo \"No API TypeScript entry points configured yet.\"",
-    "test": "echo \"No API tests configured yet.\""
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0"
   }
 }
