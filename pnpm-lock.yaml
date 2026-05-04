@@ -28,6 +28,13 @@ importers:
         version: 3.2.4(@types/node@24.12.2)(tsx@4.21.0)
 
   apps/api:
+    dependencies:
+      '@closetsearch/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@closetsearch/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -38,6 +45,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@closetsearch/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       react:
         specifier: ^19.0.0
         version: 19.2.5

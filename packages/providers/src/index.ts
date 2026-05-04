@@ -8,6 +8,6 @@ export type {
   ProviderSearchResponse,
   ProviderSearchResult,
   ProviderWarning,
-} from "./types";
+} from "./types.js";
 
-export { mockProvider } from "./examples";
+export { mockProvider, normalizeMockListing } from "./examples/index.js";

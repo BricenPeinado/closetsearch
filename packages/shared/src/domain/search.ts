@@ -1,4 +1,4 @@
-import type { ListingType } from "./listing";
+import type { Listing, ListingCondition, ListingType } from "./listing";
 
 export type SearchSortMode = "relevance" | "price_asc" | "price_desc" | "newest";
 
@@ -10,8 +10,30 @@ export interface PriceRange {
 
 export interface SearchQuery {
   text: string;
-  sourceId?: string;
-  listingType?: ListingType;
+  brandSlugs?: string[];
+  sizes?: string[];
+  categories?: string[];
+  conditions?: ListingCondition[];
+  sourceIds?: string[];
+  listingTypes?: ListingType[];
   sort?: SearchSortMode;
   price?: PriceRange;
+  currency?: string;
+  cursor?: string;
+}
+
+export interface SearchProviderSummary {
+  providerId: string;
+  providerName: string;
+  status: "success" | "failure";
+  resultCount: number;
+}
+
+export interface SearchResponse {
+  query: SearchQuery;
+  listings: Listing[];
+  total: number;
+  hasMore: boolean;
+  nextCursor?: string;
+  providers: SearchProviderSummary[];
 }

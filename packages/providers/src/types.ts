@@ -28,6 +28,7 @@ export interface ProviderWarning {
 export interface ProviderSearchMetadata {
   providerId: string;
   fetchedAt: string;
+  resultCount?: number;
 }
 
 export interface ProviderSearchResult {

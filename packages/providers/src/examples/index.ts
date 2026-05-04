@@ -1,1 +1,1 @@
-export { mockProvider } from "./mock-provider";
+export { mockProvider, normalizeMockListing } from "./mock-provider.js";

@@ -1,5 +1,13 @@
-import type { ReactNode } from "react";
-import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { startTransition, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import type { Listing, SearchResponse } from "@closetsearch/shared";
+import {
+  BrowserRouter,
+  NavLink,
+  Route,
+  Routes,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
@@ -14,6 +22,8 @@ const brandDirectoryLink = {
   path: "/brands",
 } as const;
 
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+
 interface PageTemplateProps {
   eyebrow: string;
   title: string;
@@ -21,6 +31,26 @@ interface PageTemplateProps {
   highlightLabel: string;
   highlightValue: string;
   children?: ReactNode;
+}
+
+interface SearchRequestState {
+  errorMessage?: string;
+  response?: SearchResponse;
+  status: "idle" | "loading" | "success" | "error";
+}
+
+interface PlaceholderCardProps {
+  title: string;
+  detail: string;
+  meta: string;
+}
+
+function formatPrice(listing: Listing) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: listing.price.currency,
+    maximumFractionDigits: 0,
+  }).format(listing.price.amount);
 }
 
 function PageTemplate({
@@ -51,12 +81,6 @@ function PageTemplate({
   );
 }
 
-interface PlaceholderCardProps {
-  title: string;
-  detail: string;
-  meta: string;
-}
-
 function PlaceholderCard({ title, detail, meta }: PlaceholderCardProps) {
   return (
     <article className="placeholder-card">
@@ -70,9 +94,9 @@ function PlaceholderCard({ title, detail, meta }: PlaceholderCardProps) {
 function HomePage() {
   return (
     <PageTemplate
-      eyebrow="Milestone 2"
+      eyebrow="Milestone 3"
       title="ClosetSearch app shell"
-      description="The home feed is the core product surface, so this shell introduces the mood of ClosetSearch without pretending the real feed already exists."
+      description="The home feed is still intentionally deferred, but the shared listing model and provider-backed search path are now in place underneath the product shell."
       highlightLabel="Next up"
       highlightValue="Signed-out discovery feed"
     >
@@ -85,7 +109,7 @@ function HomePage() {
           <PlaceholderCard
             title="Feed cards"
             detail="A scrollable lineup of normalized resale listings with image, title, brand, source, and price."
-            meta="Not implemented yet"
+            meta="Still next milestone"
           />
           <PlaceholderCard
             title="Loading state"
@@ -108,9 +132,9 @@ function SearchPage({ children }: { children?: ReactNode }) {
     <PageTemplate
       eyebrow="Search"
       title="Search"
-      description="Search is first-class and separate from feed logic. This page holds the spot for the future normalized search flow."
-      highlightLabel="Planned surface"
-      highlightValue="Query + filters + results"
+      description="Search is first-class and separate from feed logic. This page now exercises the normalized API search flow through the mock provider foundation."
+      highlightLabel="Active flow"
+      highlightValue="Query -> API -> normalized listings"
     >
       {children}
     </PageTemplate>
@@ -150,7 +174,7 @@ function ProfilePage({ children }: { children?: ReactNode }) {
     <PageTemplate
       eyebrow="Deferred"
       title="Profile"
-      description="Authentication and personalization are out of scope for Milestone 2, so profile stays a simple shell with clear boundaries."
+      description="Authentication and personalization remain out of scope, so profile stays a simple shell with clear boundaries."
       highlightLabel="Blocked by"
       highlightValue="Auth foundation"
     >
@@ -178,7 +202,7 @@ function NotFoundPage() {
     <PageTemplate
       eyebrow="Missing route"
       title="Page not found"
-      description="The requested route does not exist in the Milestone 2 shell."
+      description="The requested route does not exist in the current app shell."
       highlightLabel="Status"
       highlightValue="Unknown path"
     />
@@ -190,7 +214,7 @@ function PlaceholderStack({ cards }: { cards: PlaceholderCardProps[] }) {
     <section className="placeholder-section">
       <div className="section-heading">
         <h2>What this page will become</h2>
-        <p>Each route stays intentionally honest about what Milestone 2 includes and what comes later.</p>
+        <p>Each route stays intentionally honest about what this milestone includes and what comes later.</p>
       </div>
       <div className="placeholder-grid">
         {cards.map((card) => (
@@ -206,31 +230,194 @@ function PlaceholderStack({ cards }: { cards: PlaceholderCardProps[] }) {
   );
 }
 
+function SearchForm({ initialQuery }: { initialQuery: string }) {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState(initialQuery);
+
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const nextQuery = query.trim();
+
+    startTransition(() => {
+      navigate(nextQuery.length > 0 ? `/search?q=${encodeURIComponent(nextQuery)}` : "/search");
+    });
+  }
+
+  return (
+    <form className="search-form" onSubmit={handleSubmit}>
+      <label className="search-form__label" htmlFor="search-query">
+        Search listings
+      </label>
+      <div className="search-form__controls">
+        <input
+          className="search-form__input"
+          id="search-query"
+          name="q"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Try jacket, trousers, or a brand name"
+          value={query}
+        />
+        <button className="search-form__button" type="submit">
+          Search
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ListingCard({ listing }: { listing: Listing }) {
+  return (
+    <article className="listing-card">
+      <div className="listing-card__image-wrap">
+        <img
+          alt={listing.title}
+          className="listing-card__image"
+          loading="lazy"
+          src={listing.imageUrl}
+        />
+      </div>
+      <div className="listing-card__body">
+        <div className="listing-card__topline">
+          <p>{listing.brand.name}</p>
+          <span>{listing.source.name}</span>
+        </div>
+        <h2>{listing.title}</h2>
+        <p className="listing-card__meta">
+          {[listing.category, listing.size, listing.condition].filter(Boolean).join(" • ")}
+        </p>
+        <div className="listing-card__footer">
+          <strong>{formatPrice(listing)}</strong>
+          <a href={listing.sourceUrl} rel="noreferrer" target="_blank">
+            View listing
+          </a>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function SearchResults({ state, query }: { state: SearchRequestState; query: string }) {
+  if (state.status === "idle") {
+    return (
+      <section className="search-state-card">
+        <h2>Start with a search</h2>
+        <p>Try a product type, brand, or material to pull normalized listings from the API.</p>
+      </section>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <section className="search-state-card">
+        <h2>Searching for “{query}”</h2>
+        <p>Fetching normalized listings from the server-side mock provider flow.</p>
+      </section>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <section className="search-state-card">
+        <h2>Search unavailable</h2>
+        <p>{state.errorMessage ?? "The search request could not be completed."}</p>
+      </section>
+    );
+  }
+
+  const response = state.response;
+
+  if (!response || response.listings.length === 0) {
+    return (
+      <section className="search-state-card">
+        <h2>No listings found</h2>
+        <p>Try a broader query or a different brand name.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="search-results">
+      <div className="section-heading">
+        <h2>{response.total} normalized listings</h2>
+        <p>
+          Results for “{response.query.text}” from{" "}
+          {response.providers.map((provider) => provider.providerName).join(", ")}.
+        </p>
+      </div>
+      <div className="listing-grid">
+        {response.listings.map((listing) => (
+          <ListingCard key={listing.id} listing={listing} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SearchRoutePage() {
+  const [searchParams] = useSearchParams();
+  const query = searchParams.get("q")?.trim() ?? "";
+  const [state, setState] = useState<SearchRequestState>({
+    status: query.length > 0 ? "loading" : "idle",
+  });
+
+  useEffect(() => {
+    if (query.length === 0) {
+      setState({ status: "idle" });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setState({ status: "loading" });
+
+    void fetch(`${apiBaseUrl}/search?q=${encodeURIComponent(query)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const errorBody = (await response.json().catch(() => null)) as
+            | { message?: string }
+            | null;
+
+          throw new Error(errorBody?.message ?? "Search request failed.");
+        }
+
+        return (await response.json()) as SearchResponse;
+      })
+      .then((response) => {
+        setState({
+          response,
+          status: "success",
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setState({
+          errorMessage:
+            error instanceof Error ? error.message : "Search request failed.",
+          status: "error",
+        });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [query]);
+
   return (
     <SearchPage>
-      <PlaceholderStack
-        cards={[
-          {
-            title: "Search input shell",
-            detail:
-              "A future query bar and route-level search controls will live here once the API search flow exists.",
-            meta: "UI shell only",
-          },
-          {
-            title: "Results area",
-            detail:
-              "Normalized listing results will eventually appear here with loading, empty, and error states.",
-            meta: "No provider data yet",
-          },
-          {
-            title: "Filter lane",
-            detail:
-              "Brands, sizes, condition, and price filters can be introduced once the shared search contract is ready.",
-            meta: "Later milestone",
-          },
-        ]}
-      />
+      <section className="search-surface">
+        <SearchForm initialQuery={query} />
+        <SearchResults query={query} state={state} />
+      </section>
     </SearchPage>
   );
 }
@@ -272,7 +459,7 @@ function AnalyticsRoutePage() {
           {
             title: "Premium gating",
             detail:
-              "Access rules, subscriptions, and premium unlocks are intentionally not part of Milestone 2.",
+              "Access rules, subscriptions, and premium unlocks are intentionally not part of this milestone.",
             meta: "Out of scope",
           },
         ]}
@@ -295,7 +482,7 @@ function ProfileRoutePage() {
           {
             title: "Preference hub",
             detail:
-              "Later versions may connect this page to brand preferences, likes, and feed tuning without mixing that into Milestone 2.",
+              "Later versions may connect this page to brand preferences, likes, and feed tuning without mixing that into this milestone.",
             meta: "Future foundation",
           },
         ]}
@@ -353,18 +540,17 @@ export function AppLayout() {
 
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">Milestone 2 shell</p>
-          <h2>Mobile-first structure for browsing, searching, and brand discovery.</h2>
+          <p className="eyebrow">Milestone 3 foundation</p>
+          <h2>Mobile-first structure with a real normalized search path underneath it.</h2>
           <p>
-            This app shell focuses on navigation, placeholder surfaces, and
-            clean boundaries. Real listings, provider data, auth, and analytics
-            logic come later.
+            The UI still keeps deferred systems out of the way, but search now calls the API
+            boundary and renders normalized listing cards from the mock provider.
           </p>
         </div>
         <div className="hero-aside">
           <div className="hero-chip">Visual-first feed direction</div>
           <div className="hero-chip">Search remains first-class</div>
-          <div className="hero-chip">Brand browsing stays core</div>
+          <div className="hero-chip">Provider data stays normalized</div>
         </div>
       </section>
 
@@ -389,10 +575,7 @@ export function AppLayout() {
         <Routes>
           <Route element={<HomePage />} path="/" />
           <Route element={<SearchRoutePage />} path="/search" />
-          <Route
-            element={<RecentSearchesRoutePage />}
-            path="/recent-searches"
-          />
+          <Route element={<RecentSearchesRoutePage />} path="/recent-searches" />
           <Route element={<AnalyticsRoutePage />} path="/analytics" />
           <Route element={<ProfileRoutePage />} path="/profile" />
           <Route element={<BrandsRoutePage />} path="/brands" />

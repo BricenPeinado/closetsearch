@@ -30,7 +30,7 @@ function createResponseRecorder() {
 }
 
 describe("handleRequest", () => {
-  it("returns a healthy JSON response from /health", () => {
+  it("returns a healthy JSON response from /health", async () => {
     const request = {
       method: "GET",
       url: "/health",
@@ -38,10 +38,11 @@ describe("handleRequest", () => {
 
     const recorder = createResponseRecorder();
 
-    handleRequest(request, recorder.response);
+    await handleRequest(request, recorder.response);
 
     expect(recorder.snapshot()).toMatchObject({
       headers: {
+        "access-control-allow-origin": "*",
         "content-type": "application/json; charset=utf-8",
       },
       statusCode: 200,
@@ -51,5 +52,37 @@ describe("handleRequest", () => {
       service: "closetsearch-api",
       status: "ok",
     });
+  });
+
+  it("returns normalized search results from /search", async () => {
+    const request = {
+      method: "GET",
+      url: "/search?q=jacket",
+    } as IncomingMessage;
+
+    const recorder = createResponseRecorder();
+
+    await handleRequest(request, recorder.response);
+
+    expect(recorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(recorder.snapshot().body) as {
+      listings: Array<{
+        brand: { name: string };
+        providerId: string;
+        title: string;
+      }>;
+      query: { text: string };
+      total: number;
+    };
+
+    expect(body.query.text).toBe("jacket");
+    expect(body.total).toBeGreaterThan(0);
+    expect(body.listings[0]).toMatchObject({
+      providerId: "mock",
+    });
+    expect(body.listings.some((listing) => listing.title.toLowerCase().includes("jacket"))).toBe(
+      true,
+    );
   });
 });

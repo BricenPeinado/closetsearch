@@ -5,11 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && cp -R dist/apps/api/src/. dist/",
     "start": "node dist/server.js",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src --ext .ts && eslint vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@closetsearch/providers": "workspace:*",
+    "@closetsearch/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

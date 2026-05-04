@@ -1,6 +1,13 @@
 import type { Brand } from "./brand";
 
 export type ListingType = "auction" | "buy_now" | "unknown";
+export type ListingCondition =
+  | "new_with_tags"
+  | "new_without_tags"
+  | "excellent"
+  | "good"
+  | "fair"
+  | "unknown";
 
 export interface Money {
   amount: number;
@@ -14,13 +21,17 @@ export interface ListingSource {
 
 export interface Listing {
   id: string;
+  providerId: string;
   source: ListingSource;
-  sourceListingId?: string;
+  providerListingId: string;
   sourceUrl: string;
   title: string;
-  brand?: Brand;
-  imageUrl?: string;
+  brand: Brand;
+  imageUrl: string;
   price: Money;
-  listingType?: ListingType;
-  fetchedAt?: string;
+  category?: string;
+  size?: string;
+  condition?: ListingCondition;
+  listingType: ListingType;
+  fetchedAt: string;
 }
