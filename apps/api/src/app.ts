@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import type { SearchQuery } from "@closetsearch/shared";
+import type { FeedQuery, SearchQuery } from "@closetsearch/shared";
+import { getFeed } from "./feed-service.js";
 import { searchListings } from "./search-service.js";
 
 function sendJson(
@@ -61,6 +62,33 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
   };
 }
 
+function parsePositiveInteger(value: string | null, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
+function parseFeedQuery(requestUrl: URL): FeedQuery {
+  const page = parsePositiveInteger(requestUrl.searchParams.get("page"), 1);
+  const requestedPageSize = parsePositiveInteger(
+    requestUrl.searchParams.get("pageSize"),
+    12,
+  );
+
+  return {
+    page,
+    pageSize: Math.min(requestedPageSize, 24),
+  };
+}
+
 export async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
@@ -94,9 +122,16 @@ export async function handleRequest(
     return;
   }
 
+  if (method === "GET" && requestUrl.pathname === "/feed") {
+    const result = await getFeed(parseFeedQuery(requestUrl));
+
+    sendJson(response, 200, result);
+    return;
+  }
+
   sendJson(response, 404, {
     error: "not_found",
-    message: "Route not found in the Milestone 3 API boundary.",
+    message: "Route not found in the Milestone 4 API boundary.",
   });
 }
 

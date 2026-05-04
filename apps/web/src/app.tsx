@@ -1,5 +1,5 @@
 import { startTransition, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import type { Listing, SearchResponse } from "@closetsearch/shared";
+import type { FeedResponse, Listing, SearchResponse } from "@closetsearch/shared";
 import {
   BrowserRouter,
   NavLink,
@@ -8,6 +8,7 @@ import {
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
+import { ListingCard } from "./components/listing-card";
 
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
@@ -23,6 +24,7 @@ const brandDirectoryLink = {
 } as const;
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const homeFeedPageSize = 4;
 
 interface PageTemplateProps {
   eyebrow: string;
@@ -31,6 +33,17 @@ interface PageTemplateProps {
   highlightLabel: string;
   highlightValue: string;
   children?: ReactNode;
+}
+
+interface FeedRequestState {
+  errorMessage?: string;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  listings: Listing[];
+  loadMoreErrorMessage?: string;
+  nextPage?: number;
+  status: "loading" | "success" | "error";
+  total: number;
 }
 
 interface SearchRequestState {
@@ -43,14 +56,6 @@ interface PlaceholderCardProps {
   title: string;
   detail: string;
   meta: string;
-}
-
-function formatPrice(listing: Listing) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: listing.price.currency,
-    maximumFractionDigits: 0,
-  }).format(listing.price.amount);
 }
 
 function PageTemplate({
@@ -91,38 +96,210 @@ function PlaceholderCard({ title, detail, meta }: PlaceholderCardProps) {
   );
 }
 
+function StateCard({
+  action,
+  body,
+  title,
+}: {
+  action?: ReactNode;
+  body: string;
+  title: string;
+}) {
+  return (
+    <section className="state-card">
+      <h2>{title}</h2>
+      <p>{body}</p>
+      {action ? <div className="state-card__action">{action}</div> : null}
+    </section>
+  );
+}
+
+function ListingGrid({ listings }: { listings: Listing[] }) {
+  return (
+    <div className="listing-grid">
+      {listings.map((listing) => (
+        <ListingCard key={listing.id} listing={listing} />
+      ))}
+    </div>
+  );
+}
+
+async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as
+      | { message?: string }
+      | null;
+
+    throw new Error(errorBody?.message ?? "The request could not be completed.");
+  }
+
+  return (await response.json()) as T;
+}
+
 function HomePage() {
+  const [reloadCount, setReloadCount] = useState(0);
+  const [state, setState] = useState<FeedRequestState>({
+    hasMore: false,
+    isLoadingMore: false,
+    listings: [],
+    status: "loading",
+    total: 0,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setState({
+      hasMore: false,
+      isLoadingMore: false,
+      listings: [],
+      status: "loading",
+      total: 0,
+    });
+
+    void fetchJson<FeedResponse>(
+      `/feed?page=1&pageSize=${homeFeedPageSize}`,
+      controller.signal,
+    )
+      .then((response) => {
+        setState({
+          hasMore: response.hasMore,
+          isLoadingMore: false,
+          listings: response.listings,
+          nextPage: response.nextPage,
+          status: "success",
+          total: response.total,
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setState({
+          errorMessage:
+            error instanceof Error ? error.message : "The feed request failed.",
+          hasMore: false,
+          isLoadingMore: false,
+          listings: [],
+          status: "error",
+          total: 0,
+        });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [reloadCount]);
+
+  function handleRetry() {
+    startTransition(() => {
+      setReloadCount((currentValue) => currentValue + 1);
+    });
+  }
+
+  function handleLoadMore() {
+    if (!state.nextPage || state.isLoadingMore) {
+      return;
+    }
+
+    setState((currentState) => ({
+      ...currentState,
+      isLoadingMore: true,
+      loadMoreErrorMessage: undefined,
+    }));
+
+    void fetchJson<FeedResponse>(
+      `/feed?page=${state.nextPage}&pageSize=${homeFeedPageSize}`,
+    )
+      .then((response) => {
+        setState((currentState) => ({
+          ...currentState,
+          hasMore: response.hasMore,
+          isLoadingMore: false,
+          listings: [...currentState.listings, ...response.listings],
+          nextPage: response.nextPage,
+          total: response.total,
+        }));
+      })
+      .catch((error: unknown) => {
+        setState((currentState) => ({
+          ...currentState,
+          isLoadingMore: false,
+          loadMoreErrorMessage:
+            error instanceof Error ? error.message : "The next page could not be loaded.",
+        }));
+      });
+  }
+
+  let feedContent: ReactNode;
+
+  if (state.status === "loading") {
+    feedContent = (
+      <StateCard
+        body="Pulling the first page of normalized listings from the signed-out feed."
+        title="Loading feed"
+      />
+    );
+  } else if (state.status === "error") {
+    feedContent = (
+      <StateCard
+        action={
+          <button className="secondary-button" onClick={handleRetry} type="button">
+            Try again
+          </button>
+        }
+        body={state.errorMessage ?? "The feed request could not be completed."}
+        title="Feed unavailable"
+      />
+    );
+  } else if (state.listings.length === 0) {
+    feedContent = (
+      <StateCard
+        body="The signed-out discovery feed does not have any listings to show yet."
+        title="Nothing in the feed yet"
+      />
+    );
+  } else {
+    feedContent = (
+      <section className="feed-results">
+        <div className="section-heading">
+          <h2>{state.total} normalized listings in the feed</h2>
+          <p>Signed-out discovery is using the mock provider today, with simple page-based pagination.</p>
+        </div>
+        <ListingGrid listings={state.listings} />
+        {state.loadMoreErrorMessage ? (
+          <StateCard body={state.loadMoreErrorMessage} title="Could not load more listings" />
+        ) : null}
+        {state.hasMore ? (
+          <div className="feed-results__footer">
+            <button
+              className="load-more-button"
+              disabled={state.isLoadingMore}
+              onClick={handleLoadMore}
+              type="button"
+            >
+              {state.isLoadingMore ? "Loading more..." : "Load more"}
+            </button>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
   return (
     <PageTemplate
-      eyebrow="Milestone 3"
-      title="ClosetSearch app shell"
-      description="The home feed is still intentionally deferred, but the shared listing model and provider-backed search path are now in place underneath the product shell."
-      highlightLabel="Next up"
-      highlightValue="Signed-out discovery feed"
+      eyebrow="Milestone 4"
+      title="Homepage Feed"
+      description="The home surface now fetches normalized listings from a dedicated feed endpoint and renders them in the same reusable card UI as search."
+      highlightLabel="Current behavior"
+      highlightValue="Signed-out feed with load more"
     >
-      <section className="placeholder-section">
-        <div className="section-heading">
-          <h2>What this page will become</h2>
-          <p>A visual discovery feed with consistent listing cards and calm empty states.</p>
-        </div>
-        <div className="placeholder-grid">
-          <PlaceholderCard
-            title="Feed cards"
-            detail="A scrollable lineup of normalized resale listings with image, title, brand, source, and price."
-            meta="Still next milestone"
-          />
-          <PlaceholderCard
-            title="Loading state"
-            detail="A polished feed skeleton so the app still feels alive while data arrives from the API boundary."
-            meta="Placeholder pattern"
-          />
-          <PlaceholderCard
-            title="Empty state"
-            detail="Friendly guidance for moments when discovery has nothing useful to show yet."
-            meta="Placeholder pattern"
-          />
-        </div>
-      </section>
+      {feedContent}
     </PageTemplate>
   );
 }
@@ -132,7 +309,7 @@ function SearchPage({ children }: { children?: ReactNode }) {
     <PageTemplate
       eyebrow="Search"
       title="Search"
-      description="Search is first-class and separate from feed logic. This page now exercises the normalized API search flow through the mock provider foundation."
+      description="Search is first-class and separate from feed logic. This page continues to exercise the normalized API search flow through the mock provider foundation."
       highlightLabel="Active flow"
       highlightValue="Query -> API -> normalized listings"
     >
@@ -270,62 +447,31 @@ function SearchForm({ initialQuery }: { initialQuery: string }) {
   );
 }
 
-function ListingCard({ listing }: { listing: Listing }) {
-  return (
-    <article className="listing-card">
-      <div className="listing-card__image-wrap">
-        <img
-          alt={listing.title}
-          className="listing-card__image"
-          loading="lazy"
-          src={listing.imageUrl}
-        />
-      </div>
-      <div className="listing-card__body">
-        <div className="listing-card__topline">
-          <p>{listing.brand.name}</p>
-          <span>{listing.source.name}</span>
-        </div>
-        <h2>{listing.title}</h2>
-        <p className="listing-card__meta">
-          {[listing.category, listing.size, listing.condition].filter(Boolean).join(" • ")}
-        </p>
-        <div className="listing-card__footer">
-          <strong>{formatPrice(listing)}</strong>
-          <a href={listing.sourceUrl} rel="noreferrer" target="_blank">
-            View listing
-          </a>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 function SearchResults({ state, query }: { state: SearchRequestState; query: string }) {
   if (state.status === "idle") {
     return (
-      <section className="search-state-card">
-        <h2>Start with a search</h2>
-        <p>Try a product type, brand, or material to pull normalized listings from the API.</p>
-      </section>
+      <StateCard
+        body="Try a product type, brand, or material to pull normalized listings from the API."
+        title="Start with a search"
+      />
     );
   }
 
   if (state.status === "loading") {
     return (
-      <section className="search-state-card">
-        <h2>Searching for “{query}”</h2>
-        <p>Fetching normalized listings from the server-side mock provider flow.</p>
-      </section>
+      <StateCard
+        body="Fetching normalized listings from the server-side mock provider flow."
+        title={`Searching for "${query}"`}
+      />
     );
   }
 
   if (state.status === "error") {
     return (
-      <section className="search-state-card">
-        <h2>Search unavailable</h2>
-        <p>{state.errorMessage ?? "The search request could not be completed."}</p>
-      </section>
+      <StateCard
+        body={state.errorMessage ?? "The search request could not be completed."}
+        title="Search unavailable"
+      />
     );
   }
 
@@ -333,10 +479,7 @@ function SearchResults({ state, query }: { state: SearchRequestState; query: str
 
   if (!response || response.listings.length === 0) {
     return (
-      <section className="search-state-card">
-        <h2>No listings found</h2>
-        <p>Try a broader query or a different brand name.</p>
-      </section>
+      <StateCard body="Try a broader query or a different brand name." title="No listings found" />
     );
   }
 
@@ -345,15 +488,11 @@ function SearchResults({ state, query }: { state: SearchRequestState; query: str
       <div className="section-heading">
         <h2>{response.total} normalized listings</h2>
         <p>
-          Results for “{response.query.text}” from{" "}
+          Results for "{response.query.text}" from{" "}
           {response.providers.map((provider) => provider.providerName).join(", ")}.
         </p>
       </div>
-      <div className="listing-grid">
-        {response.listings.map((listing) => (
-          <ListingCard key={listing.id} listing={listing} />
-        ))}
-      </div>
+      <ListingGrid listings={response.listings} />
     </section>
   );
 }
@@ -375,20 +514,7 @@ function SearchRoutePage() {
 
     setState({ status: "loading" });
 
-    void fetch(`${apiBaseUrl}/search?q=${encodeURIComponent(query)}`, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const errorBody = (await response.json().catch(() => null)) as
-            | { message?: string }
-            | null;
-
-          throw new Error(errorBody?.message ?? "Search request failed.");
-        }
-
-        return (await response.json()) as SearchResponse;
-      })
+    void fetchJson<SearchResponse>(`/search?q=${encodeURIComponent(query)}`, controller.signal)
       .then((response) => {
         setState({
           response,
@@ -540,11 +666,11 @@ export function AppLayout() {
 
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">Milestone 3 foundation</p>
-          <h2>Mobile-first structure with a real normalized search path underneath it.</h2>
+          <p className="eyebrow">Milestone 4 foundation</p>
+          <h2>Signed-out discovery feed on top, normalized search path still intact underneath.</h2>
           <p>
-            The UI still keeps deferred systems out of the way, but search now calls the API
-            boundary and renders normalized listing cards from the mock provider.
+            Home and search now share the same listing card while the API keeps feed and search as
+            separate normalized flows.
           </p>
         </div>
         <div className="hero-aside">
