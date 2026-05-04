@@ -279,20 +279,21 @@ select {
 }
 
 .search-surface,
-.search-results {
+.search-results,
+.feed-results {
   display: grid;
   gap: 0.85rem;
 }
 
 .search-form,
-.search-state-card,
+.state-card,
 .listing-card {
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow);
 }
 
 .search-form,
-.search-state-card {
+.state-card {
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: 24px;
@@ -335,17 +336,21 @@ select {
   cursor: pointer;
 }
 
-.search-state-card h2,
+.state-card h2,
 .listing-card h2 {
   margin: 0;
   font-size: 1.05rem;
   letter-spacing: -0.03em;
 }
 
-.search-state-card p {
+.state-card p {
   margin: 0.45rem 0 0;
   line-height: 1.6;
   color: var(--text-soft);
+}
+
+.state-card__action {
+  margin-top: 1rem;
 }
 
 .listing-grid {
@@ -383,10 +388,18 @@ select {
 }
 
 .listing-card {
+  display: block;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 24px;
   background: rgba(255, 249, 243, 0.94);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.listing-card:hover {
+  transform: translateY(-2px);
 }
 
 .listing-card__image-wrap {
@@ -418,7 +431,7 @@ select {
 .listing-card__topline p,
 .listing-card__topline span,
 .listing-card__meta,
-.listing-card__footer a {
+.listing-card__footer span {
   margin: 0;
   color: var(--text-soft);
 }
@@ -432,7 +445,7 @@ select {
 }
 
 .listing-card__topline span,
-.listing-card__footer a {
+.listing-card__footer span {
   font-size: 0.84rem;
 }
 
@@ -444,6 +457,37 @@ select {
 .listing-card__footer strong {
   font-size: 1.1rem;
   letter-spacing: -0.03em;
+}
+
+.load-more-button,
+.secondary-button {
+  min-height: 3rem;
+  padding: 0.75rem 1.1rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.load-more-button {
+  border: 0;
+  background: #201812;
+  color: #fbf1e7;
+}
+
+.secondary-button {
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 253, 250, 0.96);
+  color: #201812;
+}
+
+.load-more-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.feed-results__footer {
+  display: flex;
+  justify-content: center;
 }
 
 .bottom-nav {

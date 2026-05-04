@@ -1,4 +1,5 @@
 export type { Brand } from "./brand";
+export type { FeedQuery, FeedResponse } from "./feed";
 export type {
   Listing,
   ListingCondition,

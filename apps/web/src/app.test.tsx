@@ -5,7 +5,7 @@ import { AppLayout } from "./app";
 
 describe("AppLayout", () => {
   it.each([
-    { path: "/", title: "ClosetSearch app shell" },
+    { path: "/", title: "Homepage Feed" },
     { path: "/search", title: "Search" },
     { path: "/recent-searches", title: "Recent Searches" },
     { path: "/analytics", title: "Analytics" },

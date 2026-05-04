@@ -1,5 +1,7 @@
 export type {
   Brand,
+  FeedQuery,
+  FeedResponse,
   Heart,
   Like,
   Listing,
