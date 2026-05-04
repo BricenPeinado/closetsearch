@@ -4,10 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo \"No web app shell configured yet.\"",
-    "build": "echo \"No web app build configured yet.\"",
-    "lint": "echo \"No web app linter configured yet.\"",
-    "typecheck": "echo \"No web app TypeScript entry points configured yet.\"",
-    "test": "echo \"No web app tests configured yet.\""
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint src --ext .ts,.tsx && eslint vite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^6.30.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "vite": "^7.0.0"
   }
 }

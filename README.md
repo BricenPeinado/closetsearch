@@ -6,17 +6,19 @@ The repository is intentionally small and documentation-led. The goal is to make
 
 ## Current Status
 
-ClosetSearch is in Milestone 1: product and repo foundation.
+ClosetSearch is in Milestone 2: app skeleton and tooling.
 
 The repo currently contains:
 
 - root product and architecture docs
-- placeholder app and package folders
+- a runnable web app shell in `apps/web`
+- a runnable API app shell in `apps/api`
 - starter shared TypeScript contracts
+- starter provider package structure
 - pnpm workspace configuration
-- starter TypeScript configuration
+- workspace TypeScript, lint, build, and test commands
 
-It does not contain a runnable app, real provider integrations, auth, analytics, payments, or AI systems yet.
+It does not contain real provider integrations, auth, analytics logic, payments, database systems, or AI systems yet.
 
 ## Product Direction
 
@@ -40,8 +42,8 @@ closetsearch/
   TASKS.md
   DECISIONS.md
   apps/
-    web/        Future user-facing web app
-    api/        Future API boundary
+    web/        User-facing React + Vite app shell
+    api/        TypeScript API shell
   packages/
     shared/     Shared domain types and utilities
     providers/  Provider contracts and marketplace adapters
@@ -62,7 +64,7 @@ closetsearch/
 
 ## Getting Started
 
-There is no runnable product yet. For now:
+Start by reading the core docs:
 
 1. Read [PRODUCT.md](PRODUCT.md) to understand what V1 includes and excludes.
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing code boundaries.
@@ -73,10 +75,29 @@ There is no runnable product yet. For now:
 Install dependencies with pnpm before running workspace scripts:
 
 ```sh
-pnpm install
-pnpm dev
-pnpm build
-pnpm typecheck
-pnpm test
-pnpm lint
+corepack pnpm install
+corepack pnpm typecheck
+corepack pnpm build
+corepack pnpm lint
+corepack pnpm test
+```
+
+## Local Development
+
+Run the web app:
+
+```sh
+corepack pnpm dev:web
+```
+
+Run the API app:
+
+```sh
+corepack pnpm dev:api
+```
+
+Run both workspace apps in parallel:
+
+```sh
+corepack pnpm dev
 ```

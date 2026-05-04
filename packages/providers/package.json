@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
-    "build": "echo \"No providers package build output configured yet.\"",
-    "lint": "echo \"No providers package linter configured yet.\"",
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"No providers package tests configured yet.\""
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@closetsearch/shared": "workspace:*"
