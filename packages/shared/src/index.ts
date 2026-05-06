@@ -1,4 +1,5 @@
 export type {
+  AuthResponse,
   Brand,
   FeedQuery,
   FeedResponse,
@@ -9,10 +10,12 @@ export type {
   ListingSource,
   ListingType,
   Money,
+  OnboardingPreferences,
   PriceRange,
   SearchProviderSummary,
   SearchQuery,
   SearchResponse,
   SearchSortMode,
+  StoredUser,
   User,
 } from "./domain";

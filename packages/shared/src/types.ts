@@ -1,4 +1,5 @@
 export type {
+  AuthResponse,
   Brand,
   Heart,
   Like,
@@ -7,10 +8,12 @@ export type {
   ListingSource,
   ListingType,
   Money,
+  OnboardingPreferences,
   PriceRange,
   SearchProviderSummary,
   SearchQuery,
   SearchResponse,
   SearchSortMode,
+  StoredUser,
   User,
 } from "./domain";

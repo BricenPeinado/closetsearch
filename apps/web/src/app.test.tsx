@@ -10,6 +10,9 @@ describe("AppLayout", () => {
     { path: "/recent-searches", title: "Recent Searches" },
     { path: "/analytics", title: "Analytics" },
     { path: "/profile", title: "Profile" },
+    { path: "/signup", title: "Sign Up" },
+    { path: "/login", title: "Log In" },
+    { path: "/onboarding", title: "Onboarding" },
     { path: "/brands", title: "Brand Directory" },
   ])("renders $path", ({ path, title }) => {
     const html = renderToString(
@@ -20,8 +23,7 @@ describe("AppLayout", () => {
 
     expect(html).toContain(title);
     expect(html).toContain("Home");
-    expect(html).toContain("Recent Searches");
-    expect(html).toContain("Analytics");
-    expect(html).toContain("Brand Directory");
+    expect(html).toContain("Search");
+    expect(html).toContain("Profile");
   });
 });

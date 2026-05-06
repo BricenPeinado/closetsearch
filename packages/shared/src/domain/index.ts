@@ -15,4 +15,4 @@ export type {
   SearchSortMode,
 } from "./search";
 export type { Heart, Like } from "./like";
-export type { User } from "./user";
+export type { AuthResponse, OnboardingPreferences, StoredUser, User } from "./user";

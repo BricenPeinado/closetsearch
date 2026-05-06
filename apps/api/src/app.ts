@@ -1,8 +1,27 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import type { FeedQuery, ListingType, SearchQuery, SearchSortMode } from "@closetsearch/shared";
+import type {
+  FeedQuery,
+  ListingType,
+  OnboardingPreferences,
+  SearchQuery,
+  SearchSortMode,
+} from "@closetsearch/shared";
 import { getFeed } from "./feed-service.js";
+import { addLike, getLikesByUserId, removeLike } from "./like-service.js";
 import { searchListings } from "./search-service.js";
+import {
+  createUser,
+  getUserById,
+  loginUser,
+  saveOnboardingPreferences,
+} from "./user-service.js";
+
+const corsHeaders = {
+  "access-control-allow-headers": "content-type",
+  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+  "access-control-allow-origin": "*",
+};
 
 function sendJson(
   response: ServerResponse<IncomingMessage>,
@@ -10,10 +29,35 @@ function sendJson(
   body: unknown,
 ) {
   response.writeHead(statusCode, {
-    "access-control-allow-origin": "*",
+    ...corsHeaders,
     "content-type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(body));
+}
+
+function sendEmpty(response: ServerResponse<IncomingMessage>, statusCode: number) {
+  response.writeHead(statusCode, corsHeaders);
+  response.end();
+}
+
+async function parseJsonBody(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  if (chunks.length === 0) {
+    return null;
+  }
+
+  const body = Buffer.concat(chunks).toString("utf-8").trim();
+
+  if (body.length === 0) {
+    return null;
+  }
+
+  return JSON.parse(body) as unknown;
 }
 
 function parseListParameter(value: string | null) {
@@ -128,6 +172,181 @@ function parseFeedQuery(requestUrl: URL): FeedQuery {
   };
 }
 
+function toTrimmedString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function toOnboardingPreferences(value: unknown): OnboardingPreferences {
+  const preferences =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+
+  return {
+    favoriteBrands: toStringArray(preferences.favoriteBrands),
+    categories: toStringArray(preferences.categories),
+    priceRange: toTrimmedString(preferences.priceRange),
+  };
+}
+
+function sendValidationError(
+  response: ServerResponse<IncomingMessage>,
+  message: string,
+  statusCode = 400,
+) {
+  sendJson(response, statusCode, {
+    error: "invalid_request",
+    message,
+  });
+}
+
+async function handleSignup(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const username = toTrimmedString(body?.username);
+  const password = typeof body?.password === "string" ? body.password : "";
+
+  if (!username || !password) {
+    sendValidationError(response, "Username and password are required.");
+    return;
+  }
+
+  try {
+    sendJson(response, 201, createUser(username, password));
+  } catch (error: unknown) {
+    sendValidationError(
+      response,
+      error instanceof Error ? error.message : "The user could not be created.",
+    );
+  }
+}
+
+async function handleLogin(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const username = toTrimmedString(body?.username);
+  const password = typeof body?.password === "string" ? body.password : "";
+
+  if (!username || !password) {
+    sendValidationError(response, "Username and password are required.");
+    return;
+  }
+
+  try {
+    sendJson(response, 200, loginUser(username, password));
+  } catch (error: unknown) {
+    sendValidationError(
+      response,
+      error instanceof Error ? error.message : "The credentials were invalid.",
+      401,
+    );
+  }
+}
+
+async function handleOnboarding(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const userId = toTrimmedString(body?.userId);
+
+  if (!userId) {
+    sendValidationError(response, "A userId is required.");
+    return;
+  }
+
+  try {
+    sendJson(
+      response,
+      200,
+      saveOnboardingPreferences(
+        userId,
+        toOnboardingPreferences(body?.preferences),
+        toTrimmedString(body?.currencyPreference) || undefined,
+      ),
+    );
+  } catch (error: unknown) {
+    sendValidationError(
+      response,
+      error instanceof Error ? error.message : "The onboarding preferences could not be saved.",
+      404,
+    );
+  }
+}
+
+async function handleCreateLike(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const userId = toTrimmedString(body?.userId);
+  const listingId = toTrimmedString(body?.listingId);
+  const source = toTrimmedString(body?.source);
+
+  if (!userId || !listingId || !source) {
+    sendValidationError(response, "userId, listingId, and source are required.");
+    return;
+  }
+
+  if (!getUserById(userId)) {
+    sendValidationError(response, "User not found.", 404);
+    return;
+  }
+
+  const like = addLike(userId, listingId, source);
+
+  sendJson(response, 201, {
+    like,
+  });
+}
+
+async function handleDeleteLike(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const userId = toTrimmedString(body?.userId);
+  const listingId = toTrimmedString(body?.listingId);
+
+  if (!userId || !listingId) {
+    sendValidationError(response, "userId and listingId are required.");
+    return;
+  }
+
+  sendJson(response, 200, {
+    removed: removeLike(userId, listingId),
+  });
+}
+
+function handleGetLikes(
+  response: ServerResponse<IncomingMessage>,
+  userId: string,
+) {
+  if (!userId) {
+    sendValidationError(response, "A userId is required.");
+    return;
+  }
+
+  sendJson(response, 200, {
+    userId,
+    likes: getLikesByUserId(userId),
+  });
+}
+
 export async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
@@ -135,12 +354,32 @@ export async function handleRequest(
   const method = request.method ?? "GET";
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
 
+  if (method === "OPTIONS") {
+    sendEmpty(response, 204);
+    return;
+  }
+
   if (method === "GET" && requestUrl.pathname === "/health") {
     sendJson(response, 200, {
       service: "closetsearch-api",
       status: "ok",
       timestamp: new Date().toISOString(),
     });
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/auth/signup") {
+    await handleSignup(request, response);
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/auth/login") {
+    await handleLogin(request, response);
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/users/onboarding") {
+    await handleOnboarding(request, response);
     return;
   }
 
@@ -168,9 +407,24 @@ export async function handleRequest(
     return;
   }
 
+  if (method === "POST" && requestUrl.pathname === "/likes") {
+    await handleCreateLike(request, response);
+    return;
+  }
+
+  if (method === "DELETE" && requestUrl.pathname === "/likes") {
+    await handleDeleteLike(request, response);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname.startsWith("/likes/")) {
+    handleGetLikes(response, decodeURIComponent(requestUrl.pathname.replace("/likes/", "")));
+    return;
+  }
+
   sendJson(response, 404, {
     error: "not_found",
-    message: "Route not found in the Milestone 4 API boundary.",
+    message: "Route not found in the Milestone 6 API boundary.",
   });
 }
 
