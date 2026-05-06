@@ -1,8 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import type { Brand } from "@closetsearch/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handleRequest } from "./app.js";
 import { resetLikeStore } from "./like-service.js";
+import { resetEngagementStore } from "./services/engagementService.js";
+import { resetListingCatalog } from "./services/listingCatalogService.js";
 import { resetUserStore } from "./user-service.js";
 
 function createResponseRecorder() {
@@ -46,6 +49,8 @@ describe("handleRequest", () => {
   beforeEach(() => {
     resetUserStore();
     resetLikeStore();
+    resetEngagementStore();
+    resetListingCatalog();
   });
 
   it("returns a healthy JSON response from /health", async () => {
@@ -320,6 +325,7 @@ describe("handleRequest", () => {
 
     const body = JSON.parse(recorder.snapshot().body) as {
       hasMore: boolean;
+      isPersonalized: boolean;
       listings: Array<{
         brand: { name: string };
         providerId: string;
@@ -333,6 +339,7 @@ describe("handleRequest", () => {
       total: number;
     };
 
+    expect(body.isPersonalized).toBe(false);
     expect(body.page).toBe(1);
     expect(body.pageSize).toBe(4);
     expect(body.total).toBeGreaterThan(4);
@@ -340,11 +347,379 @@ describe("handleRequest", () => {
     expect(body.nextPage).toBe(2);
     expect(body.listings).toHaveLength(4);
     expect(body.listings[0]).toMatchObject({
+      brand: {
+        name: "Our Legacy",
+      },
       providerId: "mock",
       source: {
         name: "Mock Closet",
       },
     });
     expect(body.listings[0].sourceUrl).toContain("https://");
+  });
+
+  it("lists brands from /brands and filters by query", async () => {
+    const recorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: "/brands?q=streetwear",
+      } as IncomingMessage,
+      recorder.response,
+    );
+
+    expect(recorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(recorder.snapshot().body) as {
+      brands: Brand[];
+      query?: string;
+      total: number;
+    };
+
+    expect(body.query).toBe("streetwear");
+    expect(body.total).toBeGreaterThan(0);
+    expect(body.brands.some((brand) => brand.name === "Supreme")).toBe(true);
+    expect(body.brands.some((brand) => brand.name === "Undercover")).toBe(true);
+  });
+
+  it("returns a single brand by slug from /brands/:slug", async () => {
+    const recorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: "/brands/kapital",
+      } as IncomingMessage,
+      recorder.response,
+    );
+
+    expect(recorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(recorder.snapshot().body) as {
+      brand: Brand;
+    };
+
+    expect(body.brand).toMatchObject({
+      slug: "kapital",
+      name: "Kapital",
+    });
+    expect(body.brand.tags).toContain("japanese");
+  });
+
+  it("returns 404 when a brand slug is unknown", async () => {
+    const recorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: "/brands/not-a-brand",
+      } as IncomingMessage,
+      recorder.response,
+    );
+
+    expect(recorder.snapshot().statusCode).toBe(404);
+  });
+
+  it("returns a locked analytics overview for missing or non-premium users", async () => {
+    const lockedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: "/analytics/overview",
+      } as IncomingMessage,
+      lockedRecorder.response,
+    );
+
+    expect(lockedRecorder.snapshot().statusCode).toBe(200);
+
+    const lockedBody = JSON.parse(lockedRecorder.snapshot().body) as {
+      locked: boolean;
+      premiumPreviewUsername?: string;
+    };
+
+    expect(lockedBody.locked).toBe(true);
+    expect(lockedBody.premiumPreviewUsername).toBe("premiumdemo");
+
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "regularuser",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+    const nonPremiumRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/analytics/overview?userId=${signupBody.userId}`,
+      } as IncomingMessage,
+      nonPremiumRecorder.response,
+    );
+
+    const nonPremiumBody = JSON.parse(nonPremiumRecorder.snapshot().body) as {
+      locked: boolean;
+      premiumAccess?: { isPremium: boolean; planName: string };
+    };
+
+    expect(nonPremiumBody.locked).toBe(true);
+    expect(nonPremiumBody.premiumAccess).toMatchObject({
+      isPremium: false,
+      planName: "Free",
+    });
+  });
+
+  it("returns mock analytics data for premium preview users", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "premiumdemo",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    const overviewRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/analytics/overview?userId=${signupBody.userId}`,
+      } as IncomingMessage,
+      overviewRecorder.response,
+    );
+
+    const overviewBody = JSON.parse(overviewRecorder.snapshot().body) as {
+      locked: boolean;
+      overview: {
+        marketInsightCount: number;
+        underpricedSignalCount: number;
+        trackedBrands: number;
+      };
+      premiumAccess: { isPremium: boolean; planName: string };
+      sampleData: boolean;
+    };
+
+    expect(overviewBody.locked).toBe(false);
+    expect(overviewBody.sampleData).toBe(true);
+    expect(overviewBody.premiumAccess).toMatchObject({
+      isPremium: true,
+      planName: "Collector Preview",
+    });
+    expect(overviewBody.overview.trackedBrands).toBeGreaterThan(0);
+    expect(overviewBody.overview.marketInsightCount).toBeGreaterThan(0);
+
+    const insightsRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/analytics/market-insights?userId=${signupBody.userId}`,
+      } as IncomingMessage,
+      insightsRecorder.response,
+    );
+
+    const insightsBody = JSON.parse(insightsRecorder.snapshot().body) as {
+      insights: Array<{ id: string; title: string }>;
+      locked: boolean;
+    };
+
+    expect(insightsBody.locked).toBe(false);
+    expect(insightsBody.insights.length).toBeGreaterThan(0);
+
+    const underpricedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/analytics/underpriced?userId=${signupBody.userId}`,
+      } as IncomingMessage,
+      underpricedRecorder.response,
+    );
+
+    const underpricedBody = JSON.parse(underpricedRecorder.snapshot().body) as {
+      locked: boolean;
+      signals: Array<{ id: string; percentBelowMarket: number }>;
+    };
+
+    expect(underpricedBody.locked).toBe(false);
+    expect(underpricedBody.signals.length).toBeGreaterThan(0);
+    expect(underpricedBody.signals[0]?.percentBelowMarket).toBeGreaterThan(0);
+  });
+
+  it("personalizes the feed with onboarding preferences while keeping exploration", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "preflover",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    await handleRequest(
+      createJsonRequest("POST", "/users/onboarding", {
+        userId: signupBody.userId,
+        preferences: {
+          favoriteBrands: ["Acne Studios"],
+          categories: ["knitwear"],
+          priceRange: "$100-$300",
+        },
+      }),
+      createResponseRecorder().response,
+    );
+
+    const feedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/feed?page=1&pageSize=4&userId=${signupBody.userId}`,
+      } as IncomingMessage,
+      feedRecorder.response,
+    );
+
+    expect(feedRecorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(feedRecorder.snapshot().body) as {
+      isPersonalized: boolean;
+      listings: Array<{
+        brand: { name: string };
+        category?: string;
+        title: string;
+      }>;
+    };
+
+    expect(body.isPersonalized).toBe(true);
+    expect(body.listings[0]).toMatchObject({
+      brand: {
+        name: "Acne Studios",
+      },
+      category: "knitwear",
+    });
+    expect(
+      body.listings.slice(0, 3).some((listing) => listing.brand.name !== "Acne Studios"),
+    ).toBe(true);
+  });
+
+  it("uses liked listings to influence future feed ranking", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "heartfirst",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: "/feed?page=1&pageSize=6",
+      } as IncomingMessage,
+      createResponseRecorder().response,
+    );
+
+    await handleRequest(
+      createJsonRequest("POST", "/likes", {
+        userId: signupBody.userId,
+        listingId: "mock:mock-jacket-002",
+        source: "mock",
+      }),
+      createResponseRecorder().response,
+    );
+
+    const feedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/feed?page=1&pageSize=4&userId=${signupBody.userId}`,
+      } as IncomingMessage,
+      feedRecorder.response,
+    );
+
+    expect(feedRecorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(feedRecorder.snapshot().body) as {
+      isPersonalized: boolean;
+      listings: Array<{
+        brand: { name: string };
+        title: string;
+      }>;
+    };
+
+    expect(body.isPersonalized).toBe(true);
+    expect(body.listings[0]).toMatchObject({
+      brand: {
+        name: "Our Legacy",
+      },
+      title: "Our Legacy reversible coach jacket",
+    });
+  });
+
+  it("falls back safely to the default feed when a signed-in user has no preference data yet", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "newuser",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    const feedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/feed?page=1&pageSize=4&userId=${signupBody.userId}`,
+      } as IncomingMessage,
+      feedRecorder.response,
+    );
+
+    expect(feedRecorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(feedRecorder.snapshot().body) as {
+      isPersonalized: boolean;
+      listings: Array<{
+        brand: { name: string };
+      }>;
+    };
+
+    expect(body.isPersonalized).toBe(false);
+    expect(body.listings[0]).toMatchObject({
+      brand: {
+        name: "Our Legacy",
+      },
+    });
   });
 });

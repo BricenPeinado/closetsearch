@@ -52,15 +52,25 @@ export function ListingCard({
   }
 
   return (
-    <article className="listing-card">
+    <article className={isLiked ? "listing-card listing-card--liked" : "listing-card"}>
       <button
         aria-label={isLiked ? "Remove from likes" : "Save to likes"}
-        className={isLiked ? "heart-button heart-button--active" : "heart-button"}
+        aria-pressed={isLiked}
+        className={[
+          "heart-button",
+          isLiked ? "heart-button--active" : "",
+          isSubmittingLike ? "heart-button--pending" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         disabled={!onToggleLike || isSubmittingLike}
         onClick={handleToggleLike}
         type="button"
       >
-        {isLiked ? "♥" : "♡"}
+        <span aria-hidden="true">{isLiked ? "♥" : "♡"}</span>
+        <span className="heart-button__label">
+          {isSubmittingLike ? "Saving" : isLiked ? "Saved" : "Save"}
+        </span>
       </button>
 
       <a href={listing.sourceUrl} rel="noreferrer" target="_blank">

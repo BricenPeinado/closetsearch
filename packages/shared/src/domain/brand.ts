@@ -3,4 +3,5 @@ export interface Brand {
   slug: string;
   name: string;
   aliases?: string[];
+  tags?: string[];
 }

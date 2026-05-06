@@ -1,6 +1,8 @@
 import { mockProvider } from "@closetsearch/providers";
 import type { Provider } from "@closetsearch/providers";
 import type { Listing, SearchQuery, SearchResponse } from "@closetsearch/shared";
+import { recordListingImpressions } from "./services/engagementService.js";
+import { rememberListings } from "./services/listingCatalogService.js";
 
 const developmentProviders: Provider[] = [mockProvider];
 
@@ -69,10 +71,14 @@ export async function searchListings(query: SearchQuery): Promise<SearchResponse
   const paginatedListings = sortedListings.slice(startIndex, endIndex);
   const hasPaginatedResults = query.page !== undefined || query.pageSize !== undefined;
   const hasMoreResults = hasPaginatedResults ? endIndex < sortedListings.length : hasMore;
+  const responseListings = hasPaginatedResults ? paginatedListings : sortedListings;
+
+  rememberListings(responseListings);
+  recordListingImpressions(responseListings);
 
   return {
     query,
-    listings: hasPaginatedResults ? paginatedListings : sortedListings,
+    listings: responseListings,
     total: sortedListings.length,
     hasMore: hasMoreResults,
     nextCursor: hasPaginatedResults ? undefined : nextCursor,

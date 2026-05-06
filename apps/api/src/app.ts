@@ -11,6 +11,16 @@ import { getFeed } from "./feed-service.js";
 import { addLike, getLikesByUserId, removeLike } from "./like-service.js";
 import { searchListings } from "./search-service.js";
 import {
+  getAnalyticsOverview,
+  getMarketInsights,
+  getUnderpricedListingSignals,
+} from "./services/analyticsService.js";
+import { findBrandBySlug, listBrands } from "./services/brandService.js";
+import {
+  getPremiumAccess,
+  getPremiumPreviewUsername,
+} from "./services/premiumAccessService.js";
+import {
   createUser,
   getUserById,
   loginUser,
@@ -169,6 +179,7 @@ function parseFeedQuery(requestUrl: URL): FeedQuery {
   return {
     page,
     pageSize: Math.min(requestedPageSize, 24),
+    userId: requestUrl.searchParams.get("userId")?.trim() || undefined,
   };
 }
 
@@ -347,6 +358,127 @@ function handleGetLikes(
   });
 }
 
+function handleListBrands(
+  response: ServerResponse<IncomingMessage>,
+  query: string | null,
+) {
+  const brands = listBrands(query ?? undefined);
+
+  sendJson(response, 200, {
+    brands,
+    query: query?.trim() || undefined,
+    total: brands.length,
+  });
+}
+
+function handleGetBrand(
+  response: ServerResponse<IncomingMessage>,
+  slug: string,
+) {
+  const brand = findBrandBySlug(slug);
+
+  if (!brand) {
+    sendJson(response, 404, {
+      error: "not_found",
+      message: "Brand not found.",
+    });
+    return;
+  }
+
+  sendJson(response, 200, {
+    brand,
+  });
+}
+
+function getAnalyticsUser(requestUrl: URL) {
+  const userId = requestUrl.searchParams.get("userId")?.trim();
+
+  if (!userId) {
+    return undefined;
+  }
+
+  return getUserById(userId);
+}
+
+function sendLockedAnalyticsResponse(
+  response: ServerResponse<IncomingMessage>,
+  userId?: string,
+) {
+  sendJson(response, 200, {
+    locked: true,
+    message:
+      "Premium analytics is still a placeholder. Market insights, underpriced signals, and pricing context are preview-only for now.",
+    premiumAccess: userId
+      ? {
+          userId,
+          isPremium: false,
+          planName: "Free",
+        }
+      : undefined,
+    premiumPreviewUsername: getPremiumPreviewUsername(),
+  });
+}
+
+function handleAnalyticsOverview(
+  response: ServerResponse<IncomingMessage>,
+  requestUrl: URL,
+) {
+  const user = getAnalyticsUser(requestUrl);
+  const premiumAccess = getPremiumAccess(user);
+
+  if (!premiumAccess?.isPremium) {
+    sendLockedAnalyticsResponse(response, user?.id);
+    return;
+  }
+
+  sendJson(response, 200, {
+    locked: false,
+    premiumAccess,
+    overview: getAnalyticsOverview(),
+    sampleData: true,
+  });
+}
+
+function handleMarketInsights(
+  response: ServerResponse<IncomingMessage>,
+  requestUrl: URL,
+) {
+  const user = getAnalyticsUser(requestUrl);
+  const premiumAccess = getPremiumAccess(user);
+
+  if (!premiumAccess?.isPremium) {
+    sendLockedAnalyticsResponse(response, user?.id);
+    return;
+  }
+
+  sendJson(response, 200, {
+    locked: false,
+    premiumAccess,
+    insights: getMarketInsights(),
+    sampleData: true,
+  });
+}
+
+function handleUnderpricedSignals(
+  response: ServerResponse<IncomingMessage>,
+  requestUrl: URL,
+) {
+  const user = getAnalyticsUser(requestUrl);
+  const premiumAccess = getPremiumAccess(user);
+
+  if (!premiumAccess?.isPremium) {
+    sendLockedAnalyticsResponse(response, user?.id);
+    return;
+  }
+
+  sendJson(response, 200, {
+    locked: false,
+    premiumAccess,
+    signals: getUnderpricedListingSignals(),
+    sampleData: true,
+  });
+}
+
 export async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
@@ -404,6 +536,34 @@ export async function handleRequest(
     const result = await getFeed(parseFeedQuery(requestUrl));
 
     sendJson(response, 200, result);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/analytics/overview") {
+    handleAnalyticsOverview(response, requestUrl);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/analytics/market-insights") {
+    handleMarketInsights(response, requestUrl);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/analytics/underpriced") {
+    handleUnderpricedSignals(response, requestUrl);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/brands") {
+    handleListBrands(response, requestUrl.searchParams.get("q"));
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname.startsWith("/brands/")) {
+    handleGetBrand(
+      response,
+      decodeURIComponent(requestUrl.pathname.replace("/brands/", "")),
+    );
     return;
   }
 
