@@ -20,6 +20,8 @@ export interface SearchQuery {
   price?: PriceRange;
   currency?: string;
   cursor?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface SearchProviderSummary {
@@ -35,5 +37,7 @@ export interface SearchResponse {
   total: number;
   hasMore: boolean;
   nextCursor?: string;
+  page?: number;
+  pageSize?: number;
   providers: SearchProviderSummary[];
 }

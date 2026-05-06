@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
-import type { FeedQuery, SearchQuery } from "@closetsearch/shared";
+import type { FeedQuery, ListingType, SearchQuery, SearchSortMode } from "@closetsearch/shared";
 import { getFeed } from "./feed-service.js";
 import { searchListings } from "./search-service.js";
 
@@ -29,6 +29,36 @@ function parseListParameter(value: string | null) {
   return items.length > 0 ? items : undefined;
 }
 
+function parseSearchSortMode(value: string | null): SearchSortMode {
+  switch (value) {
+    case "price_asc":
+    case "price_desc":
+    case "newest":
+    case "relevance":
+      return value;
+    default:
+      return "relevance";
+  }
+}
+
+function parseListingTypes(value: string | null): ListingType[] | undefined {
+  const listingTypes = parseListParameter(value)
+    ?.map((item) => {
+      if (item === "fixed_price") {
+        return "buy_now";
+      }
+
+      if (item === "auction" || item === "buy_now" || item === "unknown") {
+        return item;
+      }
+
+      return undefined;
+    })
+    .filter((item): item is ListingType => item !== undefined);
+
+  return listingTypes && listingTypes.length > 0 ? listingTypes : undefined;
+}
+
 function parseSearchQuery(requestUrl: URL): SearchQuery | null {
   const text = requestUrl.searchParams.get("q")?.trim() ?? "";
 
@@ -40,17 +70,26 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
   const maxPrice = requestUrl.searchParams.get("maxPrice");
   const parsedMinPrice = minPrice ? Number(minPrice) : undefined;
   const parsedMaxPrice = maxPrice ? Number(maxPrice) : undefined;
+  const page = parsePositiveInteger(requestUrl.searchParams.get("page"), 1);
+  const pageSize = parsePositiveInteger(requestUrl.searchParams.get("pageSize"), 24);
 
   return {
     text,
     brandSlugs: parseListParameter(requestUrl.searchParams.get("brands")),
     categories: parseListParameter(requestUrl.searchParams.get("categories")),
     sizes: parseListParameter(requestUrl.searchParams.get("sizes")),
-    sourceIds: parseListParameter(requestUrl.searchParams.get("sources")),
-    sort:
-      (requestUrl.searchParams.get("sort") as SearchQuery["sort"] | null) ??
-      "relevance",
+    sourceIds:
+      parseListParameter(requestUrl.searchParams.get("source")) ??
+      parseListParameter(requestUrl.searchParams.get("sources")),
+    listingTypes: parseListingTypes(
+      requestUrl.searchParams.get("listingType") ??
+        requestUrl.searchParams.get("listingTypes"),
+    ),
+    sort: parseSearchSortMode(requestUrl.searchParams.get("sort")),
     currency: requestUrl.searchParams.get("currency") ?? undefined,
+    cursor: requestUrl.searchParams.get("cursor") ?? undefined,
+    page,
+    pageSize: Math.min(pageSize, 48),
     price:
       parsedMinPrice !== undefined || parsedMaxPrice !== undefined
         ? {

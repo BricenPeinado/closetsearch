@@ -72,4 +72,24 @@ describe("mockProvider", () => {
       },
     });
   });
+
+  it("supports listing type and price sorting through the normalized search query", async () => {
+    const response = await mockProvider.search({
+      text: "jacket",
+      listingTypes: ["buy_now"],
+      sort: "price_asc",
+    });
+
+    expect(response.status).toBe("success");
+
+    if (response.status !== "success") {
+      throw new Error("Expected success response from mock provider");
+    }
+
+    expect(response.listings).toHaveLength(2);
+    expect(response.listings.every((listing) => listing.listingType === "buy_now")).toBe(true);
+    expect(response.listings[0]?.price.amount).toBeLessThanOrEqual(
+      response.listings[1]?.price.amount ?? 0,
+    );
+  });
 });

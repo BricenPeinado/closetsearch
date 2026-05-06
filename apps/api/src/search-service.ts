@@ -62,13 +62,22 @@ export async function searchListings(query: SearchQuery): Promise<SearchResponse
   });
 
   const sortedListings = sortListings(listings, query.sort);
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? sortedListings.length;
+  const startIndex = (page - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedListings = sortedListings.slice(startIndex, endIndex);
+  const hasPaginatedResults = query.page !== undefined || query.pageSize !== undefined;
+  const hasMoreResults = hasPaginatedResults ? endIndex < sortedListings.length : hasMore;
 
   return {
     query,
-    listings: sortedListings,
+    listings: hasPaginatedResults ? paginatedListings : sortedListings,
     total: sortedListings.length,
-    hasMore,
-    nextCursor,
+    hasMore: hasMoreResults,
+    nextCursor: hasPaginatedResults ? undefined : nextCursor,
+    page: hasPaginatedResults ? page : undefined,
+    pageSize: hasPaginatedResults ? pageSize : undefined,
     providers,
   };
 }

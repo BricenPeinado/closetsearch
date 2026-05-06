@@ -1,0 +1,118 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildSearchPath,
+  clearRecentSearches,
+  createSearchParams,
+  describeSearch,
+  loadRecentSearches,
+  mergeRecentSearchEntries,
+  parseSearchFormValues,
+  saveRecentSearch,
+  type RecentSearchEntry,
+} from "./search-utils";
+
+function createMemoryStorage(seed: Record<string, string> = {}) {
+  const values = new Map(Object.entries(seed));
+
+  return {
+    getItem(key: string) {
+      return values.get(key) ?? null;
+    },
+    removeItem(key: string) {
+      values.delete(key);
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    },
+  };
+}
+
+describe("search utils", () => {
+  it("parses and rebuilds search params used by the search page", () => {
+    const values = parseSearchFormValues(
+      new URLSearchParams(
+        "q=jacket&sort=price_asc&source=mock&listingType=auction&minPrice=100&maxPrice=250",
+      ),
+    );
+
+    expect(values).toEqual({
+      query: "jacket",
+      sort: "price_asc",
+      source: "mock",
+      listingType: "auction",
+      minPrice: "100",
+      maxPrice: "250",
+    });
+
+    expect(createSearchParams(values).toString()).toBe(
+      "q=jacket&sort=price_asc&source=mock&listingType=auction&minPrice=100&maxPrice=250",
+    );
+    expect(buildSearchPath(values)).toBe(
+      "/search?q=jacket&sort=price_asc&source=mock&listingType=auction&minPrice=100&maxPrice=250",
+    );
+  });
+
+  it("describes active filters in recent searches", () => {
+    expect(
+      describeSearch({
+        query: "jacket",
+        sort: "price_desc",
+        source: "mock",
+        listingType: "buy_now",
+        minPrice: "120",
+        maxPrice: "260",
+      }),
+    ).toBe("mock • Fixed price • Price high to low • $120 to $260");
+  });
+
+  it("deduplicates recent searches by params", () => {
+    const entries: RecentSearchEntry[] = [
+      {
+        id: "q=coat",
+        label: "coat",
+        description: "Keyword search",
+        params: "q=coat",
+        createdAt: "2026-05-04T12:00:00.000Z",
+      },
+    ];
+
+    const mergedEntries = mergeRecentSearchEntries(entries, {
+      id: "q=coat",
+      label: "coat",
+      description: "Price low to high",
+      params: "q=coat",
+      createdAt: "2026-05-04T12:05:00.000Z",
+    });
+
+    expect(mergedEntries).toHaveLength(1);
+    expect(mergedEntries[0]?.description).toBe("Price low to high");
+  });
+
+  it("stores and clears recent searches in local storage format", () => {
+    const storage = createMemoryStorage();
+
+    saveRecentSearch(
+      {
+        query: "jacket",
+        sort: "price_asc",
+        source: "mock",
+        listingType: "auction",
+        minPrice: "90",
+        maxPrice: "",
+      },
+      storage,
+    );
+
+    expect(loadRecentSearches(storage)).toMatchObject([
+      {
+        label: "jacket",
+        description: "mock • Auction • Price low to high • $90+",
+        params: "q=jacket&sort=price_asc&source=mock&listingType=auction&minPrice=90",
+      },
+    ]);
+
+    clearRecentSearches(storage);
+
+    expect(loadRecentSearches(storage)).toEqual([]);
+  });
+});
