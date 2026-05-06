@@ -1,6 +1,14 @@
 import { mockProvider } from "@closetsearch/providers";
 import type { Provider } from "@closetsearch/providers";
 import type { FeedQuery, FeedResponse, Listing, SearchQuery } from "@closetsearch/shared";
+import { getLikesByUserId } from "./like-service.js";
+import { getUserById } from "./user-service.js";
+import { recordListingImpressions } from "./services/engagementService.js";
+import { rememberListings } from "./services/listingCatalogService.js";
+import {
+  hasPersonalizationSignals,
+  rankListings,
+} from "./services/recommendationService.js";
 
 const developmentProviders: Provider[] = [mockProvider];
 const defaultFeedSort: SearchQuery["sort"] = "newest";
@@ -30,17 +38,34 @@ export async function getFeed(query: FeedQuery): Promise<FeedResponse> {
     }
   }
 
-  const sortedListings = sortListings(listings);
+  rememberListings(listings);
+
+  const user = query.userId ? getUserById(query.userId) : undefined;
+  const likes = user ? getLikesByUserId(user.id) : [];
+  const isPersonalized = user
+    ? hasPersonalizationSignals(likes, user.onboardingPreferences)
+    : false;
+  const rankedListings = user
+    ? rankListings({
+        listings,
+        user,
+        likes,
+        onboardingPreferences: user.onboardingPreferences,
+      })
+    : sortListings(listings);
   const startIndex = (query.page - 1) * query.pageSize;
   const endIndex = startIndex + query.pageSize;
-  const paginatedListings = sortedListings.slice(startIndex, endIndex);
-  const hasMore = endIndex < sortedListings.length;
+  const paginatedListings = rankedListings.slice(startIndex, endIndex);
+  const hasMore = endIndex < rankedListings.length;
+
+  recordListingImpressions(paginatedListings);
 
   return {
     listings: paginatedListings,
+    isPersonalized,
     page: query.page,
     pageSize: query.pageSize,
-    total: sortedListings.length,
+    total: rankedListings.length,
     hasMore,
     nextPage: hasMore ? query.page + 1 : undefined,
   };

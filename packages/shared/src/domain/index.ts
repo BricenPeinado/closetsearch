@@ -1,3 +1,9 @@
+export type {
+  AnalyticsOverview,
+  MarketInsight,
+  PremiumAccess,
+  UnderpricedListingSignal,
+} from "./analytics";
 export type { Brand } from "./brand";
 export type { FeedQuery, FeedResponse } from "./feed";
 export type {

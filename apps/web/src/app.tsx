@@ -1,12 +1,23 @@
-import { startTransition, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import type {
+  AnalyticsOverview,
   AuthResponse,
+  Brand,
   FeedResponse,
   Like,
   Listing,
-  OnboardingPreferences,
+  MarketInsight,
+  PremiumAccess,
   SearchResponse,
   SearchSortMode,
+  UnderpricedListingSignal,
 } from "@closetsearch/shared";
 import {
   BrowserRouter,
@@ -16,6 +27,7 @@ import {
   Routes,
   useLocation,
   useNavigate,
+  useParams,
   useSearchParams,
 } from "react-router-dom";
 import { fetchJson, sendJson } from "./api-client";
@@ -63,12 +75,6 @@ const listingTypeOptions = [
   { label: "Fixed price", value: "buy_now" },
   { label: "Auction", value: "auction" },
 ];
-const defaultOnboardingPreferences: OnboardingPreferences = {
-  favoriteBrands: [],
-  categories: [],
-  priceRange: "",
-};
-
 interface PageTemplateProps {
   eyebrow: string;
   title: string;
@@ -81,6 +87,7 @@ interface PageTemplateProps {
 interface FeedRequestState {
   errorMessage?: string;
   hasMore: boolean;
+  isPersonalized: boolean;
   isLoadingMore: boolean;
   listings: Listing[];
   loadMoreErrorMessage?: string;
@@ -95,12 +102,6 @@ interface SearchRequestState {
   status: "idle" | "loading" | "success" | "error";
 }
 
-interface PlaceholderCardProps {
-  title: string;
-  detail: string;
-  meta: string;
-}
-
 interface LikeResponse {
   like: Like;
 }
@@ -108,6 +109,69 @@ interface LikeResponse {
 interface LikesResponse {
   likes: Like[];
   userId: string;
+}
+
+interface BrandListResponse {
+  brands: Brand[];
+  query?: string;
+  total: number;
+}
+
+interface BrandDetailResponse {
+  brand: Brand;
+}
+
+interface BrandListRequestState {
+  brands: Brand[];
+  errorMessage?: string;
+  status: "loading" | "success" | "error";
+  total: number;
+}
+
+interface BrandDetailRequestState {
+  brand?: Brand;
+  errorMessage?: string;
+  status: "loading" | "success" | "error";
+}
+
+interface AnalyticsOverviewResponse {
+  locked: boolean;
+  message?: string;
+  overview?: AnalyticsOverview;
+  premiumAccess?: PremiumAccess;
+  premiumPreviewUsername?: string;
+  sampleData?: boolean;
+}
+
+interface MarketInsightsResponse {
+  locked: boolean;
+  insights?: MarketInsight[];
+  message?: string;
+  premiumAccess?: PremiumAccess;
+  premiumPreviewUsername?: string;
+  sampleData?: boolean;
+}
+
+interface UnderpricedSignalsResponse {
+  locked: boolean;
+  message?: string;
+  premiumAccess?: PremiumAccess;
+  premiumPreviewUsername?: string;
+  sampleData?: boolean;
+  signals?: UnderpricedListingSignal[];
+}
+
+interface AnalyticsRequestState {
+  errorMessage?: string;
+  insights: MarketInsight[];
+  locked: boolean;
+  message?: string;
+  overview?: AnalyticsOverview;
+  premiumAccess?: PremiumAccess;
+  premiumPreviewUsername?: string;
+  sampleData: boolean;
+  signals: UnderpricedListingSignal[];
+  status: "loading" | "success" | "error";
 }
 
 function PageTemplate({
@@ -138,16 +202,6 @@ function PageTemplate({
   );
 }
 
-function PlaceholderCard({ title, detail, meta }: PlaceholderCardProps) {
-  return (
-    <article className="placeholder-card">
-      <h2>{title}</h2>
-      <p>{detail}</p>
-      <span>{meta}</span>
-    </article>
-  );
-}
-
 function StateCard({
   action,
   body,
@@ -171,6 +225,32 @@ function parseCommaSeparatedList(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function buildBrandSearchPath(brandName: string) {
+  return buildSearchPath({
+    ...createDefaultSearchFormValues(),
+    query: brandName,
+  });
+}
+
+function formatBrandMetadata(brand: Brand) {
+  const aliases = brand.aliases?.length ? `${brand.aliases.length} aliases` : null;
+  const tags = brand.tags?.length ? `${brand.tags.length} tags` : null;
+
+  return [aliases, tags].filter(Boolean).join(" • ") || "Brand reference";
+}
+
+function formatConfidence(value: number) {
+  return `${Math.round(value * 100)}% confidence`;
+}
+
+function formatCurrencyAmount(amount: number, currency: string) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 function hasCompletedOnboarding(session: AuthResponse | null) {
@@ -219,31 +299,70 @@ function useLikes(userId?: string) {
     }
 
     if (nextLiked) {
-      const response = await sendJson<LikeResponse>("/likes", "POST", {
+      const optimisticLike: Like = {
+        id: `optimistic-${listing.id}`,
         userId,
         listingId: listing.id,
         source: listing.source.id,
-      });
+        createdAt: new Date().toISOString(),
+      };
 
       setLikes((currentLikes) => {
-        if (currentLikes.some((like) => like.listingId === response.like.listingId)) {
+        if (currentLikes.some((like) => like.listingId === listing.id)) {
           return currentLikes;
         }
 
-        return [response.like, ...currentLikes];
+        return [optimisticLike, ...currentLikes];
       });
+
+      try {
+        const response = await sendJson<LikeResponse>("/likes", "POST", {
+          userId,
+          listingId: listing.id,
+          source: listing.source.id,
+        });
+
+        setLikes((currentLikes) => {
+          const remainingLikes = currentLikes.filter(
+            (like) => like.listingId !== response.like.listingId,
+          );
+
+          return [response.like, ...remainingLikes];
+        });
+      } catch (error) {
+        setLikes((currentLikes) =>
+          currentLikes.filter((like) => like.listingId !== listing.id),
+        );
+        throw error;
+      }
 
       return;
     }
 
-    await sendJson<{ removed: boolean }>("/likes", "DELETE", {
-      userId,
-      listingId: listing.id,
-    });
+    const existingLike = likes.find((like) => like.listingId === listing.id);
 
     setLikes((currentLikes) =>
       currentLikes.filter((like) => like.listingId !== listing.id),
     );
+
+    try {
+      await sendJson<{ removed: boolean }>("/likes", "DELETE", {
+        userId,
+        listingId: listing.id,
+      });
+    } catch (error) {
+      if (existingLike) {
+        setLikes((currentLikes) => {
+          if (currentLikes.some((like) => like.listingId === existingLike.listingId)) {
+            return currentLikes;
+          }
+
+          return [existingLike, ...currentLikes];
+        });
+      }
+
+      throw error;
+    }
   }
 
   return {
@@ -325,8 +444,10 @@ function HomePage({ session }: { session: AuthResponse | null }) {
   const navigate = useNavigate();
   const { likedListingIds, toggleLike } = useLikes(session?.userId);
   const [reloadCount, setReloadCount] = useState(0);
+  const needsPreferenceReminder = Boolean(session) && !hasCompletedOnboarding(session);
   const [state, setState] = useState<FeedRequestState>({
     hasMore: false,
+    isPersonalized: false,
     isLoadingMore: false,
     listings: [],
     status: "loading",
@@ -338,19 +459,27 @@ function HomePage({ session }: { session: AuthResponse | null }) {
 
     setState({
       hasMore: false,
+      isPersonalized: false,
       isLoadingMore: false,
       listings: [],
       status: "loading",
       total: 0,
     });
 
-    void fetchJson<FeedResponse>(
-      `/feed?page=1&pageSize=${homeFeedPageSize}`,
-      controller.signal,
-    )
+    const feedParams = new URLSearchParams({
+      page: "1",
+      pageSize: String(homeFeedPageSize),
+    });
+
+    if (session?.userId) {
+      feedParams.set("userId", session.userId);
+    }
+
+    void fetchJson<FeedResponse>(`/feed?${feedParams.toString()}`, controller.signal)
       .then((response) => {
         setState({
           hasMore: response.hasMore,
+          isPersonalized: response.isPersonalized,
           isLoadingMore: false,
           listings: response.listings,
           nextPage: response.nextPage,
@@ -367,6 +496,7 @@ function HomePage({ session }: { session: AuthResponse | null }) {
           errorMessage:
             error instanceof Error ? error.message : "The feed request failed.",
           hasMore: false,
+          isPersonalized: false,
           isLoadingMore: false,
           listings: [],
           status: "error",
@@ -377,7 +507,7 @@ function HomePage({ session }: { session: AuthResponse | null }) {
     return () => {
       controller.abort();
     };
-  }, [reloadCount]);
+  }, [reloadCount, session?.userId]);
 
   function handleRetry() {
     startTransition(() => {
@@ -396,13 +526,21 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       loadMoreErrorMessage: undefined,
     }));
 
-    void fetchJson<FeedResponse>(
-      `/feed?page=${state.nextPage}&pageSize=${homeFeedPageSize}`,
-    )
+    const feedParams = new URLSearchParams({
+      page: String(state.nextPage),
+      pageSize: String(homeFeedPageSize),
+    });
+
+    if (session?.userId) {
+      feedParams.set("userId", session.userId);
+    }
+
+    void fetchJson<FeedResponse>(`/feed?${feedParams.toString()}`)
       .then((response) => {
         setState((currentState) => ({
           ...currentState,
           hasMore: response.hasMore,
+          isPersonalized: response.isPersonalized,
           isLoadingMore: false,
           listings: [...currentState.listings, ...response.listings],
           nextPage: response.nextPage,
@@ -428,16 +566,38 @@ function HomePage({ session }: { session: AuthResponse | null }) {
     }
 
     await toggleLike(listing, nextLiked);
+
+    startTransition(() => {
+      setReloadCount((currentValue) => currentValue + 1);
+    });
   }
 
   let feedContent: ReactNode;
 
   if (state.status === "loading") {
     feedContent = (
-      <StateCard
-        body="Pulling the first page of normalized listings from the signed-out feed."
-        title="Loading feed"
-      />
+      <section className="feed-results">
+        <article
+          className={
+            session ? "feed-hero-card feed-hero-card--personalized" : "feed-hero-card"
+          }
+        >
+          <div className="feed-hero-card__copy">
+            <p className="eyebrow">{session ? "For You" : "Discovery"}</p>
+            <h2>{session ? "Building your feed" : "Loading discovery feed"}</h2>
+            <p>
+              {session
+                ? "Recommended from your likes and preferences, with a little exploration mixed in."
+                : "Pulling the latest normalized listings from the default discovery feed."}
+            </p>
+          </div>
+          <div className="feed-loading-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </article>
+      </section>
     );
   } else if (state.status === "error") {
     feedContent = (
@@ -453,21 +613,86 @@ function HomePage({ session }: { session: AuthResponse | null }) {
     );
   } else if (state.listings.length === 0) {
     feedContent = (
-      <StateCard
-        body="The signed-out discovery feed does not have any listings to show yet."
-        title="Nothing in the feed yet"
-      />
+      <section className="feed-results">
+        <article
+          className={
+            session ? "feed-hero-card feed-hero-card--personalized" : "feed-hero-card"
+          }
+        >
+          <div className="feed-hero-card__copy">
+            <p className="eyebrow">{session ? "For You" : "Discovery"}</p>
+            <h2>{session ? "Your feed is warming up" : "Nothing in the feed yet"}</h2>
+            <p>
+              {session
+                ? "There are no listings to rank right now. Try adding a few preferences or come back after the feed refreshes."
+                : "The signed-out discovery feed does not have any listings to show yet."}
+            </p>
+          </div>
+        </article>
+        {needsPreferenceReminder ? (
+          <article className="feed-reminder-card">
+            <div>
+              <p className="eyebrow">Preferences reminder</p>
+              <h3>Add a few style signals</h3>
+              <p>
+                Pick favorite brands or categories to make your For You feed feel more tailored.
+              </p>
+            </div>
+            <Link className="secondary-button link-button" to="/onboarding">
+              Update preferences
+            </Link>
+          </article>
+        ) : null}
+      </section>
     );
   } else {
     feedContent = (
       <section className="feed-results">
-        <div className="section-heading">
-          <h2>{state.total} normalized listings in the feed</h2>
-          <p>
-            Signed-out discovery still uses the mock provider, while signed-in users can now save
-            likes from the same listing cards.
-          </p>
+        <article
+          className={
+            session ? "feed-hero-card feed-hero-card--personalized" : "feed-hero-card"
+          }
+        >
+          <div className="feed-hero-card__copy">
+            <p className="eyebrow">{session ? "For You" : "Discovery"}</p>
+            <h2>{session ? "A feed shaped around your taste" : "Fresh discovery picks"}</h2>
+            <p>
+              {session
+                ? "Recommended from your likes and preferences, with a little exploration to keep things fresh."
+                : "A clean browse of normalized listings from the default discovery feed."}
+            </p>
+          </div>
+          <div className="feed-hero-card__meta">
+            <strong>{state.total}</strong>
+            <span>Listings ready</span>
+          </div>
+        </article>
+        <div className="chip-row">
+          <span className={session ? "info-chip info-chip--accent" : "info-chip"}>
+            {session ? "For You" : "Discovery feed"}
+          </span>
+          <span className="info-chip">
+            {session
+              ? state.isPersonalized
+                ? "Recommended from likes and preferences"
+                : "Start with likes or onboarding preferences"
+              : "Signed-out default ordering"}
+          </span>
         </div>
+        {needsPreferenceReminder ? (
+          <article className="feed-reminder-card">
+            <div>
+              <p className="eyebrow">Preferences reminder</p>
+              <h3>Make For You more personal</h3>
+              <p>
+                Add a few brands or categories and this feed will lean more into your style.
+              </p>
+            </div>
+            <Link className="secondary-button link-button" to="/onboarding">
+              Add preferences
+            </Link>
+          </article>
+        ) : null}
         <ListingGrid
           likedListingIds={likedListingIds}
           listings={state.listings}
@@ -494,11 +719,11 @@ function HomePage({ session }: { session: AuthResponse | null }) {
 
   return (
     <PageTemplate
-      eyebrow="Milestone 6"
+      eyebrow="Milestone 7"
       title="Homepage Feed"
-      description="The home feed stays simple and signed-out by default, but listing cards can now support lightweight account actions like likes without changing the normalized feed contract."
+      description="Signed-out users still get the default discovery feed, while signed-in users can get a lightweight personalized ranking driven by onboarding preferences, likes, and controlled exploration."
       highlightLabel="Current behavior"
-      highlightValue="Signed-out feed with account-aware hearts"
+      highlightValue={session ? "Signed-in ranking ready" : "Default discovery feed"}
     >
       {feedContent}
     </PageTemplate>
@@ -536,11 +761,11 @@ function RecentSearchesPage({ children }: { children?: ReactNode }) {
 function AnalyticsPage({ children }: { children?: ReactNode }) {
   return (
     <PageTemplate
-      eyebrow="Deferred"
+      eyebrow="Premium foundation"
       title="Analytics"
-      description="Premium analytics remains intentionally deferred. This placeholder keeps the planned surface visible without mixing monetization into the accounts milestone."
-      highlightLabel="Status"
-      highlightValue="Future premium system"
+      description="Premium analytics stays firmly in foundation mode: mock access rules, sample data models, and placeholder insights without subscriptions, real forecasting, or billing."
+      highlightLabel="Current mode"
+      highlightValue="Premium preview shell"
     >
       {children}
     </PageTemplate>
@@ -566,9 +791,29 @@ function BrandsPage({ children }: { children?: ReactNode }) {
     <PageTemplate
       eyebrow="Brand browsing"
       title="Brand Directory"
-      description="Brand browsing is part of the core product. This shell reserves space for a browsable brand index and future search handoff."
+      description="Browse a lightweight brand index, filter by name or style tags, and jump into the existing search flow when you want listings."
       highlightLabel="Planned surface"
-      highlightValue="Directory + brand discovery"
+      highlightValue="Directory + search handoff"
+    >
+      {children}
+    </PageTemplate>
+  );
+}
+
+function BrandDetailPage({
+  brandName,
+  children,
+}: {
+  brandName?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <PageTemplate
+      eyebrow="Brand browsing"
+      title={brandName ?? "Brand Profile"}
+      description="Keep brand browsing simple: basic identity, aliases and tags when available, and a direct handoff into the normalized search flow."
+      highlightLabel="Current scope"
+      highlightValue="Brand shell + search handoff"
     >
       {children}
     </PageTemplate>
@@ -622,27 +867,6 @@ function NotFoundPage() {
       highlightLabel="Status"
       highlightValue="Unknown path"
     />
-  );
-}
-
-function PlaceholderStack({ cards }: { cards: PlaceholderCardProps[] }) {
-  return (
-    <section className="placeholder-section">
-      <div className="section-heading">
-        <h2>What this page will become</h2>
-        <p>Each route stays intentionally honest about what this milestone includes and what comes later.</p>
-      </div>
-      <div className="placeholder-grid">
-        {cards.map((card) => (
-          <PlaceholderCard
-            key={card.title}
-            detail={card.detail}
-            meta={card.meta}
-            title={card.title}
-          />
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -1061,25 +1285,287 @@ function RecentSearchesRoutePage() {
   );
 }
 
-function AnalyticsRoutePage() {
+function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
+  const [state, setState] = useState<AnalyticsRequestState>({
+    insights: [],
+    locked: true,
+    sampleData: false,
+    signals: [],
+    status: "loading",
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+
+    if (session?.userId) {
+      params.set("userId", session.userId);
+    }
+
+    const query = params.toString();
+    const suffix = query.length > 0 ? `?${query}` : "";
+
+    setState({
+      insights: [],
+      locked: true,
+      sampleData: false,
+      signals: [],
+      status: "loading",
+    });
+
+    void fetchJson<AnalyticsOverviewResponse>(`/analytics/overview${suffix}`, controller.signal)
+      .then(async (overviewResponse) => {
+        if (overviewResponse.locked) {
+          setState({
+            insights: [],
+            locked: true,
+            message: overviewResponse.message,
+            overview: overviewResponse.overview,
+            premiumAccess: overviewResponse.premiumAccess,
+            premiumPreviewUsername: overviewResponse.premiumPreviewUsername,
+            sampleData: false,
+            signals: [],
+            status: "success",
+          });
+          return;
+        }
+
+        const [insightsResponse, underpricedResponse] = await Promise.all([
+          fetchJson<MarketInsightsResponse>(
+            `/analytics/market-insights${suffix}`,
+            controller.signal,
+          ),
+          fetchJson<UnderpricedSignalsResponse>(
+            `/analytics/underpriced${suffix}`,
+            controller.signal,
+          ),
+        ]);
+
+        setState({
+          insights: insightsResponse.insights ?? [],
+          locked: false,
+          message: overviewResponse.message,
+          overview: overviewResponse.overview,
+          premiumAccess: overviewResponse.premiumAccess,
+          premiumPreviewUsername: overviewResponse.premiumPreviewUsername,
+          sampleData:
+            overviewResponse.sampleData === true ||
+            insightsResponse.sampleData === true ||
+            underpricedResponse.sampleData === true,
+          signals: underpricedResponse.signals ?? [],
+          status: "success",
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setState({
+          errorMessage:
+            error instanceof Error ? error.message : "The analytics preview could not be loaded.",
+          insights: [],
+          locked: true,
+          sampleData: false,
+          signals: [],
+          status: "error",
+        });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [session?.userId]);
+
+  if (state.status === "loading") {
+    return (
+      <AnalyticsPage>
+        <StateCard
+          body="Loading the premium analytics foundation and checking preview access."
+          title="Loading analytics"
+        />
+      </AnalyticsPage>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <AnalyticsPage>
+        <StateCard
+          body={state.errorMessage ?? "The analytics preview could not be loaded."}
+          title="Analytics unavailable"
+        />
+      </AnalyticsPage>
+    );
+  }
+
+  if (state.locked) {
+    return (
+      <AnalyticsPage>
+        <section className="analytics-shell">
+          <article className="analytics-hero-card analytics-hero-card--locked">
+            <div className="analytics-hero-card__copy">
+              <p className="eyebrow">Premium coming soon</p>
+              <h2>Market intelligence will live here</h2>
+              <p>
+                {state.message ??
+                  "Premium analytics is still in preview planning mode, so this page stays intentionally locked for non-premium accounts."}
+              </p>
+            </div>
+            <div className="chip-row">
+              <span className="info-chip info-chip--accent">Premium only</span>
+              <span className="info-chip">No checkout yet</span>
+            </div>
+          </article>
+
+          <div className="analytics-preview-grid">
+            {[
+              {
+                title: "Market pricing signals",
+                detail:
+                  "Sample summaries of brand and category momentum, pricing tone, and supply shifts.",
+              },
+              {
+                title: "Underpriced listing detection",
+                detail:
+                  "Placeholder flags for listings that appear below a simple market benchmark.",
+              },
+              {
+                title: "Historical pricing context",
+                detail:
+                  "Future trend snapshots, benchmark ranges, and resale insight summaries.",
+              },
+              {
+                title: "Resale insights",
+                detail:
+                  "Mock dashboards for what is moving quickly, softening, or drawing attention.",
+              },
+            ].map((card) => (
+              <article key={card.title} className="analytics-preview-card analytics-preview-card--locked">
+                <p className="eyebrow">Preview</p>
+                <h2>{card.title}</h2>
+                <p>{card.detail}</p>
+              </article>
+            ))}
+          </div>
+
+          <StateCard
+            body={
+              state.premiumPreviewUsername
+                ? `Mock premium preview is available by signing in with the sample username "${state.premiumPreviewUsername}". No subscriptions or billing are active.`
+                : "Mock premium preview users can unlock sample analytics data later, without any billing flow."
+            }
+            title="Foundation only"
+          />
+        </section>
+      </AnalyticsPage>
+    );
+  }
+
   return (
     <AnalyticsPage>
-      <PlaceholderStack
-        cards={[
-          {
-            title: "Market summaries",
-            detail:
-              "Any pricing context or trend insights belong here later, after core discovery and data quality are stable.",
-            meta: "Explicitly deferred",
-          },
-          {
-            title: "Premium gating",
-            detail:
-              "Access rules, subscriptions, and premium unlocks are intentionally not part of this milestone.",
-            meta: "Out of scope",
-          },
-        ]}
-      />
+      <section className="analytics-shell">
+        <article className="analytics-hero-card">
+          <div className="analytics-hero-card__copy">
+            <p className="eyebrow">Premium preview</p>
+            <h2>Placeholder market intelligence dashboard</h2>
+            <p>
+              This sample workspace uses mock insights and pricing signals only. It is a foundation
+              for future premium analytics, not a live forecasting or billing system.
+            </p>
+          </div>
+          <div className="chip-row">
+            <span className="info-chip info-chip--accent">
+              {state.premiumAccess?.planName ?? "Premium preview"}
+            </span>
+            {state.sampleData ? <span className="info-chip">Sample data only</span> : null}
+          </div>
+        </article>
+
+        {state.overview ? (
+          <div className="analytics-overview-grid">
+            <article className="analytics-stat-card">
+              <p className="eyebrow">Tracked brands</p>
+              <h2>{state.overview.trackedBrands}</h2>
+              <p>Brands with placeholder market context in this preview.</p>
+            </article>
+            <article className="analytics-stat-card">
+              <p className="eyebrow">Market insights</p>
+              <h2>{state.overview.marketInsightCount}</h2>
+              <p>Mock summaries of pricing tone and category movement.</p>
+            </article>
+            <article className="analytics-stat-card">
+              <p className="eyebrow">Underpriced signals</p>
+              <h2>{state.overview.underpricedSignalCount}</h2>
+              <p>Sample pricing flags generated from simple benchmark assumptions.</p>
+            </article>
+          </div>
+        ) : null}
+
+        <section className="analytics-section">
+          <div className="section-heading">
+            <h2>Market insights</h2>
+            <p>Sample signals that show what premium market context could look like later.</p>
+          </div>
+          <div className="analytics-card-grid">
+            {state.insights.map((insight) => (
+              <article key={insight.id} className="analytics-data-card">
+                <div className="analytics-data-card__header">
+                  <div>
+                    <p className="eyebrow">{insight.brand.name}</p>
+                    <h2>{insight.title}</h2>
+                  </div>
+                  <span className="info-chip">{insight.category}</span>
+                </div>
+                <p>{insight.summary}</p>
+                <div className="chip-row">
+                  <span className="info-chip">{formatConfidence(insight.confidence)}</span>
+                  <span className="info-chip">{formatRecentSearchDate(insight.createdAt)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="analytics-section">
+          <div className="section-heading">
+            <h2>Underpriced signals</h2>
+            <p>Mock examples of how premium pricing signals might surface opportunities later.</p>
+          </div>
+          <div className="analytics-card-grid">
+            {state.signals.map((signal) => (
+              <article key={signal.id} className="analytics-data-card">
+                <div className="analytics-data-card__header">
+                  <div>
+                    <p className="eyebrow">{signal.source}</p>
+                    <h2>{signal.listingTitle}</h2>
+                  </div>
+                  <span className="info-chip info-chip--accent">
+                    {signal.percentBelowMarket}% below
+                  </span>
+                </div>
+                <p>{signal.reason}</p>
+                <div className="analytics-pricing-row">
+                  <div>
+                    <span>Current</span>
+                    <strong>{formatCurrencyAmount(signal.currentPrice, signal.currency)}</strong>
+                  </div>
+                  <div>
+                    <span>Estimated market</span>
+                    <strong>
+                      {formatCurrencyAmount(signal.estimatedMarketPrice, signal.currency)}
+                    </strong>
+                  </div>
+                </div>
+                <div className="chip-row">
+                  <span className="info-chip">{formatConfidence(signal.confidence)}</span>
+                  <span className="info-chip">{formatRecentSearchDate(signal.createdAt)}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </section>
     </AnalyticsPage>
   );
 }
@@ -1140,31 +1626,276 @@ function ProfileRoutePage({ session }: { session: AuthResponse | null }) {
 }
 
 function BrandsRoutePage() {
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [state, setState] = useState<BrandListRequestState>({
+    brands: [],
+    status: "loading",
+    total: 0,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    const trimmedQuery = deferredQuery.trim();
+
+    if (trimmedQuery.length > 0) {
+      params.set("q", trimmedQuery);
+    }
+
+    setState((currentState) => ({
+      ...currentState,
+      errorMessage: undefined,
+      status: "loading",
+    }));
+
+    void fetchJson<BrandListResponse>(
+      `/brands${params.toString() ? `?${params.toString()}` : ""}`,
+      controller.signal,
+    )
+      .then((response) => {
+        setState({
+          brands: response.brands,
+          status: "success",
+          total: response.total,
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setState({
+          brands: [],
+          errorMessage:
+            error instanceof Error ? error.message : "Brand browsing is unavailable.",
+          status: "error",
+          total: 0,
+        });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [deferredQuery]);
+
   return (
     <BrandsPage>
-      <PlaceholderStack
-        cards={[
-          {
-            title: "A-Z directory",
-            detail:
-              "The first real brand experience can start as a simple searchable list before deeper brand pages exist.",
-            meta: "Planned core surface",
-          },
-          {
-            title: "Search handoff",
-            detail:
-              "Selecting a brand should eventually launch a matching search flow without leaking provider-specific details.",
-            meta: "Later milestone",
-          },
-          {
-            title: "Brand notes",
-            detail:
-              "Aliases, brand metadata, and curation can be added only when the directory needs them.",
-            meta: "Do not overbuild",
-          },
-        ]}
-      />
+      <section className="brand-directory">
+        <article className="brand-search-panel">
+          <div>
+            <p className="eyebrow">Browse brands</p>
+            <h2>Search by name, alias, or tag</h2>
+          </div>
+          <label className="field-group" htmlFor="brand-directory-search">
+            <span>Brand search</span>
+            <input
+              id="brand-directory-search"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Try Undercover, CDG, japanese, or streetwear"
+              value={query}
+            />
+          </label>
+        </article>
+
+        {state.status === "loading" ? (
+          <StateCard
+            body="Loading the brand directory and matching the current search term."
+            title="Loading brands"
+          />
+        ) : null}
+
+        {state.status === "error" ? (
+          <StateCard
+            body={state.errorMessage ?? "The brand directory could not be loaded."}
+            title="Brand directory unavailable"
+          />
+        ) : null}
+
+        {state.status === "success" ? (
+          state.brands.length > 0 ? (
+            <>
+              <div className="section-heading">
+                <h2>{state.total} brands available</h2>
+                <p>
+                  Browse the curated directory, then jump into search when a brand catches your
+                  eye.
+                </p>
+              </div>
+              <div className="brand-grid">
+                {state.brands.map((brand) => (
+                  <Link
+                    key={brand.id}
+                    className="brand-card"
+                    to={`/brands/${encodeURIComponent(brand.slug)}`}
+                  >
+                    <div>
+                      <p className="eyebrow">Brand</p>
+                      <h2>{brand.name}</h2>
+                      <p>{formatBrandMetadata(brand)}</p>
+                    </div>
+                    <div className="chip-row">
+                      {brand.aliases?.slice(0, 2).map((alias) => (
+                        <span key={alias} className="info-chip">
+                          {alias}
+                        </span>
+                      ))}
+                      {brand.tags?.slice(0, 2).map((tag) => (
+                        <span key={tag} className="info-chip">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                    <span className="brand-card__footer">Open brand profile</span>
+                  </Link>
+                ))}
+              </div>
+            </>
+          ) : (
+            <StateCard
+              body={`No brands matched "${deferredQuery.trim()}". Try a broader name, alias, or tag.`}
+              title="No matching brands"
+            />
+          )
+        ) : null}
+      </section>
     </BrandsPage>
+  );
+}
+
+function BrandDetailRoutePage() {
+  const { slug } = useParams();
+  const [state, setState] = useState<BrandDetailRequestState>({
+    status: "loading",
+  });
+
+  useEffect(() => {
+    if (!slug) {
+      setState({
+        errorMessage: "Brand not found.",
+        status: "error",
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setState({
+      status: "loading",
+    });
+
+    void fetchJson<BrandDetailResponse>(`/brands/${encodeURIComponent(slug)}`, controller.signal)
+      .then((response) => {
+        setState({
+          brand: response.brand,
+          status: "success",
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setState({
+          errorMessage:
+            error instanceof Error ? error.message : "The brand could not be loaded.",
+          status: "error",
+        });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [slug]);
+
+  const brand = state.brand;
+
+  return (
+    <BrandDetailPage brandName={brand?.name}>
+      {state.status === "loading" ? (
+        <StateCard
+          body="Loading brand details and preparing the search handoff."
+          title="Loading brand profile"
+        />
+      ) : null}
+
+      {state.status === "error" ? (
+        <StateCard
+          action={
+            <Link className="secondary-button link-button" to="/brands">
+              Back to directory
+            </Link>
+          }
+          body={state.errorMessage ?? "The brand profile could not be loaded."}
+          title="Brand unavailable"
+        />
+      ) : null}
+
+      {state.status === "success" && brand ? (
+        <section className="brand-detail">
+          <article className="brand-detail__panel">
+            <div className="brand-detail__header">
+              <div>
+                <p className="eyebrow">Brand profile</p>
+                <h2>{brand.name}</h2>
+              </div>
+              <Link
+                className="search-form__button link-button"
+                to={buildBrandSearchPath(brand.name)}
+              >
+                Search this brand
+              </Link>
+            </div>
+
+            {brand.aliases?.length ? (
+              <div>
+                <p className="brand-detail__label">Aliases</p>
+                <div className="chip-row">
+                  {brand.aliases.map((alias) => (
+                    <span key={alias} className="info-chip">
+                      {alias}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {brand.tags?.length ? (
+              <div>
+                <p className="brand-detail__label">Tags</p>
+                <div className="chip-row">
+                  {brand.tags.map((tag) => (
+                    <span key={tag} className="info-chip">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </article>
+
+          <article className="brand-detail__panel">
+            <p className="eyebrow">Listings</p>
+            <h2>Search handoff ready</h2>
+            <p>
+              This first brand detail view stays intentionally lightweight. Use the search handoff
+              to explore current listings for {brand.name} through the normalized search flow.
+            </p>
+            <div className="inline-actions">
+              <Link
+                className="search-form__button link-button"
+                to={buildBrandSearchPath(brand.name)}
+              >
+                Search listings
+              </Link>
+              <Link className="secondary-button link-button" to="/brands">
+                Back to directory
+              </Link>
+            </div>
+          </article>
+        </section>
+      ) : null}
+    </BrandDetailPage>
   );
 }
 
@@ -1521,17 +2252,18 @@ export function AppLayout() {
 
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">Milestone 6 foundation</p>
-          <h2>Accounts, onboarding, and likes now sit beside the existing feed and search flows.</h2>
+          <p className="eyebrow">Milestone 7 foundation</p>
+          <h2>Accounts, likes, and simple personalization now sit beside the existing feed and search flows.</h2>
           <p>
-            The API and web app still keep discovery/search loosely coupled from account state, with
-            lightweight in-memory storage instead of a database.
+            The API and web app keep discovery/search loosely coupled from account state, with a
+            deterministic recommendation layer and lightweight in-memory storage instead of a
+            database.
           </p>
         </div>
         <div className="hero-aside">
           <div className="hero-chip">Username/password auth</div>
           <div className="hero-chip">Onboarding preferences</div>
-          <div className="hero-chip">Likes on listing cards</div>
+          <div className="hero-chip">Personalized home feed</div>
         </div>
       </section>
 
@@ -1557,7 +2289,7 @@ export function AppLayout() {
           <Route element={<HomePage session={session} />} path="/" />
           <Route element={<SearchRoutePage session={session} />} path="/search" />
           <Route element={<RecentSearchesRoutePage />} path="/recent-searches" />
-          <Route element={<AnalyticsRoutePage />} path="/analytics" />
+          <Route element={<AnalyticsRoutePage session={session} />} path="/analytics" />
           <Route element={<ProfileRoutePage session={session} />} path="/profile" />
           <Route
             element={<SignupRoutePage onAuthSuccess={handleSessionChange} session={session} />}
@@ -1572,6 +2304,7 @@ export function AppLayout() {
             path="/onboarding"
           />
           <Route element={<BrandsRoutePage />} path="/brands" />
+          <Route element={<BrandDetailRoutePage />} path="/brands/:slug" />
           <Route element={<NotFoundPage />} path="*" />
         </Routes>
       </main>

@@ -1,4 +1,5 @@
 export type {
+  AnalyticsOverview,
   AuthResponse,
   Brand,
   FeedQuery,
@@ -9,13 +10,16 @@ export type {
   ListingCondition,
   ListingSource,
   ListingType,
+  MarketInsight,
   Money,
   OnboardingPreferences,
   PriceRange,
+  PremiumAccess,
   SearchProviderSummary,
   SearchQuery,
   SearchResponse,
   SearchSortMode,
   StoredUser,
+  UnderpricedListingSignal,
   User,
 } from "./domain";
