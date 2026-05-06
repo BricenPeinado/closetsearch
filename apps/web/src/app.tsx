@@ -1,7 +1,16 @@
 import { startTransition, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import type { FeedResponse, Listing, SearchResponse, SearchSortMode } from "@closetsearch/shared";
+import type {
+  AuthResponse,
+  FeedResponse,
+  Like,
+  Listing,
+  OnboardingPreferences,
+  SearchResponse,
+  SearchSortMode,
+} from "@closetsearch/shared";
 import {
   BrowserRouter,
+  Link,
   NavLink,
   Route,
   Routes,
@@ -9,6 +18,7 @@ import {
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
+import { fetchJson, sendJson } from "./api-client";
 import { ListingCard } from "./components/listing-card";
 import {
   buildSearchPath,
@@ -22,6 +32,7 @@ import {
   type RecentSearchEntry,
   type SearchFormValues,
 } from "./search-utils";
+import { clearUserSession, loadUserSession, saveUserSession } from "./user-session";
 
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
@@ -36,7 +47,6 @@ const brandDirectoryLink = {
   path: "/brands",
 } as const;
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const homeFeedPageSize = 4;
 const sortOptions: Array<{ label: string; value: SearchSortMode }> = [
   { label: "Relevance", value: "relevance" },
@@ -53,6 +63,11 @@ const listingTypeOptions = [
   { label: "Fixed price", value: "buy_now" },
   { label: "Auction", value: "auction" },
 ];
+const defaultOnboardingPreferences: OnboardingPreferences = {
+  favoriteBrands: [],
+  categories: [],
+  priceRange: "",
+};
 
 interface PageTemplateProps {
   eyebrow: string;
@@ -84,6 +99,15 @@ interface PlaceholderCardProps {
   title: string;
   detail: string;
   meta: string;
+}
+
+interface LikeResponse {
+  like: Like;
+}
+
+interface LikesResponse {
+  likes: Like[];
+  userId: string;
 }
 
 function PageTemplate({
@@ -142,30 +166,114 @@ function StateCard({
   );
 }
 
-function ListingGrid({ listings }: { listings: Listing[] }) {
+function parseCommaSeparatedList(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function hasCompletedOnboarding(session: AuthResponse | null) {
+  const preferences = session?.user.onboardingPreferences;
+
+  if (!preferences) {
+    return false;
+  }
+
   return (
-    <div className="listing-grid">
-      {listings.map((listing) => (
-        <ListingCard key={listing.id} listing={listing} />
-      ))}
-    </div>
+    preferences.favoriteBrands.length > 0 ||
+    preferences.categories.length > 0 ||
+    preferences.priceRange.trim().length > 0
   );
 }
 
-async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    signal,
-  });
+function useLikes(userId?: string) {
+  const [likes, setLikes] = useState<Like[]>([]);
 
-  if (!response.ok) {
-    const errorBody = (await response.json().catch(() => null)) as
-      | { message?: string }
-      | null;
+  useEffect(() => {
+    if (!userId) {
+      setLikes([]);
+      return;
+    }
 
-    throw new Error(errorBody?.message ?? "The request could not be completed.");
+    const controller = new AbortController();
+
+    void fetchJson<LikesResponse>(`/likes/${userId}`, controller.signal)
+      .then((response) => {
+        setLikes(response.likes);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setLikes([]);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [userId]);
+
+  async function toggleLike(listing: Listing, nextLiked: boolean) {
+    if (!userId) {
+      return;
+    }
+
+    if (nextLiked) {
+      const response = await sendJson<LikeResponse>("/likes", "POST", {
+        userId,
+        listingId: listing.id,
+        source: listing.source.id,
+      });
+
+      setLikes((currentLikes) => {
+        if (currentLikes.some((like) => like.listingId === response.like.listingId)) {
+          return currentLikes;
+        }
+
+        return [response.like, ...currentLikes];
+      });
+
+      return;
+    }
+
+    await sendJson<{ removed: boolean }>("/likes", "DELETE", {
+      userId,
+      listingId: listing.id,
+    });
+
+    setLikes((currentLikes) =>
+      currentLikes.filter((like) => like.listingId !== listing.id),
+    );
   }
 
-  return (await response.json()) as T;
+  return {
+    likes,
+    likedListingIds: new Set(likes.map((like) => like.listingId)),
+    toggleLike,
+  };
+}
+
+function ListingGrid({
+  listings,
+  likedListingIds,
+  onToggleLike,
+}: {
+  listings: Listing[];
+  likedListingIds?: Set<string>;
+  onToggleLike?: (listing: Listing, nextLiked: boolean) => Promise<void>;
+}) {
+  return (
+    <div className="listing-grid">
+      {listings.map((listing) => (
+        <ListingCard
+          key={listing.id}
+          isLiked={likedListingIds?.has(listing.id)}
+          listing={listing}
+          onToggleLike={onToggleLike}
+        />
+      ))}
+    </div>
+  );
 }
 
 function GlobalSearchBar() {
@@ -213,7 +321,9 @@ function GlobalSearchBar() {
   );
 }
 
-function HomePage() {
+function HomePage({ session }: { session: AuthResponse | null }) {
+  const navigate = useNavigate();
+  const { likedListingIds, toggleLike } = useLikes(session?.userId);
   const [reloadCount, setReloadCount] = useState(0);
   const [state, setState] = useState<FeedRequestState>({
     hasMore: false,
@@ -309,6 +419,17 @@ function HomePage() {
       });
   }
 
+  async function handleToggleLike(listing: Listing, nextLiked: boolean) {
+    if (!session) {
+      startTransition(() => {
+        navigate("/login");
+      });
+      return;
+    }
+
+    await toggleLike(listing, nextLiked);
+  }
+
   let feedContent: ReactNode;
 
   if (state.status === "loading") {
@@ -342,9 +463,16 @@ function HomePage() {
       <section className="feed-results">
         <div className="section-heading">
           <h2>{state.total} normalized listings in the feed</h2>
-          <p>Signed-out discovery is using the mock provider today, with simple page-based pagination.</p>
+          <p>
+            Signed-out discovery still uses the mock provider, while signed-in users can now save
+            likes from the same listing cards.
+          </p>
         </div>
-        <ListingGrid listings={state.listings} />
+        <ListingGrid
+          likedListingIds={likedListingIds}
+          listings={state.listings}
+          onToggleLike={handleToggleLike}
+        />
         {state.loadMoreErrorMessage ? (
           <StateCard body={state.loadMoreErrorMessage} title="Could not load more listings" />
         ) : null}
@@ -366,11 +494,11 @@ function HomePage() {
 
   return (
     <PageTemplate
-      eyebrow="Milestone 4"
+      eyebrow="Milestone 6"
       title="Homepage Feed"
-      description="The home surface still fetches normalized listings from a dedicated feed endpoint while the new search experience lives in its own API and UI path."
+      description="The home feed stays simple and signed-out by default, but listing cards can now support lightweight account actions like likes without changing the normalized feed contract."
       highlightLabel="Current behavior"
-      highlightValue="Signed-out feed with load more"
+      highlightValue="Signed-out feed with account-aware hearts"
     >
       {feedContent}
     </PageTemplate>
@@ -382,9 +510,9 @@ function SearchPage({ children }: { children?: ReactNode }) {
     <PageTemplate
       eyebrow="Milestone 5"
       title="Search"
-      description="Use a single normalized search flow for keyword, marketplace, listing type, price range, and sorting without exposing provider-specific response data."
+      description="Use a single normalized search flow for keyword, marketplace, listing type, and price range without exposing provider-specific response data."
       highlightLabel="Active flow"
-      highlightValue="Global search + filters + local history"
+      highlightValue="Search + filters + likes"
     >
       {children}
     </PageTemplate>
@@ -396,7 +524,7 @@ function RecentSearchesPage({ children }: { children?: ReactNode }) {
     <PageTemplate
       eyebrow="Milestone 5"
       title="Recent Searches"
-      description="Recent searches are stored only in browser localStorage for now, with no account or database persistence mixed into the search milestone."
+      description="Recent searches are still stored only in browser localStorage, separate from the new account onboarding and likes work."
       highlightLabel="Storage"
       highlightValue="Local browser history only"
     >
@@ -410,7 +538,7 @@ function AnalyticsPage({ children }: { children?: ReactNode }) {
     <PageTemplate
       eyebrow="Deferred"
       title="Analytics"
-      description="Premium analytics is intentionally deferred. This placeholder keeps the planned surface visible without inventing monetization or insight logic too early."
+      description="Premium analytics remains intentionally deferred. This placeholder keeps the planned surface visible without mixing monetization into the accounts milestone."
       highlightLabel="Status"
       highlightValue="Future premium system"
     >
@@ -422,11 +550,11 @@ function AnalyticsPage({ children }: { children?: ReactNode }) {
 function ProfilePage({ children }: { children?: ReactNode }) {
   return (
     <PageTemplate
-      eyebrow="Deferred"
+      eyebrow="Milestone 6"
       title="Profile"
-      description="Authentication and personalization remain out of scope, so profile stays a simple shell with clear boundaries."
-      highlightLabel="Blocked by"
-      highlightValue="Auth foundation"
+      description="The profile surface stays lightweight for now: username, onboarding preferences, and a simple likes shell without sessions, premium logic, or personalization rules."
+      highlightLabel="Current scope"
+      highlightValue="Account shell only"
     >
       {children}
     </PageTemplate>
@@ -441,6 +569,44 @@ function BrandsPage({ children }: { children?: ReactNode }) {
       description="Brand browsing is part of the core product. This shell reserves space for a browsable brand index and future search handoff."
       highlightLabel="Planned surface"
       highlightValue="Directory + brand discovery"
+    >
+      {children}
+    </PageTemplate>
+  );
+}
+
+function AuthPage({
+  children,
+  description,
+  title,
+  highlightValue,
+}: {
+  children?: ReactNode;
+  description: string;
+  title: string;
+  highlightValue: string;
+}) {
+  return (
+    <PageTemplate
+      eyebrow="Milestone 6"
+      title={title}
+      description={description}
+      highlightLabel="Auth mode"
+      highlightValue={highlightValue}
+    >
+      {children}
+    </PageTemplate>
+  );
+}
+
+function OnboardingPage({ children }: { children?: ReactNode }) {
+  return (
+    <PageTemplate
+      eyebrow="Milestone 6"
+      title="Onboarding"
+      description="Collect a few simple style preferences after signup or first login so the account foundation can store useful taste signals without building recommendation logic yet."
+      highlightLabel="Saved now"
+      highlightValue="Brands, categories, price range"
     >
       {children}
     </PageTemplate>
@@ -630,15 +796,19 @@ function SearchControlPanel({
 }
 
 function SearchResults({
+  likedListingIds,
+  onRetry,
+  onToggleLike,
   query,
   state,
   summary,
-  onRetry,
 }: {
+  likedListingIds: Set<string>;
+  onRetry: () => void;
+  onToggleLike: (listing: Listing, nextLiked: boolean) => Promise<void>;
   query: string;
   state: SearchRequestState;
   summary: string;
-  onRetry: () => void;
 }) {
   if (state.status === "idle") {
     return (
@@ -701,13 +871,18 @@ function SearchResults({
         </span>
       </div>
 
-      <ListingGrid listings={response.listings} />
+      <ListingGrid
+        likedListingIds={likedListingIds}
+        listings={response.listings}
+        onToggleLike={onToggleLike}
+      />
     </section>
   );
 }
 
-function SearchRoutePage() {
+function SearchRoutePage({ session }: { session: AuthResponse | null }) {
   const navigate = useNavigate();
+  const { likedListingIds, toggleLike } = useLikes(session?.userId);
   const [searchParams] = useSearchParams();
   const searchKey = searchParams.toString();
   const values = parseSearchFormValues(searchParams);
@@ -788,12 +963,25 @@ function SearchRoutePage() {
     });
   }
 
+  async function handleToggleLike(listing: Listing, nextLiked: boolean) {
+    if (!session) {
+      startTransition(() => {
+        navigate("/login");
+      });
+      return;
+    }
+
+    await toggleLike(listing, nextLiked);
+  }
+
   return (
     <SearchPage>
       <section className="search-layout">
         <SearchControlPanel initialValues={values} onSubmit={handleSubmit} />
         <SearchResults
+          likedListingIds={likedListingIds}
           onRetry={handleRetry}
+          onToggleLike={handleToggleLike}
           query={query}
           state={state}
           summary={describeSearch(values)}
@@ -896,25 +1084,57 @@ function AnalyticsRoutePage() {
   );
 }
 
-function ProfileRoutePage() {
+function ProfileRoutePage({ session }: { session: AuthResponse | null }) {
+  const { likes } = useLikes(session?.userId);
+
+  if (!session) {
+    return (
+      <ProfilePage>
+        <StateCard
+          action={
+            <div className="inline-actions">
+              <Link className="secondary-button link-button" to="/login">
+                Log in
+              </Link>
+              <Link className="search-form__button link-button" to="/signup">
+                Sign up
+              </Link>
+            </div>
+          }
+          body="Log in or create an account to view your profile shell, saved onboarding preferences, and liked listings."
+          title="Profile needs an account"
+        />
+      </ProfilePage>
+    );
+  }
+
+  const preferences = session.user.onboardingPreferences;
+
   return (
     <ProfilePage>
-      <PlaceholderStack
-        cards={[
-          {
-            title: "Identity",
-            detail:
-              "Profile details, onboarding preferences, and session controls will wait until auth exists.",
-            meta: "Out of scope",
-          },
-          {
-            title: "Preference hub",
-            detail:
-              "Later versions may connect this page to brand preferences, likes, and feed tuning without mixing that into this milestone.",
-            meta: "Future foundation",
-          },
-        ]}
-      />
+      <section className="profile-grid">
+        <article className="profile-panel">
+          <p className="eyebrow">Username</p>
+          <h2>{session.user.username}</h2>
+          <p>Account created {formatRecentSearchDate(session.user.createdAt)}.</p>
+        </article>
+
+        <article className="profile-panel">
+          <p className="eyebrow">Liked items</p>
+          <h2>{likes.length} saved listings</h2>
+          <p>{likes.length > 0 ? "Listing IDs are saved in memory for now." : "Like a few listings from home or search to see them reflected here."}</p>
+        </article>
+
+        <article className="profile-panel">
+          <p className="eyebrow">Preferences</p>
+          <h2>{preferences.priceRange || "Not set yet"}</h2>
+          <p>
+            Brands: {preferences.favoriteBrands.join(", ") || "None yet"}
+            <br />
+            Categories: {preferences.categories.join(", ") || "None yet"}
+          </p>
+        </article>
+      </section>
     </ProfilePage>
   );
 }
@@ -948,7 +1168,320 @@ function BrandsRoutePage() {
   );
 }
 
+function SignupRoutePage({
+  onAuthSuccess,
+  session,
+}: {
+  onAuthSuccess: (session: AuthResponse) => void;
+  session: AuthResponse | null;
+}) {
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage(undefined);
+    setIsSubmitting(true);
+
+    try {
+      const nextSession = await sendJson<AuthResponse>("/auth/signup", "POST", {
+        username,
+        password,
+      });
+
+      onAuthSuccess(nextSession);
+
+      startTransition(() => {
+        navigate("/onboarding");
+      });
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : "Signup failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <AuthPage
+      description="Create a simple ClosetSearch account with username and password. This flow stays intentionally light and browser-driven for the milestone."
+      highlightValue="Signup"
+      title="Sign Up"
+    >
+      {session ? (
+        <StateCard
+          action={
+            <Link className="search-form__button link-button" to="/profile">
+              Go to profile
+            </Link>
+          }
+          body="You already have an active local account session in this browser."
+          title="Already signed in"
+        />
+      ) : (
+        <form className="account-form" onSubmit={handleSubmit}>
+          <label className="field-group" htmlFor="signup-username">
+            <span>Username</span>
+            <input
+              id="signup-username"
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="archivekid"
+              value={username}
+            />
+          </label>
+
+          <label className="field-group" htmlFor="signup-password">
+            <span>Password</span>
+            <input
+              id="signup-password"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="At least 4 characters"
+              type="password"
+              value={password}
+            />
+          </label>
+
+          {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+
+          <div className="search-panel__actions">
+            <button className="search-form__button" disabled={isSubmitting} type="submit">
+              {isSubmitting ? "Creating account..." : "Create account"}
+            </button>
+            <Link className="secondary-button link-button" to="/login">
+              Already have an account?
+            </Link>
+          </div>
+        </form>
+      )}
+    </AuthPage>
+  );
+}
+
+function LoginRoutePage({
+  onAuthSuccess,
+  session,
+}: {
+  onAuthSuccess: (session: AuthResponse) => void;
+  session: AuthResponse | null;
+}) {
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage(undefined);
+    setIsSubmitting(true);
+
+    try {
+      const nextSession = await sendJson<AuthResponse>("/auth/login", "POST", {
+        username,
+        password,
+      });
+
+      onAuthSuccess(nextSession);
+
+      startTransition(() => {
+        navigate(hasCompletedOnboarding(nextSession) ? "/profile" : "/onboarding");
+      });
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : "Login failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <AuthPage
+      description="Log in with the lightweight username/password flow created for this milestone. No JWTs, sessions, or premium logic are mixed in."
+      highlightValue="Login"
+      title="Log In"
+    >
+      {session ? (
+        <StateCard
+          action={
+            <Link className="search-form__button link-button" to="/profile">
+              Go to profile
+            </Link>
+          }
+          body="You already have an active local account session in this browser."
+          title="Already signed in"
+        />
+      ) : (
+        <form className="account-form" onSubmit={handleSubmit}>
+          <label className="field-group" htmlFor="login-username">
+            <span>Username</span>
+            <input
+              id="login-username"
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="archivekid"
+              value={username}
+            />
+          </label>
+
+          <label className="field-group" htmlFor="login-password">
+            <span>Password</span>
+            <input
+              id="login-password"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Your password"
+              type="password"
+              value={password}
+            />
+          </label>
+
+          {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+
+          <div className="search-panel__actions">
+            <button className="search-form__button" disabled={isSubmitting} type="submit">
+              {isSubmitting ? "Logging in..." : "Log in"}
+            </button>
+            <Link className="secondary-button link-button" to="/signup">
+              Need an account?
+            </Link>
+          </div>
+        </form>
+      )}
+    </AuthPage>
+  );
+}
+
+function OnboardingRoutePage({
+  onSessionChange,
+  session,
+}: {
+  onSessionChange: (session: AuthResponse) => void;
+  session: AuthResponse | null;
+}) {
+  const navigate = useNavigate();
+  const [favoriteBrands, setFavoriteBrands] = useState("");
+  const [categories, setCategories] = useState("");
+  const [priceRange, setPriceRange] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setFavoriteBrands(session?.user.onboardingPreferences.favoriteBrands.join(", ") ?? "");
+    setCategories(session?.user.onboardingPreferences.categories.join(", ") ?? "");
+    setPriceRange(session?.user.onboardingPreferences.priceRange ?? "");
+  }, [session]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!session) {
+      return;
+    }
+
+    setErrorMessage(undefined);
+    setIsSubmitting(true);
+
+    try {
+      const nextSession = await sendJson<AuthResponse>("/users/onboarding", "POST", {
+        userId: session.userId,
+        preferences: {
+          favoriteBrands: parseCommaSeparatedList(favoriteBrands),
+          categories: parseCommaSeparatedList(categories),
+          priceRange: priceRange.trim(),
+        },
+      });
+
+      onSessionChange(nextSession);
+
+      startTransition(() => {
+        navigate("/");
+      });
+    } catch (error: unknown) {
+      setErrorMessage(error instanceof Error ? error.message : "Preferences could not be saved.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <OnboardingPage>
+      {!session ? (
+        <StateCard
+          action={
+            <div className="inline-actions">
+              <Link className="search-form__button link-button" to="/signup">
+                Sign up
+              </Link>
+              <Link className="secondary-button link-button" to="/login">
+                Log in
+              </Link>
+            </div>
+          }
+          body="Create an account or log in before saving onboarding preferences."
+          title="Onboarding needs an account"
+        />
+      ) : (
+        <form className="account-form" onSubmit={handleSubmit}>
+          <label className="field-group" htmlFor="onboarding-brands">
+            <span>Favorite brands</span>
+            <input
+              id="onboarding-brands"
+              onChange={(event) => setFavoriteBrands(event.target.value)}
+              placeholder="Our Legacy, Helmut Lang, Acne Studios"
+              value={favoriteBrands}
+            />
+          </label>
+
+          <label className="field-group" htmlFor="onboarding-categories">
+            <span>Categories</span>
+            <input
+              id="onboarding-categories"
+              onChange={(event) => setCategories(event.target.value)}
+              placeholder="jackets, knitwear, pants"
+              value={categories}
+            />
+          </label>
+
+          <label className="field-group" htmlFor="onboarding-price-range">
+            <span>Price preference</span>
+            <input
+              id="onboarding-price-range"
+              onChange={(event) => setPriceRange(event.target.value)}
+              placeholder="$100-$300"
+              value={priceRange}
+            />
+          </label>
+
+          {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+
+          <div className="search-panel__actions">
+            <button className="search-form__button" disabled={isSubmitting} type="submit">
+              {isSubmitting ? "Saving..." : "Save preferences"}
+            </button>
+          </div>
+        </form>
+      )}
+    </OnboardingPage>
+  );
+}
+
 export function AppLayout() {
+  const navigate = useNavigate();
+  const [session, setSession] = useState<AuthResponse | null>(() => loadUserSession());
+
+  function handleSessionChange(nextSession: AuthResponse) {
+    saveUserSession(nextSession);
+    setSession(nextSession);
+  }
+
+  function handleLogout() {
+    clearUserSession();
+    setSession(null);
+
+    startTransition(() => {
+      navigate("/");
+    });
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -958,28 +1491,47 @@ export function AppLayout() {
           </div>
           <div>
             <p className="brand-kicker">ClosetSearch</p>
-            <h1>Search experience foundation.</h1>
+            <h1>Search and accounts foundation.</h1>
           </div>
         </div>
         <GlobalSearchBar />
-        <NavLink className="directory-link" to={brandDirectoryLink.path}>
-          {brandDirectoryLink.label}
-        </NavLink>
+        <div className="topbar-actions">
+          <NavLink className="directory-link" to={brandDirectoryLink.path}>
+            {brandDirectoryLink.label}
+          </NavLink>
+          {session ? (
+            <div className="session-pill">
+              <span>@{session.user.username}</span>
+              <button className="secondary-button session-pill__button" onClick={handleLogout} type="button">
+                Log out
+              </button>
+            </div>
+          ) : (
+            <div className="inline-actions">
+              <Link className="secondary-button link-button" to="/login">
+                Log in
+              </Link>
+              <Link className="search-form__button link-button" to="/signup">
+                Sign up
+              </Link>
+            </div>
+          )}
+        </div>
       </header>
 
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">Milestone 5 foundation</p>
-          <h2>Search is now a real product surface with global entry, filters, and local memory.</h2>
+          <p className="eyebrow">Milestone 6 foundation</p>
+          <h2>Accounts, onboarding, and likes now sit beside the existing feed and search flows.</h2>
           <p>
-            Home and search still share the same listing card while the API keeps feed and search as
-            separate normalized flows.
+            The API and web app still keep discovery/search loosely coupled from account state, with
+            lightweight in-memory storage instead of a database.
           </p>
         </div>
         <div className="hero-aside">
-          <div className="hero-chip">Global top search bar</div>
-          <div className="hero-chip">Normalized filters and sorting</div>
-          <div className="hero-chip">Browser-only recent searches</div>
+          <div className="hero-chip">Username/password auth</div>
+          <div className="hero-chip">Onboarding preferences</div>
+          <div className="hero-chip">Likes on listing cards</div>
         </div>
       </section>
 
@@ -1002,11 +1554,23 @@ export function AppLayout() {
 
       <main className="page-main">
         <Routes>
-          <Route element={<HomePage />} path="/" />
-          <Route element={<SearchRoutePage />} path="/search" />
+          <Route element={<HomePage session={session} />} path="/" />
+          <Route element={<SearchRoutePage session={session} />} path="/search" />
           <Route element={<RecentSearchesRoutePage />} path="/recent-searches" />
           <Route element={<AnalyticsRoutePage />} path="/analytics" />
-          <Route element={<ProfileRoutePage />} path="/profile" />
+          <Route element={<ProfileRoutePage session={session} />} path="/profile" />
+          <Route
+            element={<SignupRoutePage onAuthSuccess={handleSessionChange} session={session} />}
+            path="/signup"
+          />
+          <Route
+            element={<LoginRoutePage onAuthSuccess={handleSessionChange} session={session} />}
+            path="/login"
+          />
+          <Route
+            element={<OnboardingRoutePage onSessionChange={handleSessionChange} session={session} />}
+            path="/onboarding"
+          />
           <Route element={<BrandsRoutePage />} path="/brands" />
           <Route element={<NotFoundPage />} path="*" />
         </Routes>

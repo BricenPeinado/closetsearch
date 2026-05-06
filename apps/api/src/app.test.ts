@@ -1,6 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { describe, expect, it } from "vitest";
+import { Readable } from "node:stream";
+import { beforeEach, describe, expect, it } from "vitest";
 import { handleRequest } from "./app.js";
+import { resetLikeStore } from "./like-service.js";
+import { resetUserStore } from "./user-service.js";
 
 function createResponseRecorder() {
   let statusCode = 0;
@@ -29,7 +32,22 @@ function createResponseRecorder() {
   };
 }
 
+function createJsonRequest(method: string, url: string, body?: unknown) {
+  const json = body === undefined ? "" : JSON.stringify(body);
+  const stream = Readable.from(json ? [json] : []) as IncomingMessage;
+
+  stream.method = method;
+  stream.url = url;
+
+  return stream;
+}
+
 describe("handleRequest", () => {
+  beforeEach(() => {
+    resetUserStore();
+    resetLikeStore();
+  });
+
   it("returns a healthy JSON response from /health", async () => {
     const request = {
       method: "GET",
@@ -51,6 +69,164 @@ describe("handleRequest", () => {
     expect(JSON.parse(recorder.snapshot().body)).toMatchObject({
       service: "closetsearch-api",
       status: "ok",
+    });
+  });
+
+  it("creates and logs in a user through auth endpoints", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "archivekid",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    expect(signupRecorder.snapshot().statusCode).toBe(201);
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      user: {
+        currencyPreference: string;
+        onboardingPreferences: { favoriteBrands: string[] };
+        username: string;
+      };
+      userId: string;
+    };
+
+    expect(signupBody.userId).toBeTruthy();
+    expect(signupBody.user.username).toBe("archivekid");
+    expect(signupBody.user.currencyPreference).toBe("USD");
+    expect(signupBody.user.onboardingPreferences.favoriteBrands).toEqual([]);
+
+    const loginRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/login", {
+        username: "archivekid",
+        password: "mohair",
+      }),
+      loginRecorder.response,
+    );
+
+    expect(loginRecorder.snapshot().statusCode).toBe(200);
+
+    const loginBody = JSON.parse(loginRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    expect(loginBody.userId).toBe(signupBody.userId);
+  });
+
+  it("saves onboarding preferences for a user", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "closetlover",
+        password: "jacket",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    const onboardingRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/users/onboarding", {
+        userId: signupBody.userId,
+        preferences: {
+          favoriteBrands: ["Our Legacy", "Acne Studios"],
+          categories: ["jackets", "knitwear"],
+          priceRange: "$100-$300",
+        },
+      }),
+      onboardingRecorder.response,
+    );
+
+    expect(onboardingRecorder.snapshot().statusCode).toBe(200);
+
+    const onboardingBody = JSON.parse(onboardingRecorder.snapshot().body) as {
+      user: {
+        onboardingPreferences: {
+          categories: string[];
+          favoriteBrands: string[];
+          priceRange: string;
+        };
+      };
+    };
+
+    expect(onboardingBody.user.onboardingPreferences).toEqual({
+      favoriteBrands: ["Our Legacy", "Acne Studios"],
+      categories: ["jackets", "knitwear"],
+      priceRange: "$100-$300",
+    });
+  });
+
+  it("creates and removes likes for a user", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "liker",
+        password: "heart",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    const createLikeRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/likes", {
+        userId: signupBody.userId,
+        listingId: "mock:mock-jacket-001",
+        source: "mock",
+      }),
+      createLikeRecorder.response,
+    );
+
+    expect(createLikeRecorder.snapshot().statusCode).toBe(201);
+
+    const getLikesRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: `/likes/${signupBody.userId}`,
+      } as IncomingMessage,
+      getLikesRecorder.response,
+    );
+
+    const getLikesBody = JSON.parse(getLikesRecorder.snapshot().body) as {
+      likes: Array<{ listingId: string; source: string }>;
+    };
+
+    expect(getLikesBody.likes).toHaveLength(1);
+    expect(getLikesBody.likes[0]).toMatchObject({
+      listingId: "mock:mock-jacket-001",
+      source: "mock",
+    });
+
+    const deleteLikeRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("DELETE", "/likes", {
+        userId: signupBody.userId,
+        listingId: "mock:mock-jacket-001",
+      }),
+      deleteLikeRecorder.response,
+    );
+
+    expect(deleteLikeRecorder.snapshot().statusCode).toBe(200);
+    expect(JSON.parse(deleteLikeRecorder.snapshot().body)).toEqual({
+      removed: true,
     });
   });
 
