@@ -86,6 +86,50 @@ describe("handleRequest", () => {
     );
   });
 
+  it("supports normalized sort and listing type filters on /search", async () => {
+    const request = {
+      method: "GET",
+      url: "/search?q=jacket&sort=price_asc&listingType=auction&source=mock",
+    } as IncomingMessage;
+
+    const recorder = createResponseRecorder();
+
+    await handleRequest(request, recorder.response);
+
+    expect(recorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(recorder.snapshot().body) as {
+      listings: Array<{
+        listingType: string;
+        price: { amount: number };
+        providerId: string;
+      }>;
+      page?: number;
+      pageSize?: number;
+      query: {
+        listingTypes?: string[];
+        page?: number;
+        pageSize?: number;
+        sort?: string;
+        sourceIds?: string[];
+      };
+    };
+
+    expect(body.query.sort).toBe("price_asc");
+    expect(body.query.listingTypes).toEqual(["auction"]);
+    expect(body.query.sourceIds).toEqual(["mock"]);
+    expect(body.query.page).toBe(1);
+    expect(body.query.pageSize).toBe(24);
+    expect(body.page).toBe(1);
+    expect(body.pageSize).toBe(24);
+    expect(body.listings).toHaveLength(1);
+    expect(body.listings[0]).toMatchObject({
+      listingType: "auction",
+      providerId: "mock",
+    });
+    expect(body.listings[0]?.price.amount).toBe(195);
+  });
+
   it("returns paginated normalized feed results from /feed", async () => {
     const request = {
       method: "GET",

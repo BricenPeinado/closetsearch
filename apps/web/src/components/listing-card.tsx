@@ -8,6 +8,18 @@ function formatPrice(listing: Listing) {
   }).format(listing.price.amount);
 }
 
+function formatListingType(listing: Listing) {
+  if (listing.listingType === "auction") {
+    return "Auction";
+  }
+
+  if (listing.listingType === "buy_now") {
+    return "Fixed price";
+  }
+
+  return "Listing";
+}
+
 export function ListingCard({ listing }: { listing: Listing }) {
   const metadata = [listing.category, listing.size, listing.condition]
     .filter(Boolean)
@@ -37,7 +49,7 @@ export function ListingCard({ listing }: { listing: Listing }) {
         <p className="listing-card__meta">{metadata || "Normalized listing"}</p>
         <div className="listing-card__footer">
           <strong>{formatPrice(listing)}</strong>
-          <span>Open source</span>
+          <span>{formatListingType(listing)}</span>
         </div>
       </div>
     </a>
