@@ -791,6 +791,87 @@ select {
   display: block;
 }
 
+.listing-risk {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0 1rem 1rem;
+}
+
+.listing-risk__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 252, 247, 0.88);
+  cursor: pointer;
+  list-style: none;
+}
+
+.listing-risk__summary::-webkit-details-marker {
+  display: none;
+}
+
+.listing-risk__badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(95, 77, 63, 0.08);
+  color: #4d3e33;
+}
+
+.listing-risk__badge--low {
+  background: rgba(110, 132, 98, 0.16);
+  color: #46563d;
+}
+
+.listing-risk__badge--medium {
+  background: rgba(183, 146, 93, 0.18);
+  color: #6f5131;
+}
+
+.listing-risk__badge--elevated {
+  background: rgba(176, 140, 108, 0.2);
+  color: #6a4a2a;
+}
+
+.listing-risk__badge--unknown {
+  background: rgba(132, 123, 115, 0.14);
+  color: #5e564f;
+}
+
+.listing-risk__hint {
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+
+.listing-risk__panel {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 250, 245, 0.8);
+}
+
+.listing-risk__panel p {
+  margin: 0;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.listing-risk__disclaimer {
+  font-size: 0.82rem;
+}
+
 .listing-card__image-wrap {
   aspect-ratio: 4 / 5;
   background: rgba(229, 213, 196, 0.45);

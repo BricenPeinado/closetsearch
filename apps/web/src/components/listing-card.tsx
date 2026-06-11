@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RISK_LEVEL_LABELS, RISK_SIGNAL_LABEL } from "@closetsearch/shared";
 import type { Listing } from "@closetsearch/shared";
 
 function formatPrice(listing: Listing) {
@@ -36,6 +37,7 @@ export function ListingCard({
     .filter(Boolean)
     .join(" • ");
   const [isSubmittingLike, setIsSubmittingLike] = useState(false);
+  const riskSignal = listing.riskSignal;
 
   async function handleToggleLike() {
     if (!onToggleLike || isSubmittingLike) {
@@ -95,6 +97,20 @@ export function ListingCard({
           </div>
         </div>
       </a>
+      {riskSignal ? (
+        <details className="listing-risk">
+          <summary className="listing-risk__summary">
+            <span className={`listing-risk__badge listing-risk__badge--${riskSignal.riskLevel}`}>
+              {RISK_LEVEL_LABELS[riskSignal.riskLevel]}
+            </span>
+            <span className="listing-risk__hint">{RISK_SIGNAL_LABEL}</span>
+          </summary>
+          <div className="listing-risk__panel">
+            <p>{riskSignal.explanation}</p>
+            <p className="listing-risk__disclaimer">{riskSignal.disclaimer}</p>
+          </div>
+        </details>
+      ) : null}
     </article>
   );
 }

@@ -167,3 +167,26 @@ Any future fake-risk feature must be framed as an assistive risk signal, not a d
 #### Consequences
 
 Future trust work has a safer product boundary, but no fake-risk scoring or UI should be built before the core product is stable.
+
+### Trust Foundations Must Stay Isolated and Non-Blocking
+
+**Date:** 2026-05-06  
+**Status:** Accepted
+
+#### Context
+
+ClosetSearch needs a foundation for future trust work without weakening feed, search, or listing discovery behavior.
+
+#### Decision
+
+The trust foundation may add placeholder risk-signal contracts, mock service output, and subtle UI wording. It must stay optional, assistive, and isolated from ranking, filtering, blocking, analytics, and authenticity claims.
+
+#### Alternatives Considered
+
+- Hide trust work entirely until later milestones.
+- Add stronger authenticity warnings during the foundation pass.
+- Use trust signals to suppress or reorder listings.
+
+#### Consequences
+
+The repo can establish stable interfaces and wording now while deferring real detection logic, ML, scraping, and enforcement behavior.

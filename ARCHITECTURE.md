@@ -200,6 +200,13 @@ Premium analytics is a future subsystem for pricing and market insights. It shou
 
 Fake-risk intelligence is a future trust subsystem. It should be treated as probabilistic and assistive. No fake-risk model, scoring, or UI should be added during the initial build.
 
+When the trust foundation begins, it should stay isolated:
+
+- risk signals are optional listing annotations, not ranking or filtering inputs
+- the API may attach placeholder risk data, but it must not block listings
+- the web app may show subtle explanation UI, but not alarm language
+- no ML models, scraping, or authenticity claims belong in this foundation pass
+
 ## Engineering Direction
 
 - Use TypeScript for shared contracts.

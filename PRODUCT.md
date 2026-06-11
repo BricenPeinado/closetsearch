@@ -91,6 +91,13 @@ Fake-risk intelligence is a future trust feature. It may use listing metadata, p
 
 It must be presented as an assistive risk signal, not a definitive authenticity claim.
 
+When trust placeholders appear, the product language should stay cautious:
+
+- use soft labels such as Low review signal, Medium review signal, Elevated review signal, and Limited signal
+- frame the output as an estimate based on listing signals
+- include a disclaimer that the signal is not a guarantee
+- avoid any claim that ClosetSearch has confirmed authenticity
+
 ## V1 Scope
 
 V1 should focus on the core discovery/search product:
@@ -131,6 +138,7 @@ V1 should focus on the core discovery/search product:
 - risk-signal model
 - source confidence and anomaly indicators
 - image, price, and metadata signal exploration
+- placeholder-only UI patterns with disclaimer copy
 
 ## Non-Goals for the Initial Build
 

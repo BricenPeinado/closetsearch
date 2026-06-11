@@ -251,6 +251,10 @@ describe("handleRequest", () => {
       listings: Array<{
         brand: { name: string };
         providerId: string;
+        riskSignal?: {
+          explanation: string;
+          riskLevel: string;
+        };
         title: string;
       }>;
       query: { text: string };
@@ -261,10 +265,14 @@ describe("handleRequest", () => {
     expect(body.total).toBeGreaterThan(0);
     expect(body.listings[0]).toMatchObject({
       providerId: "mock",
+      riskSignal: {
+        riskLevel: expect.any(String),
+      },
     });
     expect(body.listings.some((listing) => listing.title.toLowerCase().includes("jacket"))).toBe(
       true,
     );
+    expect(body.listings[0]?.riskSignal?.explanation).toBeTruthy();
   });
 
   it("supports normalized sort and listing type filters on /search", async () => {
@@ -284,6 +292,9 @@ describe("handleRequest", () => {
         listingType: string;
         price: { amount: number };
         providerId: string;
+        riskSignal?: {
+          riskLevel: string;
+        };
       }>;
       page?: number;
       pageSize?: number;
@@ -307,6 +318,9 @@ describe("handleRequest", () => {
     expect(body.listings[0]).toMatchObject({
       listingType: "auction",
       providerId: "mock",
+      riskSignal: {
+        riskLevel: expect.any(String),
+      },
     });
     expect(body.listings[0]?.price.amount).toBe(195);
   });
@@ -329,6 +343,10 @@ describe("handleRequest", () => {
       listings: Array<{
         brand: { name: string };
         providerId: string;
+        riskSignal?: {
+          explanation: string;
+          riskLevel: string;
+        };
         source: { name: string };
         sourceUrl: string;
         title: string;
@@ -351,11 +369,15 @@ describe("handleRequest", () => {
         name: "Our Legacy",
       },
       providerId: "mock",
+      riskSignal: {
+        riskLevel: expect.any(String),
+      },
       source: {
         name: "Mock Closet",
       },
     });
     expect(body.listings[0].sourceUrl).toContain("https://");
+    expect(body.listings[0]?.riskSignal?.explanation).toBeTruthy();
   });
 
   it("lists brands from /brands and filters by query", async () => {
