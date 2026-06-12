@@ -16,7 +16,7 @@ function formatListingType(listing: Listing) {
   }
 
   if (listing.listingType === "buy_now") {
-    return "Fixed price";
+    return "Buy Now";
   }
 
   return "Listing";
@@ -38,6 +38,7 @@ export function ListingCard({
     .join(" • ");
   const [isSubmittingLike, setIsSubmittingLike] = useState(false);
   const riskSignal = listing.riskSignal;
+  const hasListingTypeBadge = listing.listingType !== "unknown";
 
   async function handleToggleLike() {
     if (!onToggleLike || isSubmittingLike) {
@@ -75,8 +76,11 @@ export function ListingCard({
         </span>
       </button>
 
-      <a href={listing.sourceUrl} rel="noreferrer" target="_blank">
+      <a className="listing-card__link" href={listing.sourceUrl} rel="noreferrer" target="_blank">
         <div className="listing-card__image-wrap">
+          {hasListingTypeBadge ? (
+            <span className="listing-card__type-badge">{formatListingType(listing)}</span>
+          ) : null}
           <img
             alt={listing.title}
             className="listing-card__image"
@@ -90,10 +94,10 @@ export function ListingCard({
             <span>{listing.source.name}</span>
           </div>
           <h2>{listing.title}</h2>
-          <p className="listing-card__meta">{metadata || "Normalized listing"}</p>
+          <p className="listing-card__meta">{metadata || "Curated resale listing"}</p>
           <div className="listing-card__footer">
             <strong>{formatPrice(listing)}</strong>
-            <span>{formatListingType(listing)}</span>
+            <span>{listing.source.name}</span>
           </div>
         </div>
       </a>

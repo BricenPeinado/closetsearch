@@ -49,13 +49,13 @@ import { clearUserSession, loadUserSession, saveUserSession } from "./user-sessi
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
   { label: "Search", path: "/search" },
-  { label: "Recent Searches", path: "/recent-searches" },
+  { label: "Brands", path: "/brands" },
   { label: "Analytics", path: "/analytics" },
   { label: "Profile", path: "/profile" },
 ] as const;
 
 const brandDirectoryLink = {
-  label: "Brand Directory",
+  label: "Browse brands",
   path: "/brands",
 } as const;
 
@@ -421,7 +421,7 @@ function GlobalSearchBar() {
   return (
     <form className="global-search" onSubmit={handleSubmit}>
       <label className="global-search__label" htmlFor="global-search-input">
-        Search across ClosetSearch
+        Search
       </label>
       <div className="global-search__controls">
         <input
@@ -429,11 +429,11 @@ function GlobalSearchBar() {
           id="global-search-input"
           name="q"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search jackets, brands, or materials"
+          placeholder="Search brands, pieces, or styles"
           value={query}
         />
         <button className="global-search__button" type="submit">
-          Search
+          Explore
         </button>
       </div>
     </form>
@@ -2222,7 +2222,7 @@ export function AppLayout() {
           </div>
           <div>
             <p className="brand-kicker">ClosetSearch</p>
-            <h1>Search and accounts foundation.</h1>
+            <h1>Fashion resale discovery.</h1>
           </div>
         </div>
         <GlobalSearchBar />
@@ -2252,8 +2252,8 @@ export function AppLayout() {
 
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">Milestone 7 foundation</p>
-          <h2>Accounts, likes, and simple personalization now sit beside the existing feed and search flows.</h2>
+          <p className="eyebrow">Visual resale discovery</p>
+          <h2>Browse fashion resale like a feed, not a spreadsheet.</h2>
           <p>
             The API and web app keep discovery/search loosely coupled from account state, with a
             deterministic recommendation layer and lightweight in-memory storage instead of a
@@ -2261,9 +2261,9 @@ export function AppLayout() {
           </p>
         </div>
         <div className="hero-aside">
-          <div className="hero-chip">Username/password auth</div>
-          <div className="hero-chip">Onboarding preferences</div>
-          <div className="hero-chip">Personalized home feed</div>
+          <div className="hero-chip">For You and Trending feed</div>
+          <div className="hero-chip">Search brands, pieces, or styles</div>
+          <div className="hero-chip">Likes, analytics, and trust placeholders</div>
         </div>
       </section>
 
