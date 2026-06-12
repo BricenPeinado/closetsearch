@@ -1,4 +1,5 @@
 import type { Brand } from "./brand";
+import type { RiskSignal } from "./risk";
 
 export type ListingType = "auction" | "buy_now" | "unknown";
 export type ListingCondition =
@@ -34,4 +35,5 @@ export interface Listing {
   condition?: ListingCondition;
   listingType: ListingType;
   fetchedAt: string;
+  riskSignal?: RiskSignal;
 }

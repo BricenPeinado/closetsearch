@@ -1,36 +1,80 @@
 # ClosetSearch
 
-ClosetSearch is a fashion resale discovery platform. It helps users browse a visual home feed, search across clothing resale marketplaces, and discover brands through a normalized product experience.
+ClosetSearch is a fashion resale discovery app. The goal is to help users browse a visual feed, search across resale listings, explore brands, save interesting pieces, and eventually benefit from lightweight personalization and pricing context without turning the product into a noisy dashboard.
 
-The repository is intentionally small and documentation-led. The goal is to make each development pass clear enough for an engineer or AI coding agent to implement without guessing at product scope.
+The repo is documentation-led and milestone-based. Foundation work is already in place, and the project is now moving from placeholder architecture into real-data and productization passes.
 
 ## Current Status
 
-ClosetSearch is in Milestone 2: app skeleton and tooling.
+ClosetSearch has completed its initial foundation milestones and is now moving into real-data and productization work.
 
-The repo currently contains:
+Completed foundation milestones:
 
-- root product and architecture docs
-- a runnable web app shell in `apps/web`
-- a runnable API app shell in `apps/api`
-- starter shared TypeScript contracts
-- starter provider package structure
-- pnpm workspace configuration
-- workspace TypeScript, lint, build, and test commands
+- product and repo foundation
+- app skeleton and tooling
+- listing and provider foundations
+- home feed foundation
+- search experience foundation
+- brand browsing foundation
+- accounts and personalization foundation
+- premium analytics foundation
+- trust / fake-risk foundation placeholder
 
-It does not contain real provider integrations, auth, analytics logic, payments, database systems, or AI systems yet.
+What is implemented now:
 
-## Product Direction
+- web app shell in `apps/web`
+- API app shell in `apps/api`
+- normalized shared listing, search, brand, user, analytics, and risk types in `packages/shared`
+- mock provider flow in `packages/providers`
+- home feed with listing cards and load-more behavior
+- search with filters, sorting, and recent searches
+- brand directory and brand detail shell
+- signup, login, onboarding, profile, and likes/hearts foundations
+- simple signed-in personalization based on likes and onboarding preferences
+- premium analytics placeholder surfaces and mock signals
+- trust / fake-risk placeholder signals with careful assistive wording
 
-The core product is a resale discovery experience:
+What is still placeholder, mock, or intentionally lightweight:
 
-- The home feed is the primary surface.
-- Search is first-class and separate from feed logic.
-- Brand browsing is part of the core experience.
-- Marketplace providers must be modular and normalize their data.
-- Premium analytics and fake-risk intelligence are planned future areas, but they are not part of the initial build.
+- listing data is still mock/test data
+- real marketplace provider integrations are not complete
+- auth is still a lightweight foundation, not a production-grade auth stack
+- persistence is still in-memory or browser-local foundation behavior
+- analytics are placeholder foundations, not real market analytics
+- fake-risk is a trust placeholder, not real authenticity detection
+- there is no production-ready billing, subscriptions, watchlist delivery, or deployment hardening yet
 
-See [PRODUCT.md](PRODUCT.md) for phased scope and non-goals.
+## Roadmap Direction
+
+The next roadmap is no longer about proving placeholder surfaces. It is about making the product function more like a real resale app.
+
+Near-term roadmap direction:
+
+- QA and stabilization across all current flows
+- first real provider foundation and first real provider integration
+- real feed/search pagination and infinite-scroll friendly behavior
+- database persistence for users, likes, preferences, and saved searches
+- production-ready auth foundation
+- saved user features such as persistent likes and saved searches
+- stronger personalization built on real engagement data
+- real analytics v1 based on observed pricing data
+- alerts and watchlist foundations
+- beta launch readiness and deployment hardening
+
+ClosetSearch is not production-ready today. The current repo is best described as a solid foundation project that is ready for functional buildout.
+
+## Product Summary
+
+ClosetSearch should feel like a fashion-first resale browsing product:
+
+- visual feed first
+- strong search and filters
+- normalized multi-provider listing model
+- clean brand browsing
+- careful, assistive personalization and pricing context
+- cautious trust language that never overclaims authenticity certainty
+
+See [PRODUCT.md](PRODUCT.md) for product scope and phased goals.
 
 ## Repository Structure
 
@@ -42,37 +86,39 @@ closetsearch/
   TASKS.md
   DECISIONS.md
   apps/
-    web/        User-facing React + Vite app shell
-    api/        TypeScript API shell
+    web/        React + Vite frontend
+    api/        TypeScript API boundary
   packages/
-    shared/     Shared domain types and utilities
-    providers/  Provider contracts and marketplace adapters
+    shared/     Shared domain types and small utilities
+    providers/  Provider contracts and mock provider implementation
   docs/
     prompts/              AI development prompts and notes
     marketplace-notes/    Marketplace research notes
     runbooks/             Operational and development runbooks
-  tests/       Cross-package or end-to-end tests when introduced
+  tests/       Cross-package or end-to-end tests when expanded
 ```
 
 ## Development Principles
 
 - Work in small, reviewable passes.
-- Keep feed, search, providers, and future intelligence systems separated.
-- Prefer normalized domain models over source-specific data leaking across the app.
-- Do not add auth, favorites, analytics, payments, or fake-risk systems before the core discovery/search experience is stable.
-- Add tooling and dependencies only when a milestone needs them.
+- Keep provider-specific logic inside provider adapters.
+- Keep the rest of the app dependent on normalized shared models.
+- Verify each pass before moving to the next one.
+- Do not overbuild premium analytics, AI, or fake-risk before core discovery and search are strong.
+- Be explicit about what is real, what is mock, and what is placeholder.
+- Prefer user-visible reliability and data quality over speculative systems.
 
 ## Getting Started
 
-Start by reading the core docs:
+Read the core docs before making changes:
 
-1. Read [PRODUCT.md](PRODUCT.md) to understand what V1 includes and excludes.
-2. Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing code boundaries.
-3. Use [TASKS.md](TASKS.md) to choose the next focused pass.
-4. Follow [ENGINEERING.md](ENGINEERING.md) for workspace and boundary standards.
-5. Record durable choices in [DECISIONS.md](DECISIONS.md).
+1. [PRODUCT.md](PRODUCT.md)
+2. [ARCHITECTURE.md](ARCHITECTURE.md)
+3. [TASKS.md](TASKS.md)
+4. [ENGINEERING.md](ENGINEERING.md)
+5. [DECISIONS.md](DECISIONS.md)
 
-Install dependencies with pnpm before running workspace scripts:
+Install dependencies and run workspace checks:
 
 ```sh
 corepack pnpm install
@@ -84,7 +130,7 @@ corepack pnpm test
 
 ## Local Development
 
-Run the web app:
+Run the frontend:
 
 ```sh
 corepack pnpm dev:web
@@ -96,8 +142,33 @@ Run the API app:
 corepack pnpm dev:api
 ```
 
-Run both workspace apps in parallel:
+Run both together:
 
 ```sh
 corepack pnpm dev
 ```
+
+## Current Limitations
+
+Be careful not to overstate the current product state:
+
+- provider data is mock-backed today
+- user persistence is not yet database-backed
+- auth is not yet production-grade
+- analytics and fake-risk are foundation-only systems
+- alerts and watchlists are still roadmap items
+- deployment hardening and operational readiness still need dedicated work
+
+## Next Planned Buildout
+
+The next functional passes should focus on:
+
+- stabilization and QA
+- real provider runtime and first live provider integration
+- pagination and repeated-search reliability
+- persistence and auth hardening
+- saved user features and improved personalization
+- analytics v1 from observed pricing data
+- alerts/watchlists and beta readiness
+
+Use [TASKS.md](TASKS.md) for the step-by-step milestone roadmap.

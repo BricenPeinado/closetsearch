@@ -3,6 +3,7 @@ import type { Provider } from "@closetsearch/providers";
 import type { Listing, SearchQuery, SearchResponse } from "@closetsearch/shared";
 import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
+import { generateRiskSignal } from "./services/riskService.js";
 
 const developmentProviders: Provider[] = [mockProvider];
 
@@ -29,6 +30,13 @@ function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
   return sorted;
 }
 
+function attachRiskSignal(listing: Listing): Listing {
+  return {
+    ...listing,
+    riskSignal: generateRiskSignal(listing),
+  };
+}
+
 export async function searchListings(query: SearchQuery): Promise<SearchResponse> {
   const providerResponses = await Promise.all(
     developmentProviders.map(async (provider) => ({
@@ -43,7 +51,7 @@ export async function searchListings(query: SearchQuery): Promise<SearchResponse
 
   const providers = providerResponses.map(({ provider, response }) => {
     if (response.status === "success") {
-      listings.push(...response.listings);
+      listings.push(...response.listings.map(attachRiskSignal));
       hasMore = hasMore || Boolean(response.hasMore);
       nextCursor ??= response.nextCursor;
 

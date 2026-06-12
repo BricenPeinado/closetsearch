@@ -1,3 +1,11 @@
+export {
+  RISK_LEVEL_LABELS,
+  RISK_SIGNAL_CATEGORIES,
+  RISK_SIGNAL_DISCLAIMER,
+  RISK_SIGNAL_INPUT_FAMILIES,
+  RISK_SIGNAL_LABEL,
+  RISK_SIGNAL_PRODUCT_LANGUAGE,
+} from "./domain";
 export type {
   AnalyticsOverview,
   AuthResponse,
@@ -15,6 +23,9 @@ export type {
   OnboardingPreferences,
   PriceRange,
   PremiumAccess,
+  RiskLevel,
+  RiskSignal,
+  RiskSignalCategory,
   SearchProviderSummary,
   SearchQuery,
   SearchResponse,

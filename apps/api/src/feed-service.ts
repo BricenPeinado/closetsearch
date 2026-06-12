@@ -5,6 +5,7 @@ import { getLikesByUserId } from "./like-service.js";
 import { getUserById } from "./user-service.js";
 import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
+import { generateRiskSignal } from "./services/riskService.js";
 import {
   hasPersonalizationSignals,
   rankListings,
@@ -18,6 +19,13 @@ function sortListings(listings: Listing[]) {
     (left, right) =>
       new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime(),
   );
+}
+
+function attachRiskSignal(listing: Listing): Listing {
+  return {
+    ...listing,
+    riskSignal: generateRiskSignal(listing),
+  };
 }
 
 export async function getFeed(query: FeedQuery): Promise<FeedResponse> {
@@ -34,7 +42,7 @@ export async function getFeed(query: FeedQuery): Promise<FeedResponse> {
 
   for (const response of providerResponses) {
     if (response.status === "success") {
-      listings.push(...response.listings);
+      listings.push(...response.listings.map(attachRiskSignal));
     }
   }
 
