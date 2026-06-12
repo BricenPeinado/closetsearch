@@ -5,15 +5,15 @@ import { AppLayout } from "./app";
 
 describe("AppLayout", () => {
   it.each([
-    { path: "/", title: "Homepage Feed" },
+    { path: "/", title: "Find your next piece" },
     { path: "/search", title: "Search" },
     { path: "/recent-searches", title: "Recent Searches" },
-    { path: "/analytics", title: "Analytics" },
+    { path: "/analytics", title: "Premium Analytics" },
     { path: "/profile", title: "Profile" },
-    { path: "/signup", title: "Sign Up" },
+    { path: "/signup", title: "Create Your Account" },
     { path: "/login", title: "Log In" },
-    { path: "/onboarding", title: "Onboarding" },
-    { path: "/brands", title: "Brand Directory" },
+    { path: "/onboarding", title: "Tell us what you like" },
+    { path: "/brands", title: "Brands" },
     { path: "/brands/kapital", title: "Brand Profile" },
   ])("renders $path", ({ path, title }) => {
     const html = renderToString(
