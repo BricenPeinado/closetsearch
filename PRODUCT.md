@@ -2,14 +2,15 @@
 
 ## Product Summary
 
-ClosetSearch is a fashion resale discovery platform that aggregates clothing resale listings and presents them through a fast, visual browsing and search experience.
+ClosetSearch is a fashion resale discovery app that aggregates resale listings into a visual browsing and search experience.
 
 The product should help users:
 
-- discover interesting resale listings without checking many marketplaces manually
-- search for specific items, brands, sizes, or categories
-- browse brands through a dedicated brand experience
-- eventually use personalization and market intelligence once the core product is strong
+- discover interesting listings without checking many marketplaces manually
+- search for specific brands, pieces, sizes, and price ranges
+- browse brands through a dedicated directory
+- save listings and searches that matter to them
+- gradually benefit from personalization and pricing context once the core product is reliable
 
 ## Target Users
 
@@ -26,144 +27,177 @@ Later power users:
 - resellers
 - collectors
 - market-focused buyers
-- users looking for pricing signals, alerts, or deeper resale insights
+- users who want watchlists, alerts, or pricing context
 
 ## Product Principles
 
-- Visual first: listing cards should make resale browsing feel immediate and compelling.
-- Fast discovery: users should reach relevant listings quickly.
-- Search quality matters: search is a core workflow, not a secondary feature.
-- Provider neutrality: the product should not expose marketplace-specific complexity to users.
-- Phased intelligence: personalization, analytics, and fake-risk signals should arrive only after the core feed/search product is useful.
-- Responsible language: pricing and authenticity signals must be framed carefully when introduced.
+- Visual first: the product should feel like a resale marketplace browser, not a dashboard.
+- Fast discovery: users should reach interesting listings quickly.
+- Search quality matters: search is a core workflow, not a secondary utility.
+- Provider neutrality: provider-specific complexity should stay out of the user experience.
+- Responsible intelligence: analytics and trust signals should start simple and cautious.
+- Honest scope: the product should be explicit about what is real, mock, or placeholder.
 
-## Core Surfaces
+## Current Foundation
 
-### Home Feed
+The current codebase already includes a meaningful foundation:
 
-The home feed is the core product surface. It should eventually show an infinite, visual feed of resale listings.
+- home feed
+- listing cards
+- search with filters and sorting
+- recent searches
+- brand directory and brand detail shell
+- signup, login, onboarding, profile, and likes foundations
+- simple personalization rules based on likes and onboarding preferences
+- premium analytics placeholder surfaces
+- trust / fake-risk placeholder signals with assistive wording
 
-Each listing card should show:
+Important current limits:
 
-- image
-- title
-- brand
-- source marketplace
-- price and currency
+- listing data is still mock-backed
+- provider integrations are not real yet
+- auth and persistence are still lightweight foundations
+- analytics are not real market intelligence yet
+- fake-risk is not real authenticity detection
 
-Initial feed logic should stay simple and signed-out. Personalization can be added later after accounts and engagement data exist.
+## V1 Functional Target
+
+The next real product target is a beta-ready functional resale app with:
+
+- real provider-backed search
+- real provider-backed feed
+- stable account system
+- persistent likes and onboarding preferences
+- saved searches and watchlists
+- improved personalization from real engagement data
+- real but simple analytics signals based on observed pricing data
+- clean marketplace UI across mobile and desktop
+- beta-ready deployment and operational basics
+
+V1 should feel useful and honest, not overbuilt.
+
+### Feed
+
+The feed should remain the core surface.
+
+V1 feed expectations:
+
+- real listings from at least one provider
+- responsive visual grid
+- real pagination or infinite-scroll friendly behavior
+- deduped results when paging or combining providers
+- good loading, empty, and error states
+- signed-out discovery plus signed-in personalization fallback
 
 ### Search
 
-Search is first-class and separate from feed logic.
+Search should be first-class and reliable.
 
-Search should eventually support:
+V1 search expectations:
 
-- text queries
-- brand filters
-- category filters
-- size filters
-- condition filters
-- price filters
-- marketplace/source filters
-- listing type filters
-- sorting
+- text query support
+- useful filters and sort options
+- normalized results from real providers
+- stable pagination
+- recent searches and saved searches
+- graceful handling of missing or partial source data
 
-The first implementation should prove the normalized search flow before adding every filter.
+### Brands
 
-### Brand Browsing
+Brand browsing should stay part of the core product.
 
-Brand browsing is part of the core product. The first version can use a simple brand directory and connect brands to search flows later.
+V1 brand expectations:
 
-### Future Personalization
+- searchable brand directory
+- alias and tag support where useful
+- quick handoff into real search results
+- room for richer brand-specific discovery later
 
-Personalization is part of the long-term direction, but not the first implementation target. Accounts, onboarding, likes, and engagement-based recommendations should wait until the core feed/search experience works.
+### Accounts and Saved User Features
 
-### Future Premium Analytics
+The current auth and profile surfaces are a foundation only.
 
-Premium analytics is planned for later phases. Possible future capabilities include market pricing summaries, underpriced listing signals, historical context, and alerts.
+V1 account expectations:
 
-These features should not be built until the core discovery/search experience has enough data quality and user value.
+- safer auth flow
+- persistent user record
+- persistent likes
+- persistent onboarding preferences
+- saved searches and watchlists
+- useful profile/settings shell
 
-### Future Fake-Risk Intelligence
+### Personalization
 
-Fake-risk intelligence is a future trust feature. It may use listing metadata, price anomalies, image signals, and source confidence.
+Personalization should improve after real engagement data exists.
 
-It must be presented as an assistive risk signal, not a definitive authenticity claim.
+V1 personalization expectations:
 
-When trust placeholders appear, the product language should stay cautious:
+- use likes and onboarding preferences
+- improve brand and category weighting
+- reduce repetitive feed results
+- keep ranking logic explainable
+- preserve a discovery fallback for sparse-user scenarios
 
-- use soft labels such as Low review signal, Medium review signal, Elevated review signal, and Limited signal
-- frame the output as an estimate based on listing signals
-- include a disclaimer that the signal is not a guarantee
-- avoid any claim that ClosetSearch has confirmed authenticity
+### Analytics
 
-## V1 Scope
+Analytics should begin as simple pricing context, not advanced prediction.
 
-V1 should focus on the core discovery/search product:
+V1 analytics expectations:
 
-- home feed surface
-- listing card model and presentation
-- global search surface
-- basic normalized search query support
-- basic filters needed for useful browsing
-- brand directory / brand browsing
-- modular provider contract
-- at least one provider flow, which can begin as mock data before a real integration
-- loading, empty, and error states for feed/search
+- observed price snapshots
+- simple brand/category pricing ranges
+- under-market style signals based on observed data
+- clear disclaimers and limited claims
+- no forecasting or unsupported market certainty language
+
+### Trust / Fake-Risk
+
+Trust/fake-risk should remain carefully limited.
+
+V1 trust expectations:
+
+- optional assistive signals only
+- careful labels and disclaimers
+- no fake/authentic certainty claims
+- no blocking or filtering based on trust signals
+- no ML or speculative authenticity logic
 
 ## Later Phases
 
-### Accounts and Personalization
+Later phases can expand once V1 discovery and reliability are strong:
 
-- signup and login
-- onboarding preferences
-- likes/hearts
-- recent searches tied to a user
-- profile surface
-- signed-in personalized feed
+- multiple real providers
+- richer saved-item workflows
+- broader alert delivery
+- stronger analytics depth over time
+- more advanced personalization controls
+- premium feature packaging when the underlying data is trustworthy
 
-### Premium Analytics
+## Non-Goals for the Current and Near-Term Build
 
-- analytics surface
-- premium access rules
-- market pricing summaries
-- underpriced listing signals
-- alerts or watchlists
-- historical pricing context
+Do not overclaim or overbuild these before the core product is ready:
 
-### Trust and Fake-Risk
-
-- safe product language for authenticity risk
-- risk-signal model
-- source confidence and anomaly indicators
-- image, price, and metadata signal exploration
-- placeholder-only UI patterns with disclaimer copy
-
-## Non-Goals for the Initial Build
-
-Do not build these before the core discovery/search experience is established:
-
-- authentication
-- user profiles
-- likes/favorites
-- saved searches
-- payments or subscriptions
-- premium analytics
-- alerts
-- advanced recommendation systems
-- fake detection or fake-risk scoring
-- seller tools
+- full production-scale provider network
+- advanced forecasting analytics
+- binary authenticity verdicts
+- AI/ML fake detection
+- payment processing
+- seller tooling
 - marketplace posting
-- social features or messaging
+- social messaging systems
 - complex admin systems
 
-## Success Criteria for Foundation
+## Product Success Criteria
 
-The product foundation is ready when:
+The current foundation is successful when:
 
-- V1 scope is clear enough to implement in small passes
-- feed and search responsibilities are separated
-- provider normalization is required by design
-- premium analytics and fake-risk work are explicitly deferred
-- engineering tasks can be reviewed milestone by milestone
+- the app surfaces work together cleanly
+- docs and milestones stay honest
+- real provider work can be added without rewriting the product model
+
+The next functional V1 is successful when:
+
+- users can browse and search real provider-backed listings
+- key user state persists reliably
+- personalization and analytics provide lightweight value without overclaiming
+- the app is stable enough for a limited beta

@@ -190,3 +190,92 @@ The trust foundation may add placeholder risk-signal contracts, mock service out
 #### Consequences
 
 The repo can establish stable interfaces and wording now while deferring real detection logic, ML, scraping, and enforcement behavior.
+
+### Move from Foundation Milestones to Functional Productization
+
+**Date:** 2026-06-12  
+**Status:** Accepted
+
+#### Context
+
+The initial milestones established the main product surfaces, shared models, mock provider flow, and placeholder systems for analytics and trust. The next biggest value is no longer more scaffolding. It is real provider data, persistence, QA, and a path toward beta readiness.
+
+#### Decision
+
+Future work will prioritize real provider data, persistence, QA, auth hardening, and beta readiness over additional placeholder-only systems.
+
+#### Alternatives Considered
+
+- Continue extending placeholder systems before real data work begins.
+- Jump directly to advanced analytics or trust logic.
+- Treat the current foundation as production-ready.
+
+#### Consequences
+
+The roadmap shifts away from placeholder architecture and toward user-visible functionality, reliability, and operational readiness.
+
+### Mock Provider Remains as Development Fallback
+
+**Date:** 2026-06-12  
+**Status:** Accepted
+
+#### Context
+
+The current app uses mock and test data. Real providers will be added gradually and may fail, rate-limit, or require credentials that are not available in every development environment.
+
+#### Decision
+
+Keep the mock provider available for local development, tests, demos, and fallback while real providers are added one at a time.
+
+#### Alternatives Considered
+
+- Remove the mock provider as soon as the first real provider is added.
+- Require all development work to depend on live provider access.
+
+#### Consequences
+
+Developers can keep shipping UI and contract changes without depending on external provider uptime, but production paths must clearly distinguish mock data from real data.
+
+### Real Analytics Start with Simple Observed Pricing Signals
+
+**Date:** 2026-06-12  
+**Status:** Accepted
+
+#### Context
+
+Premium analytics is part of the product direction, but advanced forecasting or pricing intelligence would be weak without stable provider coverage and observed historical data.
+
+#### Decision
+
+Analytics V1 will start with observed market ranges, price snapshots, and simple under-market comparisons.
+
+#### Alternatives Considered
+
+- Add advanced predictions immediately.
+- Delay all analytics until a much later phase.
+
+#### Consequences
+
+The product can create practical pricing context earlier without making unsupported predictions.
+
+### Trust Signals Are Assistive, Not Authenticity Verdicts
+
+**Date:** 2026-06-12  
+**Status:** Accepted
+
+#### Context
+
+Fake-risk features are sensitive and can create user harm if they overstate certainty or imply a real authenticity verdict that the product cannot support.
+
+#### Decision
+
+Trust and risk UI must use careful language, remain probabilistic, and avoid fake/authentic certainty claims.
+
+#### Alternatives Considered
+
+- Present stronger authenticity claims for product differentiation.
+- Hide trust signals entirely until a future advanced system exists.
+
+#### Consequences
+
+ClosetSearch can surface helpful review signals while reducing user harm, legal risk, and product overclaiming.
