@@ -1,11 +1,9 @@
-import { mockProvider } from "@closetsearch/providers";
-import type { Provider } from "@closetsearch/providers";
 import type { Listing, SearchQuery, SearchResponse } from "@closetsearch/shared";
+import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
+import { runProviderSearch } from "./providers/orchestrator.js";
 import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
 import { generateRiskSignal } from "./services/riskService.js";
-
-const developmentProviders: Provider[] = [mockProvider];
 
 function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
   const sorted = [...listings];
@@ -37,48 +35,19 @@ function attachRiskSignal(listing: Listing): Listing {
   };
 }
 
-export async function searchListings(query: SearchQuery): Promise<SearchResponse> {
-  const providerResponses = await Promise.all(
-    developmentProviders.map(async (provider) => ({
-      provider,
-      response: await provider.search(query),
-    })),
-  );
-
-  const listings: Listing[] = [];
-  let hasMore = false;
-  let nextCursor: string | undefined;
-
-  const providers = providerResponses.map(({ provider, response }) => {
-    if (response.status === "success") {
-      listings.push(...response.listings.map(attachRiskSignal));
-      hasMore = hasMore || Boolean(response.hasMore);
-      nextCursor ??= response.nextCursor;
-
-      return {
-        providerId: provider.id,
-        providerName: provider.name,
-        status: "success" as const,
-        resultCount: response.listings.length,
-      };
-    }
-
-    return {
-      providerId: provider.id,
-      providerName: provider.name,
-      status: "failure" as const,
-      resultCount: 0,
-    };
-  });
-
-  const sortedListings = sortListings(listings, query.sort);
+export async function searchListings(
+  query: SearchQuery,
+  runtime: ProviderRuntime = createProviderRuntime(),
+): Promise<SearchResponse> {
+  const execution = await runProviderSearch(query, runtime);
+  const sortedListings = sortListings(execution.listings.map(attachRiskSignal), query.sort);
   const page = query.page ?? 1;
   const pageSize = query.pageSize ?? sortedListings.length;
   const startIndex = (page - 1) * pageSize;
   const endIndex = startIndex + pageSize;
   const paginatedListings = sortedListings.slice(startIndex, endIndex);
   const hasPaginatedResults = query.page !== undefined || query.pageSize !== undefined;
-  const hasMoreResults = hasPaginatedResults ? endIndex < sortedListings.length : hasMore;
+  const hasMoreResults = hasPaginatedResults ? endIndex < sortedListings.length : execution.hasMore;
   const responseListings = hasPaginatedResults ? paginatedListings : sortedListings;
 
   rememberListings(responseListings);
@@ -89,9 +58,9 @@ export async function searchListings(query: SearchQuery): Promise<SearchResponse
     listings: responseListings,
     total: sortedListings.length,
     hasMore: hasMoreResults,
-    nextCursor: hasPaginatedResults ? undefined : nextCursor,
+    nextCursor: hasPaginatedResults ? undefined : execution.nextCursor,
     page: hasPaginatedResults ? page : undefined,
     pageSize: hasPaginatedResults ? pageSize : undefined,
-    providers,
+    providers: execution.providers,
   };
 }

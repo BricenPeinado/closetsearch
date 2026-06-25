@@ -104,11 +104,11 @@ The next milestones focus on turning the current foundation into a more real, re
 
 ## Milestone 10: Stabilization + QA Baseline
 
-- [ ] Verify all routes load correctly
-- [ ] Fix TypeScript, test, and build issues
-- [ ] Test feed, search, brands, auth, profile, analytics, and risk flows together
-- [ ] Remove stale milestone or scaffold copy from the UI if any remains
-- [ ] Document known limitations and fragile areas
+- [x] Verify all routes load correctly
+- [x] Fix TypeScript, test, and build issues
+- [x] Test feed, search, brands, auth, profile, analytics, and risk flows together
+- [x] Remove stale milestone or scaffold copy from the UI if any remains
+- [x] Document known limitations and fragile areas
 
 Exit criteria:
 
@@ -118,13 +118,13 @@ Exit criteria:
 
 ## Milestone 11: Real Data Provider Foundation
 
-- [ ] Add provider environment configuration
-- [ ] Add provider enable/disable flags
-- [ ] Add API-key handling patterns
-- [ ] Add provider error boundaries and fallback behavior
-- [ ] Add rate-limit friendly request patterns
-- [ ] Add normalized real-data tests
-- [ ] Add a provider health/debug endpoint if useful
+- [x] Add provider environment configuration
+- [x] Add provider enable/disable flags
+- [x] Add API-key handling patterns
+- [x] Add provider error boundaries and fallback behavior
+- [x] Add rate-limit friendly request patterns
+- [x] Add normalized real-data tests
+- [x] Add a provider health/debug endpoint if useful
 
 Exit criteria:
 
@@ -134,12 +134,12 @@ Exit criteria:
 
 ## Milestone 12: First Real Provider Integration
 
-- [ ] Add the first real marketplace provider
-- [ ] Normalize real listings into shared models
-- [ ] Support real image, title, brand, source, price, and `sourceUrl`
-- [ ] Handle missing or partial provider fields safely
-- [ ] Add provider-specific tests
-- [ ] Keep the mock provider available for local fallback
+- [x] Add the first real marketplace provider
+- [x] Normalize real listings into shared models
+- [x] Support real image, title, brand, source, price, and `sourceUrl`
+- [x] Handle missing or partial provider fields safely
+- [x] Add provider-specific tests
+- [x] Keep the mock provider available for local fallback
 
 Exit criteria:
 
