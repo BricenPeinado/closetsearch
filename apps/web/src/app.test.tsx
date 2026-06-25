@@ -15,6 +15,7 @@ describe("AppLayout", () => {
     { path: "/onboarding", title: "Tell us what you like" },
     { path: "/brands", title: "Brands" },
     { path: "/brands/kapital", title: "Brand Profile" },
+    { path: "/not-a-route", title: "Page not found" },
   ])("renders $path", ({ path, title }) => {
     const html = renderToString(
       <MemoryRouter initialEntries={[path]}>

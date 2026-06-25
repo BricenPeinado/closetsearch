@@ -10,6 +10,9 @@ export type ProviderFailureCode =
   | "timeout"
   | "rate_limited"
   | "invalid_query"
+  | "missing_credentials"
+  | "authorization_required"
+  | "unsupported_capability"
   | "normalization_failed"
   | "unknown";
 

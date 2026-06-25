@@ -1,6 +1,6 @@
-import { mockProvider } from "@closetsearch/providers";
-import type { Provider } from "@closetsearch/providers";
 import type { FeedQuery, FeedResponse, Listing, SearchQuery } from "@closetsearch/shared";
+import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
+import { runProviderSearch } from "./providers/orchestrator.js";
 import { getLikesByUserId } from "./like-service.js";
 import { getUserById } from "./user-service.js";
 import { recordListingImpressions } from "./services/engagementService.js";
@@ -11,7 +11,6 @@ import {
   rankListings,
 } from "./services/recommendationService.js";
 
-const developmentProviders: Provider[] = [mockProvider];
 const defaultFeedSort: SearchQuery["sort"] = "newest";
 
 function sortListings(listings: Listing[]) {
@@ -28,23 +27,19 @@ function attachRiskSignal(listing: Listing): Listing {
   };
 }
 
-export async function getFeed(query: FeedQuery): Promise<FeedResponse> {
-  const providerResponses = await Promise.all(
-    developmentProviders.map((provider) =>
-      provider.search({
-        text: "",
-        sort: defaultFeedSort,
-      }),
-    ),
+export async function getFeed(
+  query: FeedQuery,
+  runtime: ProviderRuntime = createProviderRuntime(),
+): Promise<FeedResponse> {
+  const execution = await runProviderSearch(
+    {
+      text: "",
+      sort: defaultFeedSort,
+    },
+    runtime,
   );
 
-  const listings: Listing[] = [];
-
-  for (const response of providerResponses) {
-    if (response.status === "success") {
-      listings.push(...response.listings.map(attachRiskSignal));
-    }
-  }
+  const listings = execution.listings.map(attachRiskSignal);
 
   rememberListings(listings);
 

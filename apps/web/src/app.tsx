@@ -54,11 +54,6 @@ const primaryNavigationItems = [
   { label: "Profile", path: "/profile" },
 ] as const;
 
-const brandDirectoryLink = {
-  label: "Browse brands",
-  path: "/brands",
-} as const;
-
 const homeFeedPageSize = 4;
 const sortOptions: Array<{ label: string; value: SearchSortMode }> = [
   { label: "Relevance", value: "relevance" },
@@ -679,7 +674,7 @@ function AnalyticsPage({ children }: { children?: ReactNode }) {
   return (
     <PageTemplate
       title="Premium Analytics"
-      description="Track pricing, compare demand, and surface listings below typical market ranges."
+      description="Preview sample pricing context, brand movement, and under-market signals."
     >
       {children}
     </PageTemplate>
@@ -747,7 +742,12 @@ function OnboardingPage({ children }: { children?: ReactNode }) {
 }
 
 function NotFoundPage() {
-  return <PageTemplate title="Page not found" description="That page does not exist." />;
+  return (
+    <PageTemplate
+      title="Page not found"
+      description="That page does not exist. Try home, search, or brands."
+    />
+  );
 }
 
 function SearchControlPanel({
@@ -1264,15 +1264,15 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         <section className="analytics-shell">
           <section className="market-header market-header--analytics">
             <div>
-              <h2>Premium analytics coming soon</h2>
+              <h2>Premium analytics preview</h2>
               <p className="page-description">
                 {state.message ??
-                  "Track resale pricing, compare brand demand, and spot listings below typical market ranges."}
+                  "Pricing context, market insights, and under-market signals are still sample-only preview surfaces."}
               </p>
             </div>
             <div className="chip-row">
               <span className="info-chip info-chip--accent">Premium</span>
-              <span className="info-chip">No checkout yet</span>
+              <span className="info-chip">Preview-only access</span>
             </div>
           </section>
 
@@ -1291,8 +1291,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
 
           <p className="analytics-note">
             {state.premiumPreviewUsername
-              ? `Sample preview access is available with ${state.premiumPreviewUsername}.`
-              : "A sample preview account can unlock this screen later."}
+              ? `Local preview access is available with ${state.premiumPreviewUsername}.`
+              : "Preview access is limited to a local sample account for now."}
           </p>
         </section>
       </AnalyticsPage>

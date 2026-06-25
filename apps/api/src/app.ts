@@ -10,6 +10,7 @@ import type {
 import { getFeed } from "./feed-service.js";
 import { addLike, getLikesByUserId, removeLike } from "./like-service.js";
 import { searchListings } from "./search-service.js";
+import { createProviderRuntime } from "./providers/registry.js";
 import {
   getAnalyticsOverview,
   getMarketInsights,
@@ -479,6 +480,32 @@ function handleUnderpricedSignals(
   });
 }
 
+function handleProviderHealth(response: ServerResponse<IncomingMessage>) {
+  const runtime = createProviderRuntime();
+
+  sendJson(response, 200, {
+    providerRuntimeMode: runtime.config.mode,
+    allowMockFallback: runtime.config.allowMockFallback,
+    requestTimeoutMs: runtime.config.requestTimeoutMs,
+    maxProvidersPerRequest: runtime.config.maxProvidersPerRequest,
+    providers: runtime.statuses.map((status) => ({
+      id: status.id,
+      displayName: status.name,
+      providerMode: status.providerMode,
+      mode: status.mode,
+      enabled: status.enabled,
+      configured: status.configured,
+      active: status.active,
+      scrapingAllowed: status.scrapingAllowed,
+      implementationStatus: status.implementationStatus,
+      requiredEnvVars: status.requiredEnvVars,
+      capabilities: status.capabilities,
+      reasons: status.reasons,
+      lastErrorCategory: status.lastErrorCategory,
+    })),
+  });
+}
+
 export async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
@@ -497,6 +524,11 @@ export async function handleRequest(
       status: "ok",
       timestamp: new Date().toISOString(),
     });
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/providers/health") {
+    handleProviderHealth(response);
     return;
   }
 
@@ -584,7 +616,7 @@ export async function handleRequest(
 
   sendJson(response, 404, {
     error: "not_found",
-    message: "Route not found in the Milestone 6 API boundary.",
+    message: "Route not found.",
   });
 }
 

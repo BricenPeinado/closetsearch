@@ -77,6 +77,85 @@ describe("handleRequest", () => {
     });
   });
 
+  it("returns provider health metadata without exposing secrets", async () => {
+    const previousMode = process.env.PROVIDER_RUNTIME_MODE;
+    const previousEnabled = process.env.GRAILED_PROVIDER_ENABLED;
+    const previousScrapingAllowed = process.env.GRAILED_SCRAPING_ALLOWED;
+    const previousUserAgent = process.env.GRAILED_USER_AGENT;
+
+    process.env.PROVIDER_RUNTIME_MODE = "hybrid";
+    process.env.GRAILED_PROVIDER_ENABLED = "true";
+    process.env.GRAILED_SCRAPING_ALLOWED = "true";
+    process.env.GRAILED_USER_AGENT = "ClosetSearchBot/0.1 contact:team.com";
+
+    const recorder = createResponseRecorder();
+
+    try {
+      await handleRequest(
+        {
+          method: "GET",
+          url: "/providers/health",
+        } as IncomingMessage,
+        recorder.response,
+      );
+    } finally {
+      if (previousMode === undefined) delete process.env.PROVIDER_RUNTIME_MODE;
+      else process.env.PROVIDER_RUNTIME_MODE = previousMode;
+      if (previousEnabled === undefined) delete process.env.GRAILED_PROVIDER_ENABLED;
+      else process.env.GRAILED_PROVIDER_ENABLED = previousEnabled;
+      if (previousScrapingAllowed === undefined) delete process.env.GRAILED_SCRAPING_ALLOWED;
+      else process.env.GRAILED_SCRAPING_ALLOWED = previousScrapingAllowed;
+      if (previousUserAgent === undefined) delete process.env.GRAILED_USER_AGENT;
+      else process.env.GRAILED_USER_AGENT = previousUserAgent;
+    }
+
+    expect(recorder.snapshot().statusCode).toBe(200);
+
+    const body = JSON.parse(recorder.snapshot().body) as {
+      providerRuntimeMode: string;
+      providers: Array<{
+        active: boolean;
+        configured: boolean;
+        displayName: string;
+        id: string;
+        mode: string;
+        providerMode: string;
+        requiredEnvVars?: string[];
+        scrapingAllowed?: boolean;
+      }>;
+    };
+
+    expect(body.providerRuntimeMode).toBe("hybrid");
+    expect(body.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "mock",
+          displayName: "Mock Closet",
+          active: true,
+          configured: true,
+          mode: "fixture",
+          providerMode: "mock",
+        }),
+        expect.objectContaining({
+          id: "grailed",
+          displayName: "Grailed",
+          active: true,
+          configured: true,
+          mode: "authorized-live",
+          providerMode: "real",
+          scrapingAllowed: true,
+          requiredEnvVars: expect.arrayContaining([
+            "GRAILED_PROVIDER_ENABLED",
+            "GRAILED_SCRAPING_ALLOWED",
+            "GRAILED_BASE_URL",
+            "GRAILED_USER_AGENT",
+          ]),
+        }),
+      ]),
+    );
+    expect(recorder.snapshot().body).not.toContain("super-secret-key");
+  });
+
   it("creates and logs in a user through auth endpoints", async () => {
     const signupRecorder = createResponseRecorder();
 
