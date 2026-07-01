@@ -62,7 +62,9 @@ export interface ProviderRuntime {
 }
 
 const grailedCapabilities: ProviderCapabilities = {
-  supportsPagination: false,
+  supportsPagination: true,
+  supportsPagePagination: true,
+  supportsCursorPagination: false,
   supportsPriceRange: false,
   supportedListingTypes: ["auction", "buy_now", "unknown"],
   supportedSortModes: ["relevance", "newest"],

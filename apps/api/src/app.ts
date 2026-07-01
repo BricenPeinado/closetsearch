@@ -7,6 +7,7 @@ import type {
   SearchQuery,
   SearchSortMode,
 } from "@closetsearch/shared";
+import { isApiError } from "./api-error.js";
 import { getFeed } from "./feed-service.js";
 import { addLike, getLikesByUserId, removeLike } from "./like-service.js";
 import { searchListings } from "./search-service.js";
@@ -178,6 +179,7 @@ function parseFeedQuery(requestUrl: URL): FeedQuery {
   );
 
   return {
+    cursor: requestUrl.searchParams.get("cursor") ?? undefined,
     page,
     pageSize: Math.min(requestedPageSize, 24),
     userId: requestUrl.searchParams.get("userId")?.trim() || undefined,
@@ -623,6 +625,14 @@ export async function handleRequest(
 export function createApp() {
   return createServer((request, response) => {
     void handleRequest(request, response).catch((error: unknown) => {
+      if (isApiError(error)) {
+        sendJson(response, error.statusCode, {
+          error: error.code,
+          message: error.message,
+        });
+        return;
+      }
+
       console.error("Unhandled API error", error);
 
       sendJson(response, 500, {

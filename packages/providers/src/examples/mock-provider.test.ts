@@ -51,7 +51,13 @@ describe("normalizeMockListing", () => {
 describe("mockProvider", () => {
   it("returns normalized jacket listings for a text query", async () => {
     const response = await mockProvider.search({
-      text: "jacket",
+      query: {
+        text: "jacket",
+      },
+      pagination: {
+        page: 1,
+        pageSize: 24,
+      },
     });
 
     expect(response.status).toBe("success");
@@ -71,13 +77,25 @@ describe("mockProvider", () => {
         name: "Mock Closet",
       },
     });
+    expect(response.pagination).toMatchObject({
+      page: 1,
+      pageSize: 24,
+      hasMore: false,
+      totalCount: response.listings.length,
+    });
   });
 
   it("supports listing type and price sorting through the normalized search query", async () => {
     const response = await mockProvider.search({
-      text: "jacket",
-      listingTypes: ["buy_now"],
-      sort: "price_asc",
+      query: {
+        text: "jacket",
+        listingTypes: ["buy_now"],
+        sort: "price_asc",
+      },
+      pagination: {
+        page: 1,
+        pageSize: 24,
+      },
     });
 
     expect(response.status).toBe("success");
@@ -91,5 +109,33 @@ describe("mockProvider", () => {
     expect(response.listings[0]?.price.amount).toBeLessThanOrEqual(
       response.listings[1]?.price.amount ?? 0,
     );
+  });
+
+  it("returns normalized page metadata for later pages", async () => {
+    const response = await mockProvider.search({
+      query: {
+        text: "",
+        sort: "newest",
+      },
+      pagination: {
+        page: 2,
+        pageSize: 2,
+      },
+    });
+
+    expect(response.status).toBe("success");
+
+    if (response.status !== "success") {
+      throw new Error("Expected success response from mock provider");
+    }
+
+    expect(response.pagination).toEqual({
+      page: 2,
+      pageSize: 2,
+      hasMore: true,
+      nextPage: 3,
+      totalCount: 6,
+    });
+    expect(response.listings).toHaveLength(2);
   });
 });

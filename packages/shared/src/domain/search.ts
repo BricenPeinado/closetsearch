@@ -1,4 +1,5 @@
 import type { Listing, ListingCondition, ListingType } from "./listing";
+import type { PaginationInfo } from "./pagination";
 
 export type SearchSortMode = "relevance" | "price_asc" | "price_desc" | "newest";
 
@@ -34,10 +35,6 @@ export interface SearchProviderSummary {
 export interface SearchResponse {
   query: SearchQuery;
   listings: Listing[];
-  total: number;
-  hasMore: boolean;
-  nextCursor?: string;
-  page?: number;
-  pageSize?: number;
+  pagination: PaginationInfo;
   providers: SearchProviderSummary[];
 }

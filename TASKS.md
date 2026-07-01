@@ -148,11 +148,11 @@ Exit criteria:
 
 ## Milestone 13: Real Feed + Pagination
 
-- [ ] Connect feed and search to real provider pagination
-- [ ] Support infinite scroll or load-more with real cursors/pages
-- [ ] Dedupe listings across pages and providers
-- [ ] Improve loading, error, and empty states for real fetches
-- [ ] Add light caching for repeated searches where useful
+- [x] Connect feed and search to real provider pagination
+- [x] Support infinite scroll or load-more with real cursors/pages
+- [x] Dedupe listings across pages and providers
+- [x] Improve loading, error, and empty states for real fetches
+- [x] Add light caching for repeated searches where useful
 
 Exit criteria:
 

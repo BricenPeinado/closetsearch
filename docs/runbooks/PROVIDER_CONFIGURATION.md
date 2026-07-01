@@ -68,10 +68,10 @@ The Grailed provider is conservative by default:
 
 TODOs left intentionally for later milestones:
 
-- shared response caching
 - provider-specific retry policy
 - cross-request backoff memory
-- pagination-aware request dedupe
+- persistent cache storage beyond in-memory TTL
+- provider-native cursor support when a real provider requires it
 
 ## Health / Debug Endpoint
 
@@ -105,7 +105,7 @@ It does not return API keys, secret values, or raw provider HTML.
 
 - live Grailed scraping was wired for server-side use, but not exercised against the live site in this sandboxed milestone pass
 - parsing currently targets saved public listing-card fixtures and may need selector hardening once real HTML samples are refreshed under the approved process
-- pagination and provider-native cursors are still minimal and intentionally deferred
+- pagination is normalized for feed and search, but current real-provider paging is still page-oriented rather than cursor-native
 - health/debug output is development-oriented and not auth-protected
 - there is still only one real-provider adapter in the runtime
 
@@ -113,10 +113,12 @@ It does not return API keys, secret values, or raw provider HTML.
 
 Milestone 12 establishes the authorized Grailed adapter, parser, normalizer, config, and failure/fallback behavior.
 
-Milestone 13 should focus on:
+Milestone 13 added:
 
-- real feed/search pagination
-- page and cursor handling per provider where allowed
-- dedupe across repeated searches and provider pages
-- light caching to reduce repeat provider calls
-- better surfaced loading/error states once multi-page real data lands
+- normalized feed and search pagination
+- API-layer cursor continuation across provider pages
+- conservative dedupe across repeated batches and provider overlap
+- short-lived provider batch caching to reduce repeat fetches
+- clearer load-more and retry states in the web app
+
+See also: `docs/runbooks/PAGINATION_AND_CACHING.md`

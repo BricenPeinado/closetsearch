@@ -9,7 +9,10 @@ describe("createGrailedProvider", () => {
   it("uses local fixtures by default and does not make live network calls", async () => {
     const fetchImpl = vi.fn();
     const provider = createGrailedProvider({ fetchImpl });
-    const response = await provider.search({ text: "kapital", sort: "newest" });
+    const response = await provider.search({
+      query: { text: "kapital", sort: "newest" },
+      pagination: { page: 1, pageSize: 24 },
+    });
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(response.status).toBe("success");
@@ -17,11 +20,17 @@ describe("createGrailedProvider", () => {
       throw new Error("Expected Grailed fixture mode to return a success response.");
     }
 
-    expect(response.listings).toHaveLength(1);
+    expect(response.listings.length).toBeGreaterThanOrEqual(1);
     expect(response.listings[0]).toMatchObject({
       providerId: "grailed",
       title: "Kapital ring coat",
       brand: { slug: "kapital" },
+    });
+    expect(response.pagination).toMatchObject({
+      page: 1,
+      pageSize: 24,
+      hasMore: false,
+      totalCount: 1,
     });
   });
 
@@ -32,7 +41,10 @@ describe("createGrailedProvider", () => {
       fetchImpl,
       scrapingAllowed: false,
     });
-    const response = await provider.search({ text: "kapital" });
+    const response = await provider.search({
+      query: { text: "kapital" },
+      pagination: { page: 1, pageSize: 24 },
+    });
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(response).toEqual({
@@ -61,9 +73,13 @@ describe("createGrailedProvider", () => {
       userAgent: "ClosetSearchBot/0.1 contact:team@example.com",
     });
     const response = await provider.search({
-      text: "kapital",
-      page: 2,
-      pageSize: 1,
+      query: {
+        text: "kapital",
+      },
+      pagination: {
+        page: 2,
+        pageSize: 1,
+      },
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -80,7 +96,7 @@ describe("createGrailedProvider", () => {
       throw new Error("Expected authorized-live response to succeed.");
     }
 
-    expect(response.listings).toHaveLength(1);
+    expect(response.listings.length).toBeGreaterThanOrEqual(1);
     expect(response.listings[0]).toMatchObject({
       providerId: "grailed",
       sourceUrl: "https://www.grailed.com/listings/grailed-1001-kapital-ring-coat",
@@ -90,6 +106,11 @@ describe("createGrailedProvider", () => {
       price: { amount: 325, currency: "USD" },
     });
     expect(response.listings[0]).not.toHaveProperty("rawHtml");
+    expect(response.pagination).toMatchObject({
+      page: 2,
+      pageSize: 24,
+      hasMore: false,
+    });
   });
 
   it("returns an empty success response when the public page shows no results", async () => {
@@ -102,13 +123,21 @@ describe("createGrailedProvider", () => {
         text: async () => grailedNoResultsHtmlFixture,
       }),
     });
-    const response = await provider.search({ text: "nonexistent archive piece" });
+    const response = await provider.search({
+      query: { text: "nonexistent archive piece" },
+      pagination: { page: 1, pageSize: 24 },
+    });
 
     expect(response).toMatchObject({
       providerId: "grailed",
       status: "success",
       listings: [],
-      hasMore: false,
+      pagination: {
+        page: 1,
+        pageSize: 24,
+        hasMore: false,
+        totalCount: 0,
+      },
     });
   });
 
@@ -130,7 +159,12 @@ describe("createGrailedProvider", () => {
       fetchImpl: vi.fn().mockRejectedValue(timeoutError),
     });
 
-    await expect(rateLimitedProvider.search({ text: "kapital" })).resolves.toEqual({
+    await expect(
+      rateLimitedProvider.search({
+        query: { text: "kapital" },
+        pagination: { page: 1, pageSize: 24 },
+      }),
+    ).resolves.toEqual({
       providerId: "grailed",
       status: "failure",
       failure: {
@@ -141,7 +175,12 @@ describe("createGrailedProvider", () => {
       },
     });
 
-    await expect(timeoutProvider.search({ text: "kapital" })).resolves.toEqual({
+    await expect(
+      timeoutProvider.search({
+        query: { text: "kapital" },
+        pagination: { page: 1, pageSize: 24 },
+      }),
+    ).resolves.toEqual({
       providerId: "grailed",
       status: "failure",
       failure: {

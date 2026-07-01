@@ -1,9 +1,12 @@
-import type { SearchQuery, SearchSortMode } from "@closetsearch/shared";
+import type { SearchSortMode } from "@closetsearch/shared";
 import type {
   Provider,
   ProviderCapabilities,
   ProviderFailureCode,
+  ProviderPagination,
   ProviderSearchFailure,
+  ProviderSearchQuery,
+  ProviderSearchRequest,
   ProviderSearchResponse,
   ProviderSearchResult,
   ProviderWarning,
@@ -46,7 +49,9 @@ export interface GrailedProviderOptions {
 }
 
 const grailedCapabilities: ProviderCapabilities = {
-  supportsPagination: false,
+  supportsPagination: true,
+  supportsPagePagination: true,
+  supportsCursorPagination: false,
   supportsPriceRange: false,
   supportedListingTypes: ["auction", "buy_now", "unknown"],
   supportedSortModes: ["relevance", "newest"],
@@ -75,18 +80,20 @@ function createFailure(
 
 function createSuccess(
   listings: ProviderSearchResult["listings"],
+  pagination: ProviderPagination,
   warnings?: ProviderWarning[],
 ): ProviderSearchResult {
   return {
     providerId: GRAILED_PROVIDER_ID,
     status: "success",
     listings,
-    hasMore: false,
+    pagination,
     warnings,
     metadata: {
       providerId: GRAILED_PROVIDER_ID,
       fetchedAt: new Date().toISOString(),
       resultCount: listings.length,
+      pagination,
     },
   } satisfies ProviderSearchResult;
 }
@@ -99,15 +106,32 @@ function toSearchTerms(text: string) {
     .filter(Boolean);
 }
 
-function getResultLimit(query: SearchQuery, maxResultsPerSearch: number) {
-  if (typeof query.pageSize !== "number" || !Number.isFinite(query.pageSize)) {
+function normalizePage(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+    return 1;
+  }
+
+  return Math.trunc(value);
+}
+
+function getFixtureResultLimit(
+  pagination: ProviderSearchRequest["pagination"],
+  maxResultsPerSearch: number,
+) {
+  const requestedPageSize = pagination?.pageSize;
+
+  if (typeof requestedPageSize !== "number" || !Number.isFinite(requestedPageSize)) {
     return maxResultsPerSearch;
   }
 
-  return Math.max(1, Math.min(maxResultsPerSearch, Math.trunc(query.pageSize)));
+  return Math.max(1, Math.min(maxResultsPerSearch, Math.trunc(requestedPageSize)));
 }
 
-function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: SearchQuery) {
+function getLiveResultLimit(maxResultsPerSearch: number) {
+  return Math.max(1, Math.trunc(maxResultsPerSearch));
+}
+
+function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearchQuery) {
   const listing = normalizeGrailedListing(createGrailedListingInputFromFixture(raw));
 
   if (query.sourceIds?.length && !query.sourceIds.includes(GRAILED_PROVIDER_ID)) {
@@ -179,22 +203,31 @@ function sortFixtureListings(
 
 async function searchFixtureListings(
   fixtureListings: RawGrailedFixtureListing[],
-  query: SearchQuery,
+  request: ProviderSearchRequest,
   maxResultsPerSearch: number,
 ): Promise<ProviderSearchResult> {
-  const resultLimit = getResultLimit(query, maxResultsPerSearch);
-  const listings = sortFixtureListings(
-    fixtureListings.filter((listing) => matchesFixtureQuery(listing, query)),
-    query.sort,
-  )
-    .slice(0, resultLimit)
-    .map((listing) => normalizeGrailedListing(createGrailedListingInputFromFixture(listing)));
+  const page = normalizePage(request.pagination?.page);
+  const pageSize = getFixtureResultLimit(request.pagination, maxResultsPerSearch);
+  const matchedListings = sortFixtureListings(
+    fixtureListings.filter((listing) => matchesFixtureQuery(listing, request.query)),
+    request.query.sort,
+  ).map((listing) => normalizeGrailedListing(createGrailedListingInputFromFixture(listing)));
+  const startIndex = (page - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const listings = matchedListings.slice(startIndex, endIndex);
+  const hasMore = endIndex < matchedListings.length;
 
-  return createSuccess(listings);
+  return createSuccess(listings, {
+    page,
+    pageSize,
+    hasMore,
+    nextPage: hasMore ? page + 1 : undefined,
+    totalCount: matchedListings.length,
+  });
 }
 
 async function searchAuthorizedLiveListings(
-  query: SearchQuery,
+  request: ProviderSearchRequest,
   options: Required<
     Pick<
       GrailedProviderOptions,
@@ -226,12 +259,15 @@ async function searchAuthorizedLiveListings(
     nowImpl: options.nowImpl,
     sleepImpl: options.sleepImpl,
   });
+  const page = normalizePage(request.pagination?.page);
+  const pageSize = getLiveResultLimit(options.maxResultsPerSearch);
 
   try {
     const response = await client.getHtml(
       buildGrailedSearchUrl({
         baseUrl: options.baseUrl,
-        query,
+        page,
+        query: request.query,
       }),
     );
 
@@ -255,7 +291,12 @@ async function searchAuthorizedLiveListings(
 
     if (parsedCards.length === 0) {
       if (hasGrailedNoResultsState(response.body)) {
-        return createSuccess([]);
+        return createSuccess([], {
+          page,
+          pageSize,
+          hasMore: false,
+          totalCount: 0,
+        });
       }
 
       return createFailure(
@@ -266,9 +307,8 @@ async function searchAuthorizedLiveListings(
 
     const fetchedAt = new Date().toISOString();
     const warnings: ProviderWarning[] = [];
-    const resultLimit = getResultLimit(query, options.maxResultsPerSearch);
     const listings = parsedCards
-      .slice(0, resultLimit)
+      .slice(0, pageSize)
       .map((card) => {
         if (!card.sourceUrl && !card.title) {
           warnings.push({
@@ -291,7 +331,18 @@ async function searchAuthorizedLiveListings(
       );
     }
 
-    return createSuccess(listings, warnings.length > 0 ? warnings : undefined);
+    const hasMore = parsedCards.length >= pageSize;
+
+    return createSuccess(
+      listings,
+      {
+        page,
+        pageSize,
+        hasMore,
+        nextPage: hasMore ? page + 1 : undefined,
+      },
+      warnings.length > 0 ? warnings : undefined,
+    );
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return createFailure("timeout", "Grailed scraping request timed out.", true);
@@ -319,9 +370,9 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
     id: GRAILED_PROVIDER_ID,
     name: GRAILED_PROVIDER_NAME,
     capabilities: grailedCapabilities,
-    async search(query) {
+    async search(request) {
       if (runtimeMode === "fixture") {
-        return searchFixtureListings(fixtureListings, query, maxResultsPerSearch);
+        return searchFixtureListings(fixtureListings, request, maxResultsPerSearch);
       }
 
       if (!options.fetchImpl) {
@@ -331,7 +382,7 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
         );
       }
 
-      return searchAuthorizedLiveListings(query, {
+      return searchAuthorizedLiveListings(request, {
         baseUrl,
         fetchImpl: options.fetchImpl,
         maxResultsPerSearch,

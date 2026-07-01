@@ -11,6 +11,7 @@ import type {
   AuthResponse,
   Brand,
   FeedResponse,
+  PaginationInfo,
   Like,
   Listing,
   MarketInsight,
@@ -31,6 +32,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { fetchJson, sendJson } from "./api-client";
+import { mergeUniqueListings } from "./listing-pagination";
 import { ListingCard } from "./components/listing-card";
 import {
   buildSearchPath,
@@ -54,7 +56,8 @@ const primaryNavigationItems = [
   { label: "Profile", path: "/profile" },
 ] as const;
 
-const homeFeedPageSize = 4;
+const homeFeedPageSize = 12;
+const searchResultsPageSize = 24;
 const sortOptions: Array<{ label: string; value: SearchSortMode }> = [
   { label: "Relevance", value: "relevance" },
   { label: "Price low to high", value: "price_asc" },
@@ -64,6 +67,7 @@ const sortOptions: Array<{ label: string; value: SearchSortMode }> = [
 const sourceOptions = [
   { label: "All marketplaces", value: "" },
   { label: "Mock Closet", value: "mock" },
+  { label: "Grailed", value: "grailed" },
 ];
 const listingTypeOptions = [
   { label: "All listing types", value: "" },
@@ -78,18 +82,18 @@ interface PageTemplateProps {
 
 interface FeedRequestState {
   errorMessage?: string;
-  hasMore: boolean;
   isPersonalized: boolean;
   isLoadingMore: boolean;
   listings: Listing[];
   loadMoreErrorMessage?: string;
-  nextPage?: number;
+  pagination?: PaginationInfo;
   status: "loading" | "success" | "error";
-  total: number;
 }
 
 interface SearchRequestState {
   errorMessage?: string;
+  isLoadingMore: boolean;
+  loadMoreErrorMessage?: string;
   response?: SearchResponse;
   status: "idle" | "loading" | "success" | "error";
 }
@@ -445,26 +449,14 @@ function HomePage({ session }: { session: AuthResponse | null }) {
   const [reloadCount, setReloadCount] = useState(0);
   const needsPreferenceReminder = Boolean(session) && !hasCompletedOnboarding(session);
   const [state, setState] = useState<FeedRequestState>({
-    hasMore: false,
     isPersonalized: false,
     isLoadingMore: false,
     listings: [],
     status: "loading",
-    total: 0,
   });
 
   useEffect(() => {
     const controller = new AbortController();
-
-    setState({
-      hasMore: false,
-      isPersonalized: false,
-      isLoadingMore: false,
-      listings: [],
-      status: "loading",
-      total: 0,
-    });
-
     const feedParams = new URLSearchParams({
       page: "1",
       pageSize: String(homeFeedPageSize),
@@ -474,16 +466,21 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       feedParams.set("userId", session.userId);
     }
 
-    void fetchJson<FeedResponse>(`/feed?${feedParams.toString()}`, controller.signal)
+    setState({
+      isPersonalized: false,
+      isLoadingMore: false,
+      listings: [],
+      status: "loading",
+    });
+
+    void fetchJson<FeedResponse>("/feed?" + feedParams.toString(), controller.signal)
       .then((response) => {
         setState({
-          hasMore: response.hasMore,
           isPersonalized: response.isPersonalized,
           isLoadingMore: false,
           listings: response.listings,
-          nextPage: response.nextPage,
+          pagination: response.pagination,
           status: "success",
-          total: response.total,
         });
       })
       .catch((error: unknown) => {
@@ -494,12 +491,10 @@ function HomePage({ session }: { session: AuthResponse | null }) {
         setState({
           errorMessage:
             error instanceof Error ? error.message : "The feed request failed.",
-          hasMore: false,
           isPersonalized: false,
           isLoadingMore: false,
           listings: [],
           status: "error",
-          total: 0,
         });
       });
 
@@ -515,8 +510,22 @@ function HomePage({ session }: { session: AuthResponse | null }) {
   }
 
   function handleLoadMore() {
-    if (!state.nextPage || state.isLoadingMore) {
+    if (!state.pagination?.hasMore || state.isLoadingMore) {
       return;
+    }
+
+    const feedParams = new URLSearchParams({
+      pageSize: String(homeFeedPageSize),
+    });
+
+    if (state.pagination.nextCursor) {
+      feedParams.set("cursor", state.pagination.nextCursor);
+    } else if (state.pagination.nextPage) {
+      feedParams.set("page", String(state.pagination.nextPage));
+    }
+
+    if (session?.userId) {
+      feedParams.set("userId", session.userId);
     }
 
     setState((currentState) => ({
@@ -525,25 +534,16 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       loadMoreErrorMessage: undefined,
     }));
 
-    const feedParams = new URLSearchParams({
-      page: String(state.nextPage),
-      pageSize: String(homeFeedPageSize),
-    });
-
-    if (session?.userId) {
-      feedParams.set("userId", session.userId);
-    }
-
-    void fetchJson<FeedResponse>(`/feed?${feedParams.toString()}`)
+    void fetchJson<FeedResponse>("/feed?" + feedParams.toString())
       .then((response) => {
         setState((currentState) => ({
           ...currentState,
-          hasMore: response.hasMore,
           isPersonalized: response.isPersonalized,
           isLoadingMore: false,
-          listings: [...currentState.listings, ...response.listings],
-          nextPage: response.nextPage,
-          total: response.total,
+          listings: mergeUniqueListings(currentState.listings, response.listings),
+          loadMoreErrorMessage: undefined,
+          pagination: response.pagination,
+          status: "success",
         }));
       })
       .catch((error: unknown) => {
@@ -574,6 +574,7 @@ function HomePage({ session }: { session: AuthResponse | null }) {
   const introCopy = session
     ? "Based on your likes and preferences."
     : "Popular finds across resale marketplaces.";
+  const listingCount = state.pagination?.totalCount ?? state.listings.length;
 
   return (
     <section className="page-shell page-shell--home">
@@ -585,7 +586,7 @@ function HomePage({ session }: { session: AuthResponse | null }) {
         <div className="chip-row chip-row--tabs">
           <span className="info-chip info-chip--accent">{session ? "For You" : "Trending"}</span>
           <span className="info-chip">New Finds</span>
-          <span className="info-chip">{state.total > 0 ? `${state.total} listings` : "Fresh updates"}</span>
+          <span className="info-chip">{listingCount > 0 ? String(listingCount) + " listings" : "Fresh updates"}</span>
         </div>
       </header>
 
@@ -598,7 +599,7 @@ function HomePage({ session }: { session: AuthResponse | null }) {
         </section>
       ) : null}
 
-      {state.status === "loading" ? <LoadingListings /> : null}
+      {state.status === "loading" ? <LoadingListings count={homeFeedPageSize} /> : null}
 
       {state.status === "error" ? (
         <StateCard
@@ -631,10 +632,18 @@ function HomePage({ session }: { session: AuthResponse | null }) {
             onToggleLike={handleToggleLike}
           />
           {state.loadMoreErrorMessage ? (
-            <StateCard body={state.loadMoreErrorMessage} title="Could not load more listings" />
+            <StateCard
+              action={
+                <button className="secondary-button" onClick={handleLoadMore} type="button">
+                  Retry load more
+                </button>
+              }
+              body={state.loadMoreErrorMessage}
+              title="Could not load more listings"
+            />
           ) : null}
-          {state.hasMore ? (
-            <div className="feed-results__footer">
+          <div className="feed-results__footer">
+            {state.pagination?.hasMore ? (
               <button
                 className="load-more-button"
                 disabled={state.isLoadingMore}
@@ -643,8 +652,10 @@ function HomePage({ session }: { session: AuthResponse | null }) {
               >
                 {state.isLoadingMore ? "Loading more..." : "Load more"}
               </button>
-            </div>
-          ) : null}
+            ) : (
+              <p className="page-description">You are caught up for now.</p>
+            )}
+          </div>
         </>
       ) : null}
     </section>
@@ -902,6 +913,7 @@ function SearchControlPanel({
 
 function SearchResults({
   likedListingIds,
+  onLoadMore,
   onRetry,
   onToggleLike,
   query,
@@ -909,6 +921,7 @@ function SearchResults({
   summary,
 }: {
   likedListingIds: Set<string>;
+  onLoadMore: () => void;
   onRetry: () => void;
   onToggleLike: (listing: Listing, nextLiked: boolean) => Promise<void>;
   query: string;
@@ -920,7 +933,7 @@ function SearchResults({
   }
 
   if (state.status === "loading") {
-    return <LoadingListings count={10} />;
+    return <LoadingListings count={searchResultsPageSize} />;
   }
 
   if (state.status === "error") {
@@ -942,22 +955,28 @@ function SearchResults({
   if (!response || response.listings.length === 0) {
     return (
       <StateCard
-        body={`No results found for "${query}". Try broadening your search or clearing a filter.`}
+        body={
+          'No results found for "' + query + '". Try broadening your search or clearing a filter.'
+        }
         title="No results found"
       />
     );
   }
 
+  const listingCount = response.pagination.totalCount ?? response.listings.length;
+
   return (
     <section className="search-results">
       <div className="section-heading">
         <div>
-          <h2>{response.total} listings</h2>
-          <p>Results for "{response.query.text}".</p>
+          <h2>{listingCount} listings</h2>
+          <p>{'Results for "' + response.query.text + '".'}</p>
         </div>
         <div className="chip-row">
           <span className="info-chip">{summary}</span>
-          <span className="info-chip">{response.providers.map((provider) => provider.providerName).join(", ")}</span>
+          <span className="info-chip">
+            {response.providers.map((provider) => provider.providerName).join(", ")}
+          </span>
         </div>
       </div>
 
@@ -966,6 +985,33 @@ function SearchResults({
         listings={response.listings}
         onToggleLike={onToggleLike}
       />
+
+      {state.loadMoreErrorMessage ? (
+        <StateCard
+          action={
+            <button className="secondary-button" onClick={onLoadMore} type="button">
+              Retry load more
+            </button>
+          }
+          body={state.loadMoreErrorMessage}
+          title="Could not load more results"
+        />
+      ) : null}
+
+      <div className="feed-results__footer">
+        {response.pagination.hasMore ? (
+          <button
+            className="load-more-button"
+            disabled={state.isLoadingMore}
+            onClick={onLoadMore}
+            type="button"
+          >
+            {state.isLoadingMore ? "Loading more..." : "Load more"}
+          </button>
+        ) : (
+          <p className="page-description">End of results for this search.</p>
+        )}
+      </div>
     </section>
   );
 }
@@ -979,23 +1025,26 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
   const query = values.query;
   const [reloadCount, setReloadCount] = useState(0);
   const [state, setState] = useState<SearchRequestState>({
+    isLoadingMore: false,
     status: query.length > 0 ? "loading" : "idle",
   });
 
   useEffect(() => {
     if (query.length === 0) {
-      setState({ status: "idle" });
+      setState({ isLoadingMore: false, status: "idle" });
       return;
     }
 
     const controller = new AbortController();
     const requestParams = createSearchParams(values);
+    requestParams.set("pageSize", String(searchResultsPageSize));
 
-    setState({ status: "loading" });
+    setState({ isLoadingMore: false, status: "loading" });
 
-    void fetchJson<SearchResponse>(`/search?${requestParams.toString()}`, controller.signal)
+    void fetchJson<SearchResponse>("/search?" + requestParams.toString(), controller.signal)
       .then((response) => {
         setState({
+          isLoadingMore: false,
           response,
           status: "success",
         });
@@ -1008,6 +1057,7 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
         setState({
           errorMessage:
             error instanceof Error ? error.message : "Search request failed.",
+          isLoadingMore: false,
           status: "error",
         });
       });
@@ -1015,31 +1065,18 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
     return () => {
       controller.abort();
     };
-  }, [
-    query,
-    reloadCount,
-    searchKey,
-    values.listingType,
-    values.maxPrice,
-    values.minPrice,
-    values.sort,
-    values.source,
-  ]);
+  }, [query, reloadCount, searchKey]);
 
   useEffect(() => {
-    if (state.status === "success" && query.length > 0) {
+    if (
+      state.status === "success" &&
+      !state.isLoadingMore &&
+      query.length > 0 &&
+      state.response?.pagination.page === 1
+    ) {
       saveRecentSearch(values);
     }
-  }, [
-    query,
-    state.status,
-    values.listingType,
-    values.maxPrice,
-    values.minPrice,
-    values.query,
-    values.sort,
-    values.source,
-  ]);
+  }, [query, state.isLoadingMore, state.response?.pagination.page, state.status, values]);
 
   function handleSubmit(nextValues: SearchFormValues) {
     startTransition(() => {
@@ -1051,6 +1088,50 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
     startTransition(() => {
       setReloadCount((currentValue) => currentValue + 1);
     });
+  }
+
+  function handleLoadMore() {
+    if (!state.response?.pagination.hasMore || state.isLoadingMore) {
+      return;
+    }
+
+    const requestParams = createSearchParams(values);
+    requestParams.set("pageSize", String(searchResultsPageSize));
+
+    if (state.response.pagination.nextCursor) {
+      requestParams.set("cursor", state.response.pagination.nextCursor);
+    } else if (state.response.pagination.nextPage) {
+      requestParams.set("page", String(state.response.pagination.nextPage));
+    }
+
+    setState((currentState) => ({
+      ...currentState,
+      isLoadingMore: true,
+      loadMoreErrorMessage: undefined,
+    }));
+
+    void fetchJson<SearchResponse>("/search?" + requestParams.toString())
+      .then((response) => {
+        setState((currentState) => ({
+          isLoadingMore: false,
+          loadMoreErrorMessage: undefined,
+          response: currentState.response
+            ? {
+                ...response,
+                listings: mergeUniqueListings(currentState.response.listings, response.listings),
+              }
+            : response,
+          status: "success",
+        }));
+      })
+      .catch((error: unknown) => {
+        setState((currentState) => ({
+          ...currentState,
+          isLoadingMore: false,
+          loadMoreErrorMessage:
+            error instanceof Error ? error.message : "The next page could not be loaded.",
+        }));
+      });
   }
 
   async function handleToggleLike(listing: Listing, nextLiked: boolean) {
@@ -1070,6 +1151,7 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
         <SearchControlPanel initialValues={values} onSubmit={handleSubmit} />
         <SearchResults
           likedListingIds={likedListingIds}
+          onLoadMore={handleLoadMore}
           onRetry={handleRetry}
           onToggleLike={handleToggleLike}
           query={query}

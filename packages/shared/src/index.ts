@@ -21,6 +21,7 @@ export type {
   MarketInsight,
   Money,
   OnboardingPreferences,
+  PaginationInfo,
   PriceRange,
   PremiumAccess,
   RiskLevel,

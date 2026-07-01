@@ -21,6 +21,7 @@ export type {
   ListingType,
   Money,
 } from "./listing";
+export type { PaginationInfo } from "./pagination";
 export type { RiskLevel, RiskSignal, RiskSignalCategory } from "./risk";
 export type {
   PriceRange,

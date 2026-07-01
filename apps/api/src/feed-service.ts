@@ -1,4 +1,5 @@
 import type { FeedQuery, FeedResponse, Listing, SearchQuery } from "@closetsearch/shared";
+import { ApiError } from "./api-error.js";
 import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
 import { getLikesByUserId } from "./like-service.js";
@@ -12,6 +13,7 @@ import {
 } from "./services/recommendationService.js";
 
 const defaultFeedSort: SearchQuery["sort"] = "newest";
+const defaultFeedPageSize = 12;
 
 function sortListings(listings: Listing[]) {
   return [...listings].sort(
@@ -27,6 +29,13 @@ function attachRiskSignal(listing: Listing): Listing {
   };
 }
 
+function shouldThrowProviderUnavailable(
+  providers: Array<{ status: "success" | "failure" }>,
+  listings: Listing[],
+) {
+  return listings.length === 0 && providers.length > 0 && providers.every((provider) => provider.status === "failure");
+}
+
 export async function getFeed(
   query: FeedQuery,
   runtime: ProviderRuntime = createProviderRuntime(),
@@ -35,9 +44,16 @@ export async function getFeed(
     {
       text: "",
       sort: defaultFeedSort,
+      cursor: query.cursor,
+      page: query.page,
+      pageSize: query.pageSize ?? defaultFeedPageSize,
     },
     runtime,
   );
+
+  if (shouldThrowProviderUnavailable(execution.providers, execution.listings)) {
+    throw new ApiError(502, "feed_unavailable", "The feed could not be loaded right now.");
+  }
 
   const listings = execution.listings.map(attachRiskSignal);
 
@@ -56,20 +72,12 @@ export async function getFeed(
         onboardingPreferences: user.onboardingPreferences,
       })
     : sortListings(listings);
-  const startIndex = (query.page - 1) * query.pageSize;
-  const endIndex = startIndex + query.pageSize;
-  const paginatedListings = rankedListings.slice(startIndex, endIndex);
-  const hasMore = endIndex < rankedListings.length;
 
-  recordListingImpressions(paginatedListings);
+  recordListingImpressions(rankedListings);
 
   return {
-    listings: paginatedListings,
+    listings: rankedListings,
     isPersonalized,
-    page: query.page,
-    pageSize: query.pageSize,
-    total: rankedListings.length,
-    hasMore,
-    nextPage: hasMore ? query.page + 1 : undefined,
+    pagination: execution.pagination,
   };
 }

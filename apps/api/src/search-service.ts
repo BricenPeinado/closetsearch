@@ -1,4 +1,5 @@
 import type { Listing, SearchQuery, SearchResponse } from "@closetsearch/shared";
+import { ApiError } from "./api-error.js";
 import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
 import { recordListingImpressions } from "./services/engagementService.js";
@@ -35,32 +36,37 @@ function attachRiskSignal(listing: Listing): Listing {
   };
 }
 
+function shouldThrowProviderUnavailable(
+  providers: Array<{ status: "success" | "failure" }>,
+  listings: Listing[],
+) {
+  return listings.length === 0 && providers.length > 0 && providers.every((provider) => provider.status === "failure");
+}
+
 export async function searchListings(
   query: SearchQuery,
   runtime: ProviderRuntime = createProviderRuntime(),
 ): Promise<SearchResponse> {
   const execution = await runProviderSearch(query, runtime);
-  const sortedListings = sortListings(execution.listings.map(attachRiskSignal), query.sort);
-  const page = query.page ?? 1;
-  const pageSize = query.pageSize ?? sortedListings.length;
-  const startIndex = (page - 1) * pageSize;
-  const endIndex = startIndex + pageSize;
-  const paginatedListings = sortedListings.slice(startIndex, endIndex);
-  const hasPaginatedResults = query.page !== undefined || query.pageSize !== undefined;
-  const hasMoreResults = hasPaginatedResults ? endIndex < sortedListings.length : execution.hasMore;
-  const responseListings = hasPaginatedResults ? paginatedListings : sortedListings;
+
+  if (shouldThrowProviderUnavailable(execution.providers, execution.listings)) {
+    throw new ApiError(502, "search_unavailable", "The search request could not be completed right now.");
+  }
+
+  const responseListings = sortListings(execution.listings.map(attachRiskSignal), query.sort);
 
   rememberListings(responseListings);
   recordListingImpressions(responseListings);
 
   return {
-    query,
+    query: {
+      ...query,
+      cursor: undefined,
+      page: execution.pagination.page,
+      pageSize: execution.pagination.pageSize,
+    },
     listings: responseListings,
-    total: sortedListings.length,
-    hasMore: hasMoreResults,
-    nextCursor: hasPaginatedResults ? undefined : execution.nextCursor,
-    page: hasPaginatedResults ? page : undefined,
-    pageSize: hasPaginatedResults ? pageSize : undefined,
+    pagination: execution.pagination,
     providers: execution.providers,
   };
 }

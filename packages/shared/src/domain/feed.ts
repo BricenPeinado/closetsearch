@@ -1,17 +1,15 @@
 import type { Listing } from "./listing";
+import type { PaginationInfo } from "./pagination";
 
 export interface FeedQuery {
-  page: number;
-  pageSize: number;
+  cursor?: string;
+  page?: number;
+  pageSize?: number;
   userId?: string;
 }
 
 export interface FeedResponse {
   listings: Listing[];
   isPersonalized: boolean;
-  page: number;
-  pageSize: number;
-  total: number;
-  hasMore: boolean;
-  nextPage?: number;
+  pagination: PaginationInfo;
 }

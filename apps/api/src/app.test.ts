@@ -336,12 +336,19 @@ describe("handleRequest", () => {
         };
         title: string;
       }>;
+      pagination: {
+        hasMore: boolean;
+        page: number;
+        pageSize: number;
+        totalCount?: number;
+      };
       query: { text: string };
-      total: number;
     };
 
     expect(body.query.text).toBe("jacket");
-    expect(body.total).toBeGreaterThan(0);
+    expect(body.pagination.page).toBe(1);
+    expect(body.pagination.pageSize).toBe(24);
+    expect(body.pagination.totalCount).toBeGreaterThan(0);
     expect(body.listings[0]).toMatchObject({
       providerId: "mock",
       riskSignal: {
@@ -375,8 +382,12 @@ describe("handleRequest", () => {
           riskLevel: string;
         };
       }>;
-      page?: number;
-      pageSize?: number;
+      pagination: {
+        hasMore: boolean;
+        page: number;
+        pageSize: number;
+        totalCount?: number;
+      };
       query: {
         listingTypes?: string[];
         page?: number;
@@ -391,8 +402,8 @@ describe("handleRequest", () => {
     expect(body.query.sourceIds).toEqual(["mock"]);
     expect(body.query.page).toBe(1);
     expect(body.query.pageSize).toBe(24);
-    expect(body.page).toBe(1);
-    expect(body.pageSize).toBe(24);
+    expect(body.pagination.page).toBe(1);
+    expect(body.pagination.pageSize).toBe(24);
     expect(body.listings).toHaveLength(1);
     expect(body.listings[0]).toMatchObject({
       listingType: "auction",
@@ -417,7 +428,6 @@ describe("handleRequest", () => {
     expect(recorder.snapshot().statusCode).toBe(200);
 
     const body = JSON.parse(recorder.snapshot().body) as {
-      hasMore: boolean;
       isPersonalized: boolean;
       listings: Array<{
         brand: { name: string };
@@ -430,18 +440,21 @@ describe("handleRequest", () => {
         sourceUrl: string;
         title: string;
       }>;
-      nextPage?: number;
-      page: number;
-      pageSize: number;
-      total: number;
+      pagination: {
+        hasMore: boolean;
+        nextPage?: number;
+        page: number;
+        pageSize: number;
+        totalCount?: number;
+      };
     };
 
     expect(body.isPersonalized).toBe(false);
-    expect(body.page).toBe(1);
-    expect(body.pageSize).toBe(4);
-    expect(body.total).toBeGreaterThan(4);
-    expect(body.hasMore).toBe(true);
-    expect(body.nextPage).toBe(2);
+    expect(body.pagination.page).toBe(1);
+    expect(body.pagination.pageSize).toBe(4);
+    expect(body.pagination.totalCount).toBeGreaterThan(4);
+    expect(body.pagination.hasMore).toBe(true);
+    expect(body.pagination.nextPage).toBe(2);
     expect(body.listings).toHaveLength(4);
     expect(body.listings[0]).toMatchObject({
       brand: {
