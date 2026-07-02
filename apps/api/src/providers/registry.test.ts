@@ -29,6 +29,30 @@ describe("createProviderRuntime", () => {
     );
   });
 
+  it("auto-activates Grailed as the default authorized provider when scraping is authorized", () => {
+    const runtime = createProviderRuntime(
+      loadProviderRuntimeConfig({
+        GRAILED_SCRAPING_ALLOWED: "true",
+        GRAILED_USER_AGENT: "ClosetSearchBot/0.1 contact:team@example.com",
+      }),
+    );
+
+    expect(runtime.config.mode).toBe("real");
+    expect(runtime.activeProviders.map((registration) => registration.provider.id)).toEqual([
+      "grailed",
+    ]);
+
+    const grailedStatus = runtime.statuses.find((status) => status.id === "grailed");
+
+    expect(grailedStatus).toMatchObject({
+      active: true,
+      enabled: true,
+      configured: true,
+      mode: "authorized-live",
+      scrapingAllowed: true,
+    });
+  });
+
   it("skips enabled Grailed scraping until authorization is enabled and falls back to mock in real mode", () => {
     const runtime = createProviderRuntime(
       loadProviderRuntimeConfig({

@@ -2,6 +2,7 @@ import type { Brand } from "./brand";
 import type { RiskSignal } from "./risk";
 
 export type ListingType = "auction" | "buy_now" | "unknown";
+export type ListingMarketStatus = "active" | "sold";
 export type ListingCondition =
   | "new_with_tags"
   | "new_without_tags"
@@ -9,6 +10,7 @@ export type ListingCondition =
   | "good"
   | "fair"
   | "unknown";
+export type SellerTrustTier = "trusted" | "established" | "unverified" | "unknown";
 
 export interface Money {
   amount: number;
@@ -18,6 +20,20 @@ export interface Money {
 export interface ListingSource {
   id: string;
   name: string;
+}
+
+export interface ListingSeller {
+  username?: string;
+  feedbackScore?: number;
+  feedbackCount?: number;
+  trustTier?: SellerTrustTier;
+}
+
+export interface ListingMarketMetrics {
+  status: ListingMarketStatus;
+  tags?: string[];
+  priceDropsCount?: number;
+  isExcludedFromAnalytics?: boolean;
 }
 
 export interface Listing {
@@ -35,5 +51,7 @@ export interface Listing {
   condition?: ListingCondition;
   listingType: ListingType;
   fetchedAt: string;
+  seller?: ListingSeller;
+  market?: ListingMarketMetrics;
   riskSignal?: RiskSignal;
 }

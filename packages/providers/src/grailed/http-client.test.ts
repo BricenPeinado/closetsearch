@@ -54,4 +54,42 @@ describe("createGrailedHttpClient", () => {
       }),
     );
   });
+
+  it("can send paced JSON POST requests with browser-like headers", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true }),
+    });
+    const client = createGrailedHttpClient({
+      fetchImpl,
+      minRequestIntervalMs: 0,
+      requestTimeoutMs: 5000,
+      userAgent: "ClosetSearchBot/0.1 contact:team@example.com",
+    });
+
+    const response = await client.postJson<{ ok: boolean }>(
+      "https://example-dsn.algolia.net/1/indexes/Listing_production/query",
+      { params: "query=kapital" },
+      {
+        origin: "https://www.grailed.com",
+        referer: "https://www.grailed.com/",
+      },
+    );
+
+    expect(response.body).toEqual({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://example-dsn.algolia.net/1/indexes/Listing_production/query",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ params: "query=kapital" }),
+        headers: expect.objectContaining({
+          accept: "application/json",
+          "content-type": "application/json",
+          origin: "https://www.grailed.com",
+          referer: "https://www.grailed.com/",
+        }),
+      }),
+    );
+  });
 });

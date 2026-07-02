@@ -44,6 +44,111 @@ export const grailedFixtureListings: RawGrailedFixtureListing[] = [
   },
 ];
 
+export const grailedPublicConfigHtmlFixture = [
+  "<html>",
+  "  <head></head>",
+  "  <body>",
+  "    <script>",
+  '      window.PUBLIC_CONFIG = {"algolia":{"appId":"grailed-app-123","apiKey":"grailed-key-123"},"other":{"flag":true}};',
+  "    </script>",
+  "  </body>",
+  "</html>",
+].join("\n");
+
+export const grailedBrokenPublicConfigHtmlFixture = [
+  "<html>",
+  "  <body>",
+  "    <script>",
+  '      window.PUBLIC_CONFIG = {"featureFlags":{"algolia":false}};',
+  "    </script>",
+  "  </body>",
+  "</html>",
+].join("\n");
+
+export const grailedAlgoliaActiveResponseFixture = {
+  hits: [
+    {
+      objectID: "grailed-1001-kapital-ring-coat",
+      title: "Kapital ring coat",
+      url: "/listings/grailed-1001-kapital-ring-coat",
+      brand_name: "Kapital",
+      brand_slug: "kapital",
+      image_url: "https://media.example.com/grailed-1001.jpg",
+      price_in_cents: 32500,
+      currency: "USD",
+      category: "outerwear",
+      size: "L",
+      condition: "good",
+      listing_type: "buy_now",
+      price_drops_count: 2,
+      tags: ["archive", "japanese"],
+      seller: {
+        username: "trusted-seller",
+        feedback_score: 4.9,
+        feedback_count: 38,
+      },
+      updated_at: "2026-06-13T11:00:00.000Z",
+    },
+    {
+      objectID: "grailed-1002-undercover-hoodie",
+      title: "Undercover hoodie",
+      url: "/listings/grailed-1002-undercover-hoodie",
+      brand_name: "Undercover",
+      brand_slug: "undercover",
+      image_url: "https://media.example.com/grailed-1002.jpg",
+      price_in_cents: 18000,
+      currency: "USD",
+      category: "tops",
+      size: "M",
+      condition: "fair",
+      listing_type: "buy_now",
+      price_drops_count: 0,
+      tags: ["streetwear"],
+      seller: {
+        username: "low-feedback-seller",
+        feedback_score: 2.5,
+        feedback_count: 1,
+      },
+      updated_at: "2026-06-13T10:00:00.000Z",
+    },
+  ],
+  hitsPerPage: 100,
+  nbHits: 2,
+  nbPages: 1,
+  page: 0,
+} as const;
+
+export const grailedAlgoliaSoldResponseFixture = {
+  hits: [
+    {
+      objectID: "grailed-sold-1001-kapital-ring-coat",
+      title: "Kapital ring coat",
+      url: "/listings/grailed-sold-1001-kapital-ring-coat",
+      brand_name: "Kapital",
+      brand_slug: "kapital",
+      image_url: "https://media.example.com/grailed-sold-1001.jpg",
+      sold_price_in_cents: 29500,
+      currency: "USD",
+      category: "outerwear",
+      size: "L",
+      condition: "good",
+      listing_type: "buy_now",
+      price_drops_count: 1,
+      metadata_tags: ["sold", "comp"],
+      seller: {
+        username: "archivist",
+        feedback_score: 4.7,
+        feedback_count: 12,
+      },
+      created_at: "2026-05-01T11:00:00.000Z",
+    },
+  ],
+  hitsPerPage: 100,
+  nbHits: 1,
+  nbPages: 1,
+  page: 0,
+} as const;
+
 export const grailedSearchHtmlFixture = [
   '<section data-testid="search-results">',
   '  <article data-testid="listing-tile" data-listing-id="grailed-1001-kapital-ring-coat">',

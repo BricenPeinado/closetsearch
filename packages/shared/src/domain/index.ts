@@ -17,9 +17,13 @@ export type { FeedQuery, FeedResponse } from "./feed";
 export type {
   Listing,
   ListingCondition,
+  ListingMarketMetrics,
+  ListingMarketStatus,
+  ListingSeller,
   ListingSource,
   ListingType,
   Money,
+  SellerTrustTier,
 } from "./listing";
 export type { PaginationInfo } from "./pagination";
 export type { RiskLevel, RiskSignal, RiskSignalCategory } from "./risk";

@@ -43,6 +43,7 @@ export async function getFeed(
   const execution = await runProviderSearch(
     {
       text: "",
+      marketScope: "active",
       sort: defaultFeedSort,
       cursor: query.cursor,
       page: query.page,

@@ -1,4 +1,4 @@
-import type { SearchSortMode } from "@closetsearch/shared";
+import type { Listing, SearchSortMode } from "@closetsearch/shared";
 import type {
   Provider,
   ProviderCapabilities,
@@ -12,17 +12,25 @@ import type {
   ProviderWarning,
 } from "../types";
 import {
+  createGrailedPagination,
+  GRAILED_ALGOLIA_HITS_PER_PAGE,
+  normalizeGrailedAlgoliaHit,
+  queryGrailedAlgolia,
+} from "./algolia";
+import {
+  createGrailedCredentialCache,
+  extractGrailedAlgoliaCredentials,
+  type GrailedCredentialCache,
+} from "./credentials";
+import {
   grailedFixtureListings,
   type RawGrailedFixtureListing,
 } from "./fixtures";
 import { createGrailedHttpClient, type GrailedFetch } from "./http-client";
 import {
   createGrailedListingInputFromFixture,
-  createGrailedListingInputFromParsedCard,
   normalizeGrailedListing,
 } from "./normalizer";
-import { hasGrailedNoResultsState, parseGrailedListingCards } from "./parser";
-import { buildGrailedSearchUrl } from "./search-url";
 
 const GRAILED_PROVIDER_ID = "grailed";
 const GRAILED_PROVIDER_NAME = "Grailed";
@@ -31,11 +39,13 @@ const defaultUserAgent = "ClosetSearchBot/0.1 contact:<project-contact-email>";
 const defaultRequestTimeoutMs = 5_000;
 const defaultMinRequestIntervalMs = 3_000;
 const defaultMaxResultsPerSearch = 24;
+const defaultCredentialTtlMs = 15 * 60_000;
 
 export type GrailedProviderRuntimeMode = "fixture" | "authorized-live";
 
 export interface GrailedProviderOptions {
   baseUrl?: string;
+  credentialTtlMs?: number;
   fetchImpl?: GrailedFetch;
   fixtureListings?: RawGrailedFixtureListing[];
   maxResultsPerSearch?: number;
@@ -127,13 +137,7 @@ function getFixtureResultLimit(
   return Math.max(1, Math.min(maxResultsPerSearch, Math.trunc(requestedPageSize)));
 }
 
-function getLiveResultLimit(maxResultsPerSearch: number) {
-  return Math.max(1, Math.trunc(maxResultsPerSearch));
-}
-
-function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearchQuery) {
-  const listing = normalizeGrailedListing(createGrailedListingInputFromFixture(raw));
-
+function matchesListingQuery(listing: Listing, query: ProviderSearchQuery) {
   if (query.sourceIds?.length && !query.sourceIds.includes(GRAILED_PROVIDER_ID)) {
     return false;
   }
@@ -142,10 +146,10 @@ function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearc
 
   if (terms.length > 0) {
     const haystack = [
-      raw.title,
-      raw.brandName ?? "",
-      raw.category ?? "",
-      raw.size ?? "",
+      listing.title,
+      listing.brand.name,
+      listing.category ?? "",
+      listing.size ?? "",
     ]
       .join(" ")
       .toLowerCase();
@@ -155,15 +159,15 @@ function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearc
     }
   }
 
-  if (query.brandSlugs?.length && !query.brandSlugs.includes(toTrimmedString(raw.brandSlug))) {
+  if (query.brandSlugs?.length && !query.brandSlugs.includes(listing.brand.slug)) {
     return false;
   }
 
-  if (query.categories?.length && (!raw.category || !query.categories.includes(raw.category))) {
+  if (query.categories?.length && (!listing.category || !query.categories.includes(listing.category))) {
     return false;
   }
 
-  if (query.sizes?.length && (!raw.size || !query.sizes.includes(raw.size))) {
+  if (query.sizes?.length && (!listing.size || !query.sizes.includes(listing.size))) {
     return false;
   }
 
@@ -174,14 +178,18 @@ function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearc
     return false;
   }
 
-  if (
-    query.listingTypes?.length &&
-    !query.listingTypes.includes(listing.listingType)
-  ) {
+  if (query.listingTypes?.length && !query.listingTypes.includes(listing.listingType)) {
     return false;
   }
 
   return true;
+}
+
+function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearchQuery) {
+  return matchesListingQuery(
+    normalizeGrailedListing(createGrailedListingInputFromFixture(raw)),
+    query,
+  );
 }
 
 function sortFixtureListings(
@@ -226,12 +234,81 @@ async function searchFixtureListings(
   });
 }
 
+async function fetchGrailedAlgoliaCredentials(
+  client: ReturnType<typeof createGrailedHttpClient>,
+  baseUrl: string,
+  credentialCache: GrailedCredentialCache,
+) {
+  const response = await client.getHtml(baseUrl);
+
+  if (!response.ok) {
+    throw new Error(
+      `Grailed credential extraction failed with status ${response.status}.`,
+    );
+  }
+
+  return credentialCache.set(extractGrailedAlgoliaCredentials(response.body));
+}
+
+async function getGrailedAlgoliaCredentials(
+  client: ReturnType<typeof createGrailedHttpClient>,
+  baseUrl: string,
+  credentialCache: GrailedCredentialCache,
+) {
+  return credentialCache.get() ??
+    fetchGrailedAlgoliaCredentials(client, baseUrl, credentialCache);
+}
+
+async function queryGrailedWithCredentialRotation(
+  client: ReturnType<typeof createGrailedHttpClient>,
+  options: {
+    baseUrl: string;
+    credentialCache: GrailedCredentialCache;
+    page: number;
+    query: ProviderSearchQuery;
+  },
+) {
+  let credentials = await getGrailedAlgoliaCredentials(
+    client,
+    options.baseUrl,
+    options.credentialCache,
+  );
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await queryGrailedAlgolia(client, {
+      baseUrl: options.baseUrl,
+      credentials,
+      marketScope: options.query.marketScope,
+      page: options.page,
+      query: options.query,
+    });
+
+    if (response.status !== 401 && response.status !== 403) {
+      return response;
+    }
+
+    if (attempt === 1) {
+      return response;
+    }
+
+    options.credentialCache.clear();
+    credentials = await fetchGrailedAlgoliaCredentials(
+      client,
+      options.baseUrl,
+      options.credentialCache,
+    );
+  }
+
+  throw new Error("Grailed credential rotation exhausted unexpectedly.");
+}
+
 async function searchAuthorizedLiveListings(
   request: ProviderSearchRequest,
   options: Required<
     Pick<
       GrailedProviderOptions,
       | "baseUrl"
+      | "credentialTtlMs"
       | "fetchImpl"
       | "maxResultsPerSearch"
       | "minRequestIntervalMs"
@@ -240,6 +317,7 @@ async function searchAuthorizedLiveListings(
       | "userAgent"
     >
   > & {
+    credentialCache: GrailedCredentialCache;
     nowImpl?: () => number;
     sleepImpl?: (ms: number) => Promise<void>;
   },
@@ -251,6 +329,15 @@ async function searchAuthorizedLiveListings(
     );
   }
 
+  if (request.query.sourceIds?.length && !request.query.sourceIds.includes(GRAILED_PROVIDER_ID)) {
+    return createSuccess([], {
+      page: normalizePage(request.pagination?.page),
+      pageSize: GRAILED_ALGOLIA_HITS_PER_PAGE,
+      hasMore: false,
+      totalCount: 0,
+    });
+  }
+
   const client = createGrailedHttpClient({
     fetchImpl: options.fetchImpl,
     minRequestIntervalMs: options.minRequestIntervalMs,
@@ -260,16 +347,21 @@ async function searchAuthorizedLiveListings(
     sleepImpl: options.sleepImpl,
   });
   const page = normalizePage(request.pagination?.page);
-  const pageSize = getLiveResultLimit(options.maxResultsPerSearch);
 
   try {
-    const response = await client.getHtml(
-      buildGrailedSearchUrl({
-        baseUrl: options.baseUrl,
-        page,
-        query: request.query,
-      }),
-    );
+    const response = await queryGrailedWithCredentialRotation(client, {
+      baseUrl: options.baseUrl,
+      credentialCache: options.credentialCache,
+      page,
+      query: request.query,
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      return createFailure(
+        "missing_credentials",
+        "Grailed Algolia credentials were rejected after automatic refresh.",
+      );
+    }
 
     if (response.status === 429) {
       return createFailure(
@@ -282,66 +374,26 @@ async function searchAuthorizedLiveListings(
     if (!response.ok) {
       return createFailure(
         "unavailable",
-        "Grailed scraping request failed with status " + response.status + ".",
+        `Grailed Algolia request failed with status ${response.status}.`,
         response.status >= 500,
       );
     }
 
-    const parsedCards = parseGrailedListingCards(response.body);
-
-    if (parsedCards.length === 0) {
-      if (hasGrailedNoResultsState(response.body)) {
-        return createSuccess([], {
-          page,
-          pageSize,
-          hasMore: false,
-          totalCount: 0,
-        });
-      }
-
-      return createFailure(
-        "normalization_failed",
-        "Grailed returned HTML, but no parseable public listing cards were found.",
-      );
-    }
-
+    const hits = Array.isArray(response.body.hits) ? response.body.hits : [];
     const fetchedAt = new Date().toISOString();
-    const warnings: ProviderWarning[] = [];
-    const listings = parsedCards
-      .slice(0, pageSize)
-      .map((card) => {
-        if (!card.sourceUrl && !card.title) {
-          warnings.push({
-            code: "partial_card_skipped",
-            message: "Skipped a Grailed card with no source URL and no title.",
-          });
-          return null;
-        }
-
-        return normalizeGrailedListing(
-          createGrailedListingInputFromParsedCard(card, fetchedAt),
-        );
-      })
-      .filter((listing): listing is NonNullable<typeof listing> => listing !== null);
-
-    if (listings.length === 0 && parsedCards.length > 0) {
-      return createFailure(
-        "normalization_failed",
-        "Grailed cards were found, but none could be normalized into shared listings.",
-      );
-    }
-
-    const hasMore = parsedCards.length >= pageSize;
+    const listings = hits
+      .map((hit) =>
+        normalizeGrailedAlgoliaHit(hit, {
+          baseUrl: options.baseUrl,
+          fetchedAt,
+          marketScope: request.query.marketScope,
+        }),
+      )
+      .filter((listing) => matchesListingQuery(listing, request.query));
 
     return createSuccess(
       listings,
-      {
-        page,
-        pageSize,
-        hasMore,
-        nextPage: hasMore ? page + 1 : undefined,
-      },
-      warnings.length > 0 ? warnings : undefined,
+      createGrailedPagination(response.body, page),
     );
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
@@ -365,6 +417,11 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
   const requestTimeoutMs = options.requestTimeoutMs ?? defaultRequestTimeoutMs;
   const minRequestIntervalMs = options.minRequestIntervalMs ?? defaultMinRequestIntervalMs;
   const maxResultsPerSearch = options.maxResultsPerSearch ?? defaultMaxResultsPerSearch;
+  const credentialTtlMs = options.credentialTtlMs ?? defaultCredentialTtlMs;
+  const credentialCache = createGrailedCredentialCache(
+    credentialTtlMs,
+    options.nowImpl,
+  );
 
   return {
     id: GRAILED_PROVIDER_ID,
@@ -384,6 +441,8 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
 
       return searchAuthorizedLiveListings(request, {
         baseUrl,
+        credentialTtlMs,
+        credentialCache,
         fetchImpl: options.fetchImpl,
         maxResultsPerSearch,
         minRequestIntervalMs,

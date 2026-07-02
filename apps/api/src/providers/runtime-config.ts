@@ -63,14 +63,17 @@ function parsePositiveInteger(
   return Math.max(minimum, Math.min(maximum, parsedValue));
 }
 
-function parseProviderRuntimeMode(value: string | undefined): ProviderRuntimeMode {
+function parseProviderRuntimeMode(
+  value: string | undefined,
+  fallback: ProviderRuntimeMode,
+): ProviderRuntimeMode {
   switch (value?.trim().toLowerCase()) {
     case "mock":
     case "hybrid":
     case "real":
       return value.trim().toLowerCase() as ProviderRuntimeMode;
     default:
-      return defaultProviderRuntimeMode;
+      return fallback;
   }
 }
 
@@ -86,9 +89,18 @@ export function loadProviderRuntimeConfig(
     normalizeOptionalString(env.GRAILED_BASE_URL) ?? defaultGrailedBaseUrl;
   const grailedUserAgent =
     normalizeOptionalString(env.GRAILED_USER_AGENT) ?? defaultGrailedUserAgent;
+  const grailedScrapingAllowed = parseBooleanFlag(env.GRAILED_SCRAPING_ALLOWED, false);
+  const grailedEnabled = parseBooleanFlag(
+    env.GRAILED_PROVIDER_ENABLED,
+    grailedScrapingAllowed,
+  );
+  const runtimeModeFallback =
+    grailedEnabled && grailedScrapingAllowed
+      ? "real"
+      : defaultProviderRuntimeMode;
 
   return {
-    mode: parseProviderRuntimeMode(env.PROVIDER_RUNTIME_MODE),
+    mode: parseProviderRuntimeMode(env.PROVIDER_RUNTIME_MODE, runtimeModeFallback),
     allowMockFallback: parseBooleanFlag(env.PROVIDER_ALLOW_MOCK_FALLBACK, true),
     requestTimeoutMs: parsePositiveInteger(
       env.PROVIDER_REQUEST_TIMEOUT_MS,
@@ -108,10 +120,10 @@ export function loadProviderRuntimeConfig(
         configured: true,
       },
       grailed: {
-        enabled: parseBooleanFlag(env.GRAILED_PROVIDER_ENABLED, false),
+        enabled: grailedEnabled,
         configured: Boolean(grailedBaseUrl && grailedUserAgent),
         baseUrl: grailedBaseUrl,
-        scrapingAllowed: parseBooleanFlag(env.GRAILED_SCRAPING_ALLOWED, false),
+        scrapingAllowed: grailedScrapingAllowed,
         requestTimeoutMs: parsePositiveInteger(
           env.GRAILED_REQUEST_TIMEOUT_MS,
           defaultGrailedRequestTimeoutMs,

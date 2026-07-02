@@ -1,4 +1,9 @@
-import type { Listing, ListingCondition, ListingType } from "./listing";
+import type {
+  Listing,
+  ListingCondition,
+  ListingMarketStatus,
+  ListingType,
+} from "./listing";
 import type { PaginationInfo } from "./pagination";
 
 export type SearchSortMode = "relevance" | "price_asc" | "price_desc" | "newest";
@@ -17,6 +22,7 @@ export interface SearchQuery {
   conditions?: ListingCondition[];
   sourceIds?: string[];
   listingTypes?: ListingType[];
+  marketScope?: ListingMarketStatus;
   sort?: SearchSortMode;
   price?: PriceRange;
   currency?: string;

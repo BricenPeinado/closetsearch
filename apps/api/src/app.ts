@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import type {
   FeedQuery,
+  ListingMarketStatus,
   ListingType,
   OnboardingPreferences,
   SearchQuery,
@@ -97,6 +98,19 @@ function parseSearchSortMode(value: string | null): SearchSortMode {
   }
 }
 
+function parseListingMarketStatus(
+  value: string | null,
+): ListingMarketStatus | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case "active":
+      return "active";
+    case "sold":
+      return "sold";
+    default:
+      return undefined;
+  }
+}
+
 function parseListingTypes(value: string | null): ListingType[] | undefined {
   const listingTypes = parseListParameter(value)
     ?.map((item) => {
@@ -140,6 +154,10 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
     listingTypes: parseListingTypes(
       requestUrl.searchParams.get("listingType") ??
         requestUrl.searchParams.get("listingTypes"),
+    ),
+    marketScope: parseListingMarketStatus(
+      requestUrl.searchParams.get("marketScope") ??
+        requestUrl.searchParams.get("market"),
     ),
     sort: parseSearchSortMode(requestUrl.searchParams.get("sort")),
     currency: requestUrl.searchParams.get("currency") ?? undefined,

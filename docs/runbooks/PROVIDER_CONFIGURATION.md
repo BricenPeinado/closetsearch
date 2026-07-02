@@ -8,7 +8,7 @@ Current behavior:
 
 - the mock provider stays available for local development, tests, and fallback
 - Grailed is the first authorized real-provider path in the runtime
-- Grailed is disabled by default unless both the provider toggle and scraping authorization gate are enabled
+- when `GRAILED_SCRAPING_ALLOWED=true` is set, Grailed auto-enables and the runtime defaults to `real` unless `PROVIDER_RUNTIME_MODE` explicitly overrides it
 - missing authorization and provider failures degrade to partial results instead of crashing feed or search
 - provider health/debug metadata exposes safe status only, never secrets
 
@@ -46,16 +46,16 @@ Grailed variables:
 
 - `mock`: only the mock provider runs.
 - `hybrid`: mock stays active and Grailed can run beside it when explicitly enabled and authorized.
-- `real`: real providers are preferred; if none are runnable and fallback is allowed, mock is activated instead.
+- `real`: real providers are preferred by default for authorized live browsing; if none are runnable and fallback is allowed, mock is activated instead.
 
 ## Grailed Authorization Gate
 
 Grailed live scraping stays off unless both of these are true:
 
-- `GRAILED_PROVIDER_ENABLED=true`
 - `GRAILED_SCRAPING_ALLOWED=true`
+- `GRAILED_PROVIDER_ENABLED=true`, or no explicit provider toggle is set and authorization is enabled
 
-That second flag is the compliance gate. It should only be enabled when the project has retained written permission from Grailed for ClosetSearch and the approved request profile still matches that permission.
+That first flag is the compliance gate. It should only be enabled when the project has retained written permission from Grailed for ClosetSearch and the approved request profile still matches that permission.
 
 ## Request Pacing
 
@@ -122,3 +122,5 @@ Milestone 13 added:
 - clearer load-more and retry states in the web app
 
 See also: `docs/runbooks/PAGINATION_AND_CACHING.md`
+
+See also: `docs/runbooks/PROVIDERS.md`
