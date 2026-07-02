@@ -1,8 +1,9 @@
-import type { SearchQuery } from "@closetsearch/shared";
+import type { ProviderSearchQuery } from "../types";
 
 export interface GrailedSearchUrlOptions {
   baseUrl: string;
-  query: SearchQuery;
+  page?: number;
+  query: ProviderSearchQuery;
 }
 
 function normalizeBaseUrl(value: string) {
@@ -18,7 +19,7 @@ export function buildGrailedSearchUrl(options: GrailedSearchUrlOptions) {
     url.searchParams.set("query", text);
   }
 
-  const page = options.query.page ?? 1;
+  const page = options.page ?? 1;
 
   if (page > 1) {
     url.searchParams.set("page", String(page));

@@ -1,7 +1,10 @@
 import type { Provider, ProviderSearchFailure, ProviderSearchResponse } from "@closetsearch/providers";
 import type { Listing, SearchQuery } from "@closetsearch/shared";
-import { describe, expect, it } from "vitest";
-import { runProviderSearch } from "./orchestrator.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  resetProviderSearchCache,
+  runProviderSearch,
+} from "./orchestrator.js";
 import type { ProviderRuntime } from "./registry.js";
 import { loadProviderRuntimeConfig } from "./runtime-config.js";
 
@@ -14,8 +17,8 @@ function createListing(id: string): Listing {
       id: "mock",
       name: "Mock Closet",
     },
-    sourceUrl: `https://example.com/${id}`,
-    title: `Listing ${id}`,
+    sourceUrl: "https://example.com/" + id,
+    title: "Listing " + id,
     brand: {
       id: "brand:test",
       slug: "test-brand",
@@ -44,6 +47,10 @@ function createRuntime(activeProviders: ProviderRuntime["activeProviders"]): Pro
 }
 
 describe("runProviderSearch", () => {
+  beforeEach(() => {
+    resetProviderSearchCache();
+  });
+
   it("captures provider failures without breaking the normalized response", async () => {
     const successProvider: Provider = {
       id: "mock",
@@ -53,6 +60,12 @@ describe("runProviderSearch", () => {
           providerId: "mock",
           status: "success",
           listings: [createListing("mock:success-1")],
+          pagination: {
+            page: 1,
+            pageSize: 24,
+            hasMore: false,
+            totalCount: 1,
+          },
         };
       },
     };
@@ -65,7 +78,7 @@ describe("runProviderSearch", () => {
     };
 
     const result = await runProviderSearch(
-      { text: "jacket" },
+      { text: "jacket", pageSize: 24 },
       createRuntime([
         { mode: "mock", name: successProvider.name, provider: successProvider },
         { mode: "real", name: failingProvider.name, provider: failingProvider },
@@ -73,6 +86,11 @@ describe("runProviderSearch", () => {
     );
 
     expect(result.listings).toHaveLength(1);
+    expect(result.pagination).toMatchObject({
+      page: 1,
+      pageSize: 24,
+      hasMore: true,
+    });
     expect(result.providers).toEqual([
       {
         providerId: "mock",
@@ -111,12 +129,18 @@ describe("runProviderSearch", () => {
           providerId: "mock",
           status: "success",
           listings: [rawListing],
+          pagination: {
+            page: 1,
+            pageSize: 24,
+            hasMore: false,
+            totalCount: 1,
+          },
         };
       },
     };
 
     const result = await runProviderSearch(
-      { text: "jacket" },
+      { text: "jacket", pageSize: 24 },
       createRuntime([{ mode: "mock", name: provider.name, provider }]),
     );
 
@@ -139,6 +163,7 @@ describe("runProviderSearch", () => {
     const result = await runProviderSearch(
       {
         text: "jacket",
+        pageSize: 24,
         price: {
           min: 100,
           currency: "USD",
@@ -162,5 +187,73 @@ describe("runProviderSearch", () => {
         code: "unsupported_capability",
       }),
     ]);
+  });
+
+  it("dedupes repeated provider batches across cursor pages and reuses the cached provider page", async () => {
+    let searchCalls = 0;
+    const provider: Provider = {
+      id: "cached",
+      name: "Cached Provider",
+      async search() {
+        searchCalls += 1;
+
+        return {
+          providerId: "cached",
+          status: "success",
+          listings: [createListing("cached:1"), createListing("cached:2")],
+          pagination: {
+            page: 1,
+            pageSize: 2,
+            hasMore: false,
+            totalCount: 2,
+          },
+        };
+      },
+    };
+    const runtime = createRuntime([{ mode: "real", name: provider.name, provider }]);
+
+    const firstPage = await runProviderSearch(
+      { text: "jacket", pageSize: 1 },
+      runtime,
+    );
+    const secondPage = await runProviderSearch(
+      {
+        text: "jacket",
+        cursor: firstPage.pagination.nextCursor,
+        pageSize: 1,
+      },
+      runtime,
+    );
+
+    expect(firstPage.listings.map((listing) => listing.id)).toEqual(["cached:1"]);
+    expect(secondPage.listings.map((listing) => listing.id)).toEqual(["cached:2"]);
+    expect(searchCalls).toBe(1);
+    expect(secondPage.pagination.hasMore).toBe(false);
+  });
+
+  it("does not crash when a provider omits pagination metadata", async () => {
+    const provider: Provider = {
+      id: "missing-pagination",
+      name: "Missing Pagination",
+      async search() {
+        return {
+          providerId: "missing-pagination",
+          status: "success",
+          listings: [createListing("missing-pagination:1")],
+        };
+      },
+    };
+
+    const result = await runProviderSearch(
+      { text: "jacket", pageSize: 1 },
+      createRuntime([{ mode: "real", name: provider.name, provider }]),
+    );
+
+    expect(result.listings).toHaveLength(1);
+    expect(result.pagination).toMatchObject({
+      page: 1,
+      pageSize: 1,
+      hasMore: false,
+    });
   });
 });

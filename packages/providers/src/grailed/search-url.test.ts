@@ -16,9 +16,9 @@ describe("buildGrailedSearchUrl", () => {
   it("adds the public page parameter when paging is requested", () => {
     const url = buildGrailedSearchUrl({
       baseUrl: "https://www.grailed.com",
+      page: 3,
       query: {
         text: "kapital",
-        page: 3,
         brandSlugs: ["kapital"],
         sort: "price_asc",
       },

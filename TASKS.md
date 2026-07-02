@@ -148,16 +148,32 @@ Exit criteria:
 
 ## Milestone 13: Real Feed + Pagination
 
-- [ ] Connect feed and search to real provider pagination
-- [ ] Support infinite scroll or load-more with real cursors/pages
-- [ ] Dedupe listings across pages and providers
-- [ ] Improve loading, error, and empty states for real fetches
-- [ ] Add light caching for repeated searches where useful
+- [x] Connect feed and search to real provider pagination
+- [x] Support infinite scroll or load-more with real cursors/pages
+- [x] Dedupe listings across pages and providers
+- [x] Improve loading, error, and empty states for real fetches
+- [x] Add light caching for repeated searches where useful
 
 Exit criteria:
 
 - Feed and search can page through real results reliably.
 - Repeated requests behave predictably and do not spam providers.
+
+## Milestone 13.5: Grailed Dynamic Credentials + Integrated Scraping Engine
+
+- [x] Implement dynamic HTML credential extractor
+- [x] Establish an in-memory/cache credential storage engine
+- [x] Build automated token rotation and 401/403 retry handling
+- [x] Build the direct Algolia market querying engine for active and sold listings
+- [x] Map Grailed market hits into normalized ClosetSearch listing types
+- [x] Add robust error handling, browser-mimicking headers, and rate-limit safeguards
+- [x] Update tests and provider documentation
+
+Exit criteria:
+
+- Grailed credentials are harvested dynamically instead of hardcoded.
+- Authorized-live Grailed queries can recover once from rotated Algolia credentials.
+- Active listings and sold comps stay behind normalized provider boundaries.
 
 ## Milestone 14: Database Persistence
 

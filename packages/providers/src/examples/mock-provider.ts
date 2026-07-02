@@ -3,13 +3,13 @@ import type {
   Listing,
   ListingCondition,
   ListingType,
-  SearchQuery,
   SearchSortMode,
 } from "@closetsearch/shared";
-import type { Provider } from "../types";
+import type { Provider, ProviderSearchQuery, ProviderSearchRequest } from "../types";
 
 const MOCK_PROVIDER_ID = "mock";
 const MOCK_PROVIDER_NAME = "Mock Closet";
+const defaultMockPageSize = 24;
 
 export interface RawMockListing {
   id: string;
@@ -167,7 +167,7 @@ function toSearchTerms(text: string) {
     .filter(Boolean);
 }
 
-function matchesQuery(raw: RawMockListing, query: SearchQuery) {
+function matchesQuery(raw: RawMockListing, query: ProviderSearchQuery) {
   const terms = toSearchTerms(query.text);
 
   if (terms.length > 0) {
@@ -282,30 +282,63 @@ function sortListings(
   return sorted;
 }
 
+function normalizePage(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+    return 1;
+  }
+
+  return Math.trunc(value);
+}
+
+function normalizePageSize(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+    return defaultMockPageSize;
+  }
+
+  return Math.trunc(value);
+}
+
 export const mockProvider: Provider = {
   id: MOCK_PROVIDER_ID,
   name: MOCK_PROVIDER_NAME,
   capabilities: {
-    supportsPagination: false,
+    supportsPagination: true,
+    supportsPagePagination: true,
+    supportsCursorPagination: false,
     supportsPriceRange: true,
     supportedListingTypes: ["auction", "buy_now", "unknown"],
     supportedSortModes: ["relevance", "price_asc", "price_desc", "newest"],
   },
-  async search(query: SearchQuery) {
+  async search(request: ProviderSearchRequest) {
     const matchedListings = sortListings(
-      rawMockListings.filter((listing) => matchesQuery(listing, query)),
-      query.sort,
+      rawMockListings.filter((listing) => matchesQuery(listing, request.query)),
+      request.query.sort,
     ).map(normalizeMockListing);
+
+    const page = normalizePage(request.pagination?.page);
+    const pageSize = normalizePageSize(request.pagination?.pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const listings = matchedListings.slice(startIndex, endIndex);
+    const hasMore = endIndex < matchedListings.length;
+    const pagination = {
+      page,
+      pageSize,
+      hasMore,
+      nextPage: hasMore ? page + 1 : undefined,
+      totalCount: matchedListings.length,
+    };
 
     return {
       providerId: MOCK_PROVIDER_ID,
       status: "success",
-      listings: matchedListings,
-      hasMore: false,
+      listings,
+      pagination,
       metadata: {
         providerId: MOCK_PROVIDER_ID,
         fetchedAt: new Date().toISOString(),
-        resultCount: matchedListings.length,
+        resultCount: listings.length,
+        pagination,
       },
     };
   },
