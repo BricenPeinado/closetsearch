@@ -28,6 +28,14 @@ export type {
 export type { PaginationInfo } from "./pagination";
 export type { RiskLevel, RiskSignal, RiskSignalCategory } from "./risk";
 export type {
+  DeleteSavedSearchInput,
+  PersistSearchHistoryInput,
+  PersistedSearchHistoryEntry,
+  RecentSearch,
+  SavedSearch,
+  SearchHistoryEntry,
+} from "./search-history";
+export type {
   PriceRange,
   SearchProviderSummary,
   SearchQuery,

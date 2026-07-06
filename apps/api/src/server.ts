@@ -1,4 +1,7 @@
+import { getDatabase } from "./db/database.js";
 import { createApp } from "./app.js";
+
+getDatabase();
 
 const defaultPort = 4000;
 const parsedPort = Number.parseInt(process.env.PORT ?? `${defaultPort}`, 10);

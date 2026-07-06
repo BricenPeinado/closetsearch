@@ -177,13 +177,13 @@ Exit criteria:
 
 ## Milestone 14: Database Persistence
 
-- [ ] Choose the database direction
-- [ ] Persist users
-- [ ] Persist onboarding preferences
-- [ ] Persist likes
-- [ ] Persist recent and saved searches
-- [ ] Persist listing cache if useful
-- [ ] Add migration and seed strategy
+- [x] Choose the database direction
+- [x] Persist users
+- [x] Persist onboarding preferences
+- [x] Persist likes
+- [x] Persist recent and saved searches
+- [x] Persist listing cache if useful
+- [x] Add migration and seed strategy
 
 Exit criteria:
 

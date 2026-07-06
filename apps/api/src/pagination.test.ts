@@ -1,5 +1,5 @@
 import type { Provider } from "@closetsearch/providers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getFeed } from "./feed-service.js";
 import {
   resetProviderSearchCache,
@@ -11,6 +11,9 @@ import { searchListings } from "./search-service.js";
 import { resetEngagementStore } from "./services/engagementService.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
 import { resetLikeStore } from "./like-service.js";
+import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.js";
+import { resetRecentSearchStore } from "./recent-search-service.js";
+import { resetSavedSearchStore } from "./saved-search-service.js";
 import { resetUserStore } from "./user-service.js";
 
 function createRuntime(activeProviders: ProviderRuntime["activeProviders"]): ProviderRuntime {
@@ -23,12 +26,21 @@ function createRuntime(activeProviders: ProviderRuntime["activeProviders"]): Pro
 }
 
 describe("feed and search pagination", () => {
+  let databasePath = "";
+
   beforeEach(() => {
+    databasePath = useIsolatedDatabase("pagination");
     resetProviderSearchCache();
     resetEngagementStore();
     resetListingCatalog();
     resetLikeStore();
     resetUserStore();
+    resetRecentSearchStore();
+    resetSavedSearchStore();
+  });
+
+  afterEach(() => {
+    cleanupIsolatedDatabase(databasePath);
   });
 
   it("returns normalized pagination for the first feed page", async () => {

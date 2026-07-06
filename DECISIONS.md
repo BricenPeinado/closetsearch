@@ -279,3 +279,26 @@ Trust and risk UI must use careful language, remain probabilistic, and avoid fak
 #### Consequences
 
 ClosetSearch can surface helpful review signals while reducing user harm, legal risk, and product overclaiming.
+
+### SQLite Is the Initial Persistence Layer
+
+**Date:** 2026-07-02  
+**Status:** Accepted
+
+#### Context
+
+ClosetSearch needs persistence for core user state and listing cache behavior, but the project is still early enough that a local, reviewable database is a better fit than introducing Postgres infrastructure or a broader ORM layer immediately.
+
+#### Decision
+
+Milestone 14 uses SQLite inside `apps/api` as the initial persistence layer, configured through `CLOSETSEARCH_DB_PATH` and backed by explicit SQL migrations and seed support.
+
+#### Alternatives Considered
+
+- Keep in-memory and browser-only persistence longer.
+- Introduce Postgres immediately.
+- Add a larger abstraction or ORM before the persistence requirements are stable.
+
+#### Consequences
+
+Core user state can now survive API restarts with a small operational footprint, but production auth, deployment-grade database strategy, and a future Postgres swap remain later milestones.

@@ -5,6 +5,13 @@ import type {
   StoredUser,
   User,
 } from "@closetsearch/shared";
+import {
+  clearUsers,
+  findUserById,
+  findUserByNormalizedUsername,
+  insertUser,
+  updateUserPreferences,
+} from "./db/repositories/users.js";
 
 const defaultPreferences: OnboardingPreferences = {
   favoriteBrands: [],
@@ -13,8 +20,6 @@ const defaultPreferences: OnboardingPreferences = {
 };
 
 const defaultCurrencyPreference = "USD";
-const usersById = new Map<string, StoredUser>();
-const userIdsByUsername = new Map<string, string>();
 
 function normalizeUsername(username: string) {
   return username.trim().toLowerCase();
@@ -43,8 +48,7 @@ function toPublicUser(user: StoredUser): User {
 }
 
 export function resetUserStore() {
-  usersById.clear();
-  userIdsByUsername.clear();
+  clearUsers();
 }
 
 export function createUser(username: string, password: string): AuthResponse {
@@ -59,7 +63,7 @@ export function createUser(username: string, password: string): AuthResponse {
     throw new Error("Password must be at least 4 characters long.");
   }
 
-  if (userIdsByUsername.has(normalizedUsername)) {
+  if (findUserByNormalizedUsername(normalizedUsername)) {
     throw new Error("That username is already taken.");
   }
 
@@ -76,8 +80,15 @@ export function createUser(username: string, password: string): AuthResponse {
     createdAt: new Date().toISOString(),
   };
 
-  usersById.set(user.id, user);
-  userIdsByUsername.set(normalizedUsername, user.id);
+  insertUser({
+    id: user.id,
+    username: user.username,
+    normalizedUsername,
+    passwordHash: user.passwordHash,
+    onboardingPreferences: user.onboardingPreferences,
+    currencyPreference: user.currencyPreference,
+    createdAt: user.createdAt,
+  });
 
   return {
     userId: user.id,
@@ -86,13 +97,7 @@ export function createUser(username: string, password: string): AuthResponse {
 }
 
 export function loginUser(username: string, password: string): AuthResponse {
-  const userId = userIdsByUsername.get(normalizeUsername(username));
-
-  if (!userId) {
-    throw new Error("Invalid username or password.");
-  }
-
-  const user = usersById.get(userId);
+  const user = findUserByNormalizedUsername(normalizeUsername(username));
 
   if (!user || user.passwordHash !== hashPassword(password)) {
     throw new Error("Invalid username or password.");
@@ -109,23 +114,25 @@ export function saveOnboardingPreferences(
   preferences: OnboardingPreferences,
   currencyPreference?: string,
 ) {
-  const user = usersById.get(userId);
+  const user = findUserById(userId);
 
   if (!user) {
     throw new Error("User not found.");
   }
 
-  const nextUser: StoredUser = {
-    ...user,
-    onboardingPreferences: {
+  const nextUser = updateUserPreferences(
+    userId,
+    {
       favoriteBrands: preferences.favoriteBrands,
       categories: preferences.categories,
       priceRange: preferences.priceRange,
     },
-    currencyPreference: currencyPreference?.trim() || user.currencyPreference,
-  };
+    currencyPreference?.trim() || user.currencyPreference,
+  );
 
-  usersById.set(userId, nextUser);
+  if (!nextUser) {
+    throw new Error("User not found.");
+  }
 
   return {
     userId: nextUser.id,
@@ -134,7 +141,6 @@ export function saveOnboardingPreferences(
 }
 
 export function getUserById(userId: string) {
-  const user = usersById.get(userId);
-
+  const user = findUserById(userId);
   return user ? toPublicUser(user) : undefined;
 }

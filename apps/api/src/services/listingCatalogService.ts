@@ -1,17 +1,43 @@
 import type { Listing } from "@closetsearch/shared";
+import {
+  clearListingCache,
+  findListingBySourceAndProviderListingId,
+  listCachedListings,
+  upsertListing,
+} from "../db/repositories/listing-cache.js";
 
-const listingsById = new Map<string, Listing>();
+function parseListingLookup(listingId: string) {
+  const separatorIndex = listingId.indexOf(":");
+
+  if (separatorIndex <= 0 || separatorIndex === listingId.length - 1) {
+    return null;
+  }
+
+  return {
+    source: listingId.slice(0, separatorIndex),
+    providerListingId: listingId.slice(separatorIndex + 1),
+  };
+}
 
 export function rememberListings(listings: Listing[]) {
   for (const listing of listings) {
-    listingsById.set(listing.id, listing);
+    upsertListing(listing);
   }
 }
 
 export function getRememberedListing(listingId: string) {
-  return listingsById.get(listingId);
+  const parsedLookup = parseListingLookup(listingId);
+
+  if (parsedLookup) {
+    return findListingBySourceAndProviderListingId(
+      parsedLookup.source,
+      parsedLookup.providerListingId,
+    );
+  }
+
+  return listCachedListings().find((listing) => listing.id === listingId);
 }
 
 export function resetListingCatalog() {
-  listingsById.clear();
+  clearListingCache();
 }

@@ -1,9 +1,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Brand } from "@closetsearch/shared";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { handleRequest } from "./app.js";
 import { resetLikeStore } from "./like-service.js";
+import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.js";
+import { resetRecentSearchStore } from "./recent-search-service.js";
+import { resetSavedSearchStore } from "./saved-search-service.js";
 import { resetEngagementStore } from "./services/engagementService.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
 import { resetUserStore } from "./user-service.js";
@@ -46,11 +49,20 @@ function createJsonRequest(method: string, url: string, body?: unknown) {
 }
 
 describe("handleRequest", () => {
+  let databasePath = "";
+
   beforeEach(() => {
+    databasePath = useIsolatedDatabase("app");
     resetUserStore();
     resetLikeStore();
     resetEngagementStore();
     resetListingCatalog();
+    resetRecentSearchStore();
+    resetSavedSearchStore();
+  });
+
+  afterEach(() => {
+    cleanupIsolatedDatabase(databasePath);
   });
 
   it("returns a healthy JSON response from /health", async () => {
@@ -836,4 +848,133 @@ describe("handleRequest", () => {
       },
     });
   });
+  it("persists recent searches through the API routes", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "searchhistory",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    const createRecentRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/recent-searches", {
+        userId: signupBody.userId,
+        label: "jacket",
+        description: "Keyword search",
+        params: "q=jacket",
+      }),
+      createRecentRecorder.response,
+    );
+
+    expect(createRecentRecorder.snapshot().statusCode).toBe(201);
+
+    const listRecentRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: "/recent-searches/" + signupBody.userId,
+      } as IncomingMessage,
+      listRecentRecorder.response,
+    );
+
+    expect(JSON.parse(listRecentRecorder.snapshot().body)).toMatchObject({
+      recentSearches: [
+        {
+          label: "jacket",
+          params: "q=jacket",
+        },
+      ],
+      userId: signupBody.userId,
+    });
+
+    const clearRecentRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "DELETE",
+        url: "/recent-searches/" + signupBody.userId,
+      } as IncomingMessage,
+      clearRecentRecorder.response,
+    );
+
+    expect(JSON.parse(clearRecentRecorder.snapshot().body)).toEqual({
+      cleared: true,
+      userId: signupBody.userId,
+    });
+  });
+
+  it("creates, lists, and deletes saved searches through the API routes", async () => {
+    const signupRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "savedsearcher",
+        password: "mohair",
+      }),
+      signupRecorder.response,
+    );
+
+    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+      userId: string;
+    };
+
+    const createSavedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("POST", "/saved-searches", {
+        userId: signupBody.userId,
+        label: "Archive outerwear",
+        description: "grailed • Price high to low",
+        params: "q=archive+outerwear&source=grailed&sort=price_desc",
+      }),
+      createSavedRecorder.response,
+    );
+
+    expect(createSavedRecorder.snapshot().statusCode).toBe(201);
+
+    const listSavedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      {
+        method: "GET",
+        url: "/saved-searches/" + signupBody.userId,
+      } as IncomingMessage,
+      listSavedRecorder.response,
+    );
+
+    const listSavedBody = JSON.parse(listSavedRecorder.snapshot().body) as {
+      savedSearches: Array<{ label: string; params: string }>;
+    };
+
+    expect(listSavedBody.savedSearches).toHaveLength(1);
+    expect(listSavedBody.savedSearches[0]).toMatchObject({
+      label: "Archive outerwear",
+      params: "q=archive+outerwear&source=grailed&sort=price_desc",
+    });
+
+    const deleteSavedRecorder = createResponseRecorder();
+
+    await handleRequest(
+      createJsonRequest("DELETE", "/saved-searches", {
+        userId: signupBody.userId,
+        params: "q=archive+outerwear&source=grailed&sort=price_desc",
+      }),
+      deleteSavedRecorder.response,
+    );
+
+    expect(JSON.parse(deleteSavedRecorder.snapshot().body)).toEqual({
+      removed: true,
+    });
+  });
+
 });

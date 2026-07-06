@@ -11,6 +11,16 @@ import type {
 import { isApiError } from "./api-error.js";
 import { getFeed } from "./feed-service.js";
 import { addLike, getLikesByUserId, removeLike } from "./like-service.js";
+import {
+  addRecentSearch,
+  getRecentSearchesByUserId,
+  removeRecentSearchesByUserId,
+} from "./recent-search-service.js";
+import {
+  addSavedSearch,
+  getSavedSearchesByUserId,
+  removeSavedSearch,
+} from "./saved-search-service.js";
 import { searchListings } from "./search-service.js";
 import { createProviderRuntime } from "./providers/registry.js";
 import {
@@ -379,6 +389,165 @@ function handleGetLikes(
   });
 }
 
+async function handleCreateRecentSearch(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const userId = toTrimmedString(body?.userId);
+  const label = toTrimmedString(body?.label);
+  const description = toTrimmedString(body?.description);
+  const params = toTrimmedString(body?.params);
+
+  if (!userId || !label || !description || !params) {
+    sendValidationError(response, "userId, label, description, and params are required.");
+    return;
+  }
+
+  if (!getUserById(userId)) {
+    sendValidationError(response, "User not found.", 404);
+    return;
+  }
+
+  const recentSearch = addRecentSearch({
+    userId,
+    label,
+    description,
+    params,
+  });
+
+  sendJson(response, 201, {
+    recentSearch,
+    recentSearches: getRecentSearchesByUserId(userId),
+    userId,
+  });
+}
+
+function handleGetRecentSearches(
+  response: ServerResponse<IncomingMessage>,
+  userId: string,
+) {
+  if (!userId) {
+    sendValidationError(response, "A userId is required.");
+    return;
+  }
+
+  if (!getUserById(userId)) {
+    sendValidationError(response, "User not found.", 404);
+    return;
+  }
+
+  sendJson(response, 200, {
+    recentSearches: getRecentSearchesByUserId(userId),
+    userId,
+  });
+}
+
+function handleDeleteRecentSearches(
+  response: ServerResponse<IncomingMessage>,
+  userId: string,
+) {
+  if (!userId) {
+    sendValidationError(response, "A userId is required.");
+    return;
+  }
+
+  if (!getUserById(userId)) {
+    sendValidationError(response, "User not found.", 404);
+    return;
+  }
+
+  removeRecentSearchesByUserId(userId);
+
+  sendJson(response, 200, {
+    cleared: true,
+    userId,
+  });
+}
+
+async function handleCreateSavedSearch(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const userId = toTrimmedString(body?.userId);
+  const label = toTrimmedString(body?.label);
+  const description = toTrimmedString(body?.description);
+  const params = toTrimmedString(body?.params);
+
+  if (!userId || !label || !description || !params) {
+    sendValidationError(response, "userId, label, description, and params are required.");
+    return;
+  }
+
+  if (!getUserById(userId)) {
+    sendValidationError(response, "User not found.", 404);
+    return;
+  }
+
+  const savedSearch = addSavedSearch({
+    userId,
+    label,
+    description,
+    params,
+  });
+
+  sendJson(response, 201, {
+    savedSearch,
+    savedSearches: getSavedSearchesByUserId(userId),
+    userId,
+  });
+}
+
+function handleGetSavedSearches(
+  response: ServerResponse<IncomingMessage>,
+  userId: string,
+) {
+  if (!userId) {
+    sendValidationError(response, "A userId is required.");
+    return;
+  }
+
+  if (!getUserById(userId)) {
+    sendValidationError(response, "User not found.", 404);
+    return;
+  }
+
+  sendJson(response, 200, {
+    savedSearches: getSavedSearchesByUserId(userId),
+    userId,
+  });
+}
+
+async function handleDeleteSavedSearch(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const userId = toTrimmedString(body?.userId);
+  const id = toTrimmedString(body?.id);
+  const params = toTrimmedString(body?.params);
+
+  if (!userId || (!id && !params)) {
+    sendValidationError(response, "userId and either id or params are required.");
+    return;
+  }
+
+  if (!getUserById(userId)) {
+    sendValidationError(response, "User not found.", 404);
+    return;
+  }
+
+  sendJson(response, 200, {
+    removed: removeSavedSearch({
+      userId,
+      id: id || undefined,
+      params: params || undefined,
+    }),
+  });
+}
+
+
 function handleListBrands(
   response: ServerResponse<IncomingMessage>,
   query: string | null,
@@ -631,6 +800,45 @@ export async function handleRequest(
 
   if (method === "GET" && requestUrl.pathname.startsWith("/likes/")) {
     handleGetLikes(response, decodeURIComponent(requestUrl.pathname.replace("/likes/", "")));
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/recent-searches") {
+    await handleCreateRecentSearch(request, response);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname.startsWith("/recent-searches/")) {
+    handleGetRecentSearches(
+      response,
+      decodeURIComponent(requestUrl.pathname.replace("/recent-searches/", "")),
+    );
+    return;
+  }
+
+  if (method === "DELETE" && requestUrl.pathname.startsWith("/recent-searches/")) {
+    handleDeleteRecentSearches(
+      response,
+      decodeURIComponent(requestUrl.pathname.replace("/recent-searches/", "")),
+    );
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/saved-searches") {
+    await handleCreateSavedSearch(request, response);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname.startsWith("/saved-searches/")) {
+    handleGetSavedSearches(
+      response,
+      decodeURIComponent(requestUrl.pathname.replace("/saved-searches/", "")),
+    );
+    return;
+  }
+
+  if (method === "DELETE" && requestUrl.pathname === "/saved-searches") {
+    await handleDeleteSavedSearch(request, response);
     return;
   }
 

@@ -37,6 +37,7 @@ import { ListingCard } from "./components/listing-card";
 import {
   buildSearchPath,
   clearRecentSearches,
+  createRecentSearchEntry,
   createDefaultSearchFormValues,
   createSearchParams,
   describeSearch,
@@ -100,6 +101,11 @@ interface SearchRequestState {
 
 interface LikeResponse {
   like: Like;
+}
+
+interface RecentSearchesResponse {
+  recentSearches: RecentSearchEntry[];
+  userId: string;
 }
 
 interface LikesResponse {
@@ -1069,14 +1075,39 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
 
   useEffect(() => {
     if (
-      state.status === "success" &&
-      !state.isLoadingMore &&
-      query.length > 0 &&
-      state.response?.pagination.page === 1
+      state.status !== "success" ||
+      state.isLoadingMore ||
+      query.length === 0 ||
+      state.response?.pagination.page !== 1
     ) {
-      saveRecentSearch(values);
+      return;
     }
-  }, [query, state.isLoadingMore, state.response?.pagination.page, state.status, values]);
+
+    const entry = createRecentSearchEntry(values);
+
+    if (!entry) {
+      return;
+    }
+
+    if (!session?.userId) {
+      saveRecentSearch(values);
+      return;
+    }
+
+    void sendJson<RecentSearchesResponse>("/recent-searches", "POST", {
+      userId: session.userId,
+      label: entry.label,
+      description: entry.description,
+      params: entry.params,
+    }).catch(() => undefined);
+  }, [
+    query,
+    session?.userId,
+    state.isLoadingMore,
+    state.response?.pagination.page,
+    state.status,
+    values,
+  ]);
 
   function handleSubmit(nextValues: SearchFormValues) {
     startTransition(() => {
@@ -1172,31 +1203,100 @@ function formatRecentSearchDate(value: string) {
   }).format(new Date(value));
 }
 
-function RecentSearchesRoutePage() {
+function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) {
   const navigate = useNavigate();
   const [entries, setEntries] = useState<RecentSearchEntry[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
 
   useEffect(() => {
-    setEntries(loadRecentSearches());
-  }, []);
+    if (!session?.userId) {
+      setEntries(loadRecentSearches());
+      setErrorMessage(undefined);
+      setStatus("success");
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setStatus("loading");
+    setErrorMessage(undefined);
+
+    void fetchJson<RecentSearchesResponse>(
+      "/recent-searches/" + encodeURIComponent(session.userId),
+      controller.signal,
+    )
+      .then((response) => {
+        setEntries(response.recentSearches);
+        setStatus("success");
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setEntries([]);
+        setErrorMessage(
+          error instanceof Error ? error.message : "Recent searches could not be loaded.",
+        );
+        setStatus("error");
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [session?.userId]);
 
   function handleClear() {
-    clearRecentSearches();
-    setEntries([]);
+    if (!session?.userId) {
+      clearRecentSearches();
+      setEntries([]);
+      setStatus("success");
+      return;
+    }
+
+    void sendJson<{ cleared: boolean }>(
+      "/recent-searches/" + encodeURIComponent(session.userId),
+      "DELETE",
+      {},
+    )
+      .then(() => {
+        setEntries([]);
+        setStatus("success");
+      })
+      .catch((error: unknown) => {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Recent searches could not be cleared.",
+        );
+        setStatus("error");
+      });
   }
 
   function handleRunSearch(params: string) {
     startTransition(() => {
-      navigate(`/search?${params}`);
+      navigate("/search?" + params);
     });
   }
 
   return (
     <RecentSearchesPage>
       <section className="recent-searches">
-        {entries.length === 0 ? (
+        {status === "loading" ? (
+          <StateCard body="Loading your recent searches." title="Fetching history" />
+        ) : null}
+
+        {status === "error" ? (
+          <StateCard
+            body={errorMessage ?? "Recent searches could not be loaded."}
+            title="Recent searches unavailable"
+          />
+        ) : null}
+
+        {status === "success" && entries.length === 0 ? (
           <StateCard body="Run a few searches and they will show up here." title="No recent searches yet" />
-        ) : (
+        ) : null}
+
+        {status === "success" && entries.length > 0 ? (
           <>
             <div className="section-heading section-heading--split">
               <div>
@@ -1223,7 +1323,7 @@ function RecentSearchesRoutePage() {
               ))}
             </div>
           </>
-        )}
+        ) : null}
       </section>
     </RecentSearchesPage>
   );
@@ -2141,7 +2241,7 @@ export function AppLayout() {
         <Routes>
           <Route element={<HomePage session={session} />} path="/" />
           <Route element={<SearchRoutePage session={session} />} path="/search" />
-          <Route element={<RecentSearchesRoutePage />} path="/recent-searches" />
+          <Route element={<RecentSearchesRoutePage session={session} />} path="/recent-searches" />
           <Route element={<AnalyticsRoutePage session={session} />} path="/analytics" />
           <Route element={<ProfileRoutePage session={session} />} path="/profile" />
           <Route
