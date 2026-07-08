@@ -15,6 +15,13 @@ const migrationDefinitions: MigrationDefinition[] = [
       "utf-8",
     ),
   },
+  {
+    id: "002_auth_sessions",
+    sql: readFileSync(
+      new URL("./schema/002_auth_sessions.sql", import.meta.url),
+      "utf-8",
+    ),
+  },
 ];
 
 function ensureMigrationTable(database: DatabaseSync) {

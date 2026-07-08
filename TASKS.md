@@ -192,12 +192,12 @@ Exit criteria:
 
 ## Milestone 15: Production Auth Foundation
 
-- [ ] Replace lightweight auth with a safer auth flow
-- [ ] Add password hashing
-- [ ] Add sessions or JWT strategy
-- [ ] Add route protection rules where appropriate
-- [ ] Add logout and session-expiry behavior
-- [ ] Add auth error handling and recovery states
+- [x] Replace lightweight auth with a safer auth flow
+- [x] Add password hashing
+- [x] Add sessions or JWT strategy
+- [x] Add route protection rules where appropriate
+- [x] Add logout and session-expiry behavior
+- [x] Add auth error handling and recovery states
 
 Exit criteria:
 

@@ -39,7 +39,7 @@ What is still placeholder, mock, or intentionally lightweight:
 
 - listing data is still mock/test data
 - real marketplace provider integrations are not complete
-- auth is still a lightweight foundation, not a production-grade auth stack
+- auth now uses cookie-backed server sessions, slow password hashing, and protected API routes, but OAuth, email verification, and password reset are still deferred
 - persistence is now a local SQLite foundation inside the API, not a production-grade database stack yet
 - analytics are placeholder foundations, not real market analytics
 - fake-risk is a trust placeholder, not real authenticity detection
@@ -155,7 +155,7 @@ Be careful not to overstate the current product state:
 
 - provider coverage is still limited and may run in mock or authorized Grailed mode depending on runtime configuration
 - persistence is local SQLite only and not a production-ready database deployment
-- auth is not yet production-grade
+- auth now has a production-auth foundation, but OAuth, email verification, password reset, and advanced account recovery are still not implemented
 - analytics and fake-risk are foundation-only systems
 - alerts and watchlists are still roadmap items
 - deployment hardening and operational readiness still need dedicated work

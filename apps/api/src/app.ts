@@ -9,6 +9,15 @@ import type {
   SearchSortMode,
 } from "@closetsearch/shared";
 import { isApiError } from "./api-error.js";
+import { getAuthConfig } from "./auth/config.js";
+import { requireAuth, getOptionalAuthContext } from "./auth/auth-context.js";
+import {
+  clearSessionCookie,
+  createAuthSession,
+  getAuthSessionFromRequest,
+  revokeAllSessionsForUser,
+  revokeCurrentSession,
+} from "./auth/session-service.js";
 import { getFeed } from "./feed-service.js";
 import { addLike, getLikesByUserId, removeLike } from "./like-service.js";
 import {
@@ -33,33 +42,51 @@ import {
   getPremiumAccess,
   getPremiumPreviewUsername,
 } from "./services/premiumAccessService.js";
-import {
-  createUser,
-  getUserById,
-  loginUser,
-  saveOnboardingPreferences,
-} from "./user-service.js";
+import { createUser, loginUser, saveOnboardingPreferences } from "./user-service.js";
 
-const corsHeaders = {
-  "access-control-allow-headers": "content-type",
-  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-  "access-control-allow-origin": "*",
-};
+function buildCorsHeaders(request: IncomingMessage) {
+  const origin =
+    typeof request.headers?.origin === "string" ? request.headers.origin.trim() : "";
+  const authConfig = getAuthConfig();
+  const headers: Record<string, string> = {
+    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+  };
+
+  if (origin && authConfig.allowedOrigins.has(origin)) {
+    headers["access-control-allow-credentials"] = "true";
+    headers["access-control-allow-origin"] = origin;
+    headers.vary = "Origin";
+  }
+
+  return headers;
+}
 
 function sendJson(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
   statusCode: number,
   body: unknown,
+  extraHeaders?: Record<string, string>,
 ) {
   response.writeHead(statusCode, {
-    ...corsHeaders,
+    ...buildCorsHeaders(request),
     "content-type": "application/json; charset=utf-8",
+    ...extraHeaders,
   });
   response.end(JSON.stringify(body));
 }
 
-function sendEmpty(response: ServerResponse<IncomingMessage>, statusCode: number) {
-  response.writeHead(statusCode, corsHeaders);
+function sendEmpty(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+  statusCode: number,
+  extraHeaders?: Record<string, string>,
+) {
+  response.writeHead(statusCode, {
+    ...buildCorsHeaders(request),
+    ...extraHeaders,
+  });
   response.end();
 }
 
@@ -80,7 +107,11 @@ async function parseJsonBody(request: IncomingMessage) {
     return null;
   }
 
-  return JSON.parse(body) as unknown;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new Error("invalid_json");
+  }
 }
 
 function parseListParameter(value: string | null) {
@@ -139,6 +170,20 @@ function parseListingTypes(value: string | null): ListingType[] | undefined {
   return listingTypes && listingTypes.length > 0 ? listingTypes : undefined;
 }
 
+function parsePositiveInteger(value: string | null, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return fallback;
+  }
+
+  return parsedValue;
+}
+
 function parseSearchQuery(requestUrl: URL): SearchQuery | null {
   const text = requestUrl.searchParams.get("q")?.trim() ?? "";
 
@@ -185,20 +230,6 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
   };
 }
 
-function parsePositiveInteger(value: string | null, fallback: number) {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsedValue = Number.parseInt(value, 10);
-
-  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
-    return fallback;
-  }
-
-  return parsedValue;
-}
-
 function parseFeedQuery(requestUrl: URL): FeedQuery {
   const page = parsePositiveInteger(requestUrl.searchParams.get("page"), 1);
   const requestedPageSize = parsePositiveInteger(
@@ -210,7 +241,6 @@ function parseFeedQuery(requestUrl: URL): FeedQuery {
     cursor: requestUrl.searchParams.get("cursor") ?? undefined,
     page,
     pageSize: Math.min(requestedPageSize, 24),
-    userId: requestUrl.searchParams.get("userId")?.trim() || undefined,
   };
 }
 
@@ -242,12 +272,14 @@ function toOnboardingPreferences(value: unknown): OnboardingPreferences {
 }
 
 function sendValidationError(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
   message: string,
   statusCode = 400,
+  error = "invalid_request",
 ) {
-  sendJson(response, statusCode, {
-    error: "invalid_request",
+  sendJson(request, response, statusCode, {
+    error,
     message,
   });
 }
@@ -261,18 +293,17 @@ async function handleSignup(
   const password = typeof body?.password === "string" ? body.password : "";
 
   if (!username || !password) {
-    sendValidationError(response, "Username and password are required.");
+    sendValidationError(request, response, "Username and password are required.");
     return;
   }
 
-  try {
-    sendJson(response, 201, createUser(username, password));
-  } catch (error: unknown) {
-    sendValidationError(
-      response,
-      error instanceof Error ? error.message : "The user could not be created.",
-    );
-  }
+  const authResponse = createUser(username, password);
+  const authSession = createAuthSession(authResponse.userId, request);
+
+  sendJson(request, response, 201, authResponse, {
+    "cache-control": "no-store",
+    "set-cookie": authSession.cookieValue,
+  });
 }
 
 async function handleLogin(
@@ -284,74 +315,144 @@ async function handleLogin(
   const password = typeof body?.password === "string" ? body.password : "";
 
   if (!username || !password) {
-    sendValidationError(response, "Username and password are required.");
+    sendValidationError(request, response, "Username and password are required.");
     return;
   }
 
-  try {
-    sendJson(response, 200, loginUser(username, password));
-  } catch (error: unknown) {
-    sendValidationError(
+  const authResponse = loginUser(username, password);
+  const authSession = createAuthSession(authResponse.userId, request);
+
+  sendJson(request, response, 200, authResponse, {
+    "cache-control": "no-store",
+    "set-cookie": authSession.cookieValue,
+  });
+}
+
+function handleAuthMe(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const authSession = getAuthSessionFromRequest(request);
+
+  if (authSession.status !== "authenticated") {
+    sendJson(
+      request,
       response,
-      error instanceof Error ? error.message : "The credentials were invalid.",
       401,
+      {
+        error: authSession.status === "missing" ? "unauthenticated" : "session_expired",
+        message:
+          authSession.status === "missing"
+            ? "You are not logged in."
+            : "Your session has expired. Please log in again.",
+      },
+      authSession.status === "session_expired"
+        ? {
+            "cache-control": "no-store",
+            "set-cookie": clearSessionCookie(),
+          }
+        : {
+            "cache-control": "no-store",
+          },
     );
+    return;
   }
+
+  sendJson(
+    request,
+    response,
+    200,
+    {
+      user: authSession.user,
+      userId: authSession.user.id,
+    },
+    {
+      "cache-control": "no-store",
+    },
+  );
+}
+
+function handleLogout(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  revokeCurrentSession(request);
+
+  sendJson(
+    request,
+    response,
+    200,
+    {
+      success: true,
+    },
+    {
+      "cache-control": "no-store",
+      "set-cookie": clearSessionCookie(),
+    },
+  );
+}
+
+function handleLogoutAll(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+  const revokedSessions = revokeAllSessionsForUser(user.id);
+
+  sendJson(
+    request,
+    response,
+    200,
+    {
+      revokedSessions,
+      success: true,
+    },
+    {
+      "cache-control": "no-store",
+      "set-cookie": clearSessionCookie(),
+    },
+  );
 }
 
 async function handleOnboarding(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const userId = toTrimmedString(body?.userId);
 
-  if (!userId) {
-    sendValidationError(response, "A userId is required.");
-    return;
-  }
-
-  try {
-    sendJson(
-      response,
-      200,
-      saveOnboardingPreferences(
-        userId,
-        toOnboardingPreferences(body?.preferences),
-        toTrimmedString(body?.currencyPreference) || undefined,
-      ),
-    );
-  } catch (error: unknown) {
-    sendValidationError(
-      response,
-      error instanceof Error ? error.message : "The onboarding preferences could not be saved.",
-      404,
-    );
-  }
+  sendJson(
+    request,
+    response,
+    200,
+    saveOnboardingPreferences(
+      user.id,
+      toOnboardingPreferences(body?.preferences),
+      toTrimmedString(body?.currencyPreference) || undefined,
+    ),
+    {
+      "cache-control": "no-store",
+    },
+  );
 }
 
 async function handleCreateLike(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const userId = toTrimmedString(body?.userId);
   const listingId = toTrimmedString(body?.listingId);
   const source = toTrimmedString(body?.source);
 
-  if (!userId || !listingId || !source) {
-    sendValidationError(response, "userId, listingId, and source are required.");
+  if (!listingId || !source) {
+    sendValidationError(request, response, "listingId and source are required.");
     return;
   }
 
-  if (!getUserById(userId)) {
-    sendValidationError(response, "User not found.", 404);
-    return;
-  }
+  const like = addLike(user.id, listingId, source);
 
-  const like = addLike(userId, listingId, source);
-
-  sendJson(response, 201, {
+  sendJson(request, response, 201, {
     like,
   });
 }
@@ -360,32 +461,29 @@ async function handleDeleteLike(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const userId = toTrimmedString(body?.userId);
   const listingId = toTrimmedString(body?.listingId);
 
-  if (!userId || !listingId) {
-    sendValidationError(response, "userId and listingId are required.");
+  if (!listingId) {
+    sendValidationError(request, response, "listingId is required.");
     return;
   }
 
-  sendJson(response, 200, {
-    removed: removeLike(userId, listingId),
+  sendJson(request, response, 200, {
+    removed: removeLike(user.id, listingId),
   });
 }
 
 function handleGetLikes(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
-  userId: string,
 ) {
-  if (!userId) {
-    sendValidationError(response, "A userId is required.");
-    return;
-  }
+  const user = requireAuth(request);
 
-  sendJson(response, 200, {
-    userId,
-    likes: getLikesByUserId(userId),
+  sendJson(request, response, 200, {
+    likes: getLikesByUserId(user.id),
+    userId: user.id,
   });
 }
 
@@ -393,75 +491,54 @@ async function handleCreateRecentSearch(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const userId = toTrimmedString(body?.userId);
   const label = toTrimmedString(body?.label);
   const description = toTrimmedString(body?.description);
   const params = toTrimmedString(body?.params);
 
-  if (!userId || !label || !description || !params) {
-    sendValidationError(response, "userId, label, description, and params are required.");
-    return;
-  }
-
-  if (!getUserById(userId)) {
-    sendValidationError(response, "User not found.", 404);
+  if (!label || !description || !params) {
+    sendValidationError(request, response, "label, description, and params are required.");
     return;
   }
 
   const recentSearch = addRecentSearch({
-    userId,
+    userId: user.id,
     label,
     description,
     params,
   });
 
-  sendJson(response, 201, {
+  sendJson(request, response, 201, {
     recentSearch,
-    recentSearches: getRecentSearchesByUserId(userId),
-    userId,
+    recentSearches: getRecentSearchesByUserId(user.id),
+    userId: user.id,
   });
 }
 
 function handleGetRecentSearches(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
-  userId: string,
 ) {
-  if (!userId) {
-    sendValidationError(response, "A userId is required.");
-    return;
-  }
+  const user = requireAuth(request);
 
-  if (!getUserById(userId)) {
-    sendValidationError(response, "User not found.", 404);
-    return;
-  }
-
-  sendJson(response, 200, {
-    recentSearches: getRecentSearchesByUserId(userId),
-    userId,
+  sendJson(request, response, 200, {
+    recentSearches: getRecentSearchesByUserId(user.id),
+    userId: user.id,
   });
 }
 
 function handleDeleteRecentSearches(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
-  userId: string,
 ) {
-  if (!userId) {
-    sendValidationError(response, "A userId is required.");
-    return;
-  }
+  const user = requireAuth(request);
 
-  if (!getUserById(userId)) {
-    sendValidationError(response, "User not found.", 404);
-    return;
-  }
+  removeRecentSearchesByUserId(user.id);
 
-  removeRecentSearchesByUserId(userId);
-
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     cleared: true,
-    userId,
+    userId: user.id,
   });
 }
 
@@ -469,53 +546,40 @@ async function handleCreateSavedSearch(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const userId = toTrimmedString(body?.userId);
   const label = toTrimmedString(body?.label);
   const description = toTrimmedString(body?.description);
   const params = toTrimmedString(body?.params);
 
-  if (!userId || !label || !description || !params) {
-    sendValidationError(response, "userId, label, description, and params are required.");
-    return;
-  }
-
-  if (!getUserById(userId)) {
-    sendValidationError(response, "User not found.", 404);
+  if (!label || !description || !params) {
+    sendValidationError(request, response, "label, description, and params are required.");
     return;
   }
 
   const savedSearch = addSavedSearch({
-    userId,
+    userId: user.id,
     label,
     description,
     params,
   });
 
-  sendJson(response, 201, {
+  sendJson(request, response, 201, {
     savedSearch,
-    savedSearches: getSavedSearchesByUserId(userId),
-    userId,
+    savedSearches: getSavedSearchesByUserId(user.id),
+    userId: user.id,
   });
 }
 
 function handleGetSavedSearches(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
-  userId: string,
 ) {
-  if (!userId) {
-    sendValidationError(response, "A userId is required.");
-    return;
-  }
+  const user = requireAuth(request);
 
-  if (!getUserById(userId)) {
-    sendValidationError(response, "User not found.", 404);
-    return;
-  }
-
-  sendJson(response, 200, {
-    savedSearches: getSavedSearchesByUserId(userId),
-    userId,
+  sendJson(request, response, 200, {
+    savedSearches: getSavedSearchesByUserId(user.id),
+    userId: user.id,
   });
 }
 
@@ -523,38 +587,33 @@ async function handleDeleteSavedSearch(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const userId = toTrimmedString(body?.userId);
   const id = toTrimmedString(body?.id);
   const params = toTrimmedString(body?.params);
 
-  if (!userId || (!id && !params)) {
-    sendValidationError(response, "userId and either id or params are required.");
+  if (!id && !params) {
+    sendValidationError(request, response, "Either id or params is required.");
     return;
   }
 
-  if (!getUserById(userId)) {
-    sendValidationError(response, "User not found.", 404);
-    return;
-  }
-
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     removed: removeSavedSearch({
-      userId,
+      userId: user.id,
       id: id || undefined,
       params: params || undefined,
     }),
   });
 }
 
-
 function handleListBrands(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
   query: string | null,
 ) {
   const brands = listBrands(query ?? undefined);
 
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     brands,
     query: query?.trim() || undefined,
     total: brands.length,
@@ -562,39 +621,35 @@ function handleListBrands(
 }
 
 function handleGetBrand(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
   slug: string,
 ) {
   const brand = findBrandBySlug(slug);
 
   if (!brand) {
-    sendJson(response, 404, {
+    sendJson(request, response, 404, {
       error: "not_found",
       message: "Brand not found.",
     });
     return;
   }
 
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     brand,
   });
 }
 
-function getAnalyticsUser(requestUrl: URL) {
-  const userId = requestUrl.searchParams.get("userId")?.trim();
-
-  if (!userId) {
-    return undefined;
-  }
-
-  return getUserById(userId);
+function getAnalyticsUser(request: IncomingMessage) {
+  return getOptionalAuthContext(request)?.user;
 }
 
 function sendLockedAnalyticsResponse(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
   userId?: string,
 ) {
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     locked: true,
     message:
       "Premium analytics is still a placeholder. Market insights, underpriced signals, and pricing context are preview-only for now.",
@@ -610,18 +665,18 @@ function sendLockedAnalyticsResponse(
 }
 
 function handleAnalyticsOverview(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
-  requestUrl: URL,
 ) {
-  const user = getAnalyticsUser(requestUrl);
+  const user = getAnalyticsUser(request);
   const premiumAccess = getPremiumAccess(user);
 
   if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(response, user?.id);
+    sendLockedAnalyticsResponse(request, response, user?.id);
     return;
   }
 
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     locked: false,
     premiumAccess,
     overview: getAnalyticsOverview(),
@@ -630,18 +685,18 @@ function handleAnalyticsOverview(
 }
 
 function handleMarketInsights(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
-  requestUrl: URL,
 ) {
-  const user = getAnalyticsUser(requestUrl);
+  const user = getAnalyticsUser(request);
   const premiumAccess = getPremiumAccess(user);
 
   if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(response, user?.id);
+    sendLockedAnalyticsResponse(request, response, user?.id);
     return;
   }
 
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     locked: false,
     premiumAccess,
     insights: getMarketInsights(),
@@ -650,18 +705,18 @@ function handleMarketInsights(
 }
 
 function handleUnderpricedSignals(
+  request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
-  requestUrl: URL,
 ) {
-  const user = getAnalyticsUser(requestUrl);
+  const user = getAnalyticsUser(request);
   const premiumAccess = getPremiumAccess(user);
 
   if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(response, user?.id);
+    sendLockedAnalyticsResponse(request, response, user?.id);
     return;
   }
 
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     locked: false,
     premiumAccess,
     signals: getUnderpricedListingSignals(),
@@ -669,10 +724,13 @@ function handleUnderpricedSignals(
   });
 }
 
-function handleProviderHealth(response: ServerResponse<IncomingMessage>) {
+function handleProviderHealth(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
   const runtime = createProviderRuntime();
 
-  sendJson(response, 200, {
+  sendJson(request, response, 200, {
     providerRuntimeMode: runtime.config.mode,
     allowMockFallback: runtime.config.allowMockFallback,
     requestTimeoutMs: runtime.config.requestTimeoutMs,
@@ -695,6 +753,17 @@ function handleProviderHealth(response: ServerResponse<IncomingMessage>) {
   });
 }
 
+function getErrorHeaders(error: { code?: string }) {
+  if (error.code === "session_expired" || error.code === "unauthenticated") {
+    return {
+      "cache-control": "no-store",
+      "set-cookie": clearSessionCookie(),
+    };
+  }
+
+  return undefined;
+}
+
 export async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
@@ -703,12 +772,12 @@ export async function handleRequest(
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
 
   if (method === "OPTIONS") {
-    sendEmpty(response, 204);
+    sendEmpty(request, response, 204);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/health") {
-    sendJson(response, 200, {
+    sendJson(request, response, 200, {
       service: "closetsearch-api",
       status: "ok",
       timestamp: new Date().toISOString(),
@@ -717,7 +786,7 @@ export async function handleRequest(
   }
 
   if (method === "GET" && requestUrl.pathname === "/providers/health") {
-    handleProviderHealth(response);
+    handleProviderHealth(request, response);
     return;
   }
 
@@ -731,6 +800,21 @@ export async function handleRequest(
     return;
   }
 
+  if (method === "GET" && requestUrl.pathname === "/auth/me") {
+    handleAuthMe(request, response);
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/auth/logout") {
+    handleLogout(request, response);
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/auth/logout-all") {
+    handleLogoutAll(request, response);
+    return;
+  }
+
   if (method === "POST" && requestUrl.pathname === "/users/onboarding") {
     await handleOnboarding(request, response);
     return;
@@ -740,7 +824,7 @@ export async function handleRequest(
     const query = parseSearchQuery(requestUrl);
 
     if (!query) {
-      sendJson(response, 400, {
+      sendJson(request, response, 400, {
         error: "invalid_query",
         message: 'The "q" query parameter is required.',
       });
@@ -749,39 +833,43 @@ export async function handleRequest(
 
     const result = await searchListings(query);
 
-    sendJson(response, 200, result);
+    sendJson(request, response, 200, result);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/feed") {
-    const result = await getFeed(parseFeedQuery(requestUrl));
+    const result = await getFeed({
+      ...parseFeedQuery(requestUrl),
+      userId: getOptionalAuthContext(request)?.user.id,
+    });
 
-    sendJson(response, 200, result);
+    sendJson(request, response, 200, result);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/analytics/overview") {
-    handleAnalyticsOverview(response, requestUrl);
+    handleAnalyticsOverview(request, response);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/analytics/market-insights") {
-    handleMarketInsights(response, requestUrl);
+    handleMarketInsights(request, response);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/analytics/underpriced") {
-    handleUnderpricedSignals(response, requestUrl);
+    handleUnderpricedSignals(request, response);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/brands") {
-    handleListBrands(response, requestUrl.searchParams.get("q"));
+    handleListBrands(request, response, requestUrl.searchParams.get("q"));
     return;
   }
 
   if (method === "GET" && requestUrl.pathname.startsWith("/brands/")) {
     handleGetBrand(
+      request,
       response,
       decodeURIComponent(requestUrl.pathname.replace("/brands/", "")),
     );
@@ -798,8 +886,11 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "GET" && requestUrl.pathname.startsWith("/likes/")) {
-    handleGetLikes(response, decodeURIComponent(requestUrl.pathname.replace("/likes/", "")));
+  if (
+    method === "GET" &&
+    (requestUrl.pathname === "/likes" || requestUrl.pathname.startsWith("/likes/"))
+  ) {
+    handleGetLikes(request, response);
     return;
   }
 
@@ -808,19 +899,21 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "GET" && requestUrl.pathname.startsWith("/recent-searches/")) {
-    handleGetRecentSearches(
-      response,
-      decodeURIComponent(requestUrl.pathname.replace("/recent-searches/", "")),
-    );
+  if (
+    method === "GET" &&
+    (requestUrl.pathname === "/recent-searches" ||
+      requestUrl.pathname.startsWith("/recent-searches/"))
+  ) {
+    handleGetRecentSearches(request, response);
     return;
   }
 
-  if (method === "DELETE" && requestUrl.pathname.startsWith("/recent-searches/")) {
-    handleDeleteRecentSearches(
-      response,
-      decodeURIComponent(requestUrl.pathname.replace("/recent-searches/", "")),
-    );
+  if (
+    method === "DELETE" &&
+    (requestUrl.pathname === "/recent-searches" ||
+      requestUrl.pathname.startsWith("/recent-searches/"))
+  ) {
+    handleDeleteRecentSearches(request, response);
     return;
   }
 
@@ -829,11 +922,12 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "GET" && requestUrl.pathname.startsWith("/saved-searches/")) {
-    handleGetSavedSearches(
-      response,
-      decodeURIComponent(requestUrl.pathname.replace("/saved-searches/", "")),
-    );
+  if (
+    method === "GET" &&
+    (requestUrl.pathname === "/saved-searches" ||
+      requestUrl.pathname.startsWith("/saved-searches/"))
+  ) {
+    handleGetSavedSearches(request, response);
     return;
   }
 
@@ -842,7 +936,7 @@ export async function handleRequest(
     return;
   }
 
-  sendJson(response, 404, {
+  sendJson(request, response, 404, {
     error: "not_found",
     message: "Route not found.",
   });
@@ -851,17 +945,28 @@ export async function handleRequest(
 export function createApp() {
   return createServer((request, response) => {
     void handleRequest(request, response).catch((error: unknown) => {
+      if (error instanceof Error && error.message === "invalid_json") {
+        sendValidationError(request, response, "The request body must be valid JSON.", 400, "invalid_json");
+        return;
+      }
+
       if (isApiError(error)) {
-        sendJson(response, error.statusCode, {
-          error: error.code,
-          message: error.message,
-        });
+        sendJson(
+          request,
+          response,
+          error.statusCode,
+          {
+            error: error.code,
+            message: error.message,
+          },
+          getErrorHeaders(error),
+        );
         return;
       }
 
       console.error("Unhandled API error", error);
 
-      sendJson(response, 500, {
+      sendJson(request, response, 500, {
         error: "internal_error",
         message: "The API could not complete the request.",
       });

@@ -302,3 +302,41 @@ Milestone 14 uses SQLite inside `apps/api` as the initial persistence layer, con
 #### Consequences
 
 Core user state can now survive API restarts with a small operational footprint, but production auth, deployment-grade database strategy, and a future Postgres swap remain later milestones.
+
+### Cookie-Backed Server Sessions Replace Browser-Trusted Identity
+
+**Date:** 2026-07-05  
+**Status:** Accepted
+
+#### Context
+
+Milestone 14 introduced SQLite persistence, but the app was still trusting browser-local identity and lightweight password hashing. Protected routes could still accept arbitrary `userId` values, the browser could treat local storage as authenticated identity, and there was no server-side session revocation path.
+
+#### Decision
+
+Milestone 15 uses cookie-backed server sessions stored in SQLite instead of browser-trusted local identity or client-managed JWTs.
+
+The auth foundation now includes:
+
+- slow password hashing with `crypto.scrypt`
+- server-side `auth_sessions` records
+- hashed session tokens in storage
+- `HttpOnly` session cookies
+- authenticated route protection based on the current session instead of request-body or query-string `userId`
+
+#### Alternatives Considered
+
+- keep localStorage as the source of authenticated identity longer
+- move directly to client-managed JWTs
+- add OAuth before the local auth foundation is stable
+
+#### Consequences
+
+ClosetSearch now has a safer, reviewable auth baseline that:
+
+- requires credentialed API requests from the web app
+- requires tighter CORS rules for trusted local origins
+- supports server-side logout and revocation
+- keeps future migration to stronger auth and broader account features possible
+
+OAuth, email verification, password reset, advanced recovery, and broader account-management features remain later milestones.

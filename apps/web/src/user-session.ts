@@ -1,71 +1,43 @@
 import type { AuthResponse } from "@closetsearch/shared";
+import { ApiClientError, fetchJson } from "./api-client";
 
-interface StorageLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-}
-
-const USER_SESSION_STORAGE_KEY = "closetsearch.user-session";
-
-function getBrowserStorage(): StorageLike | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
+export async function loadUserSession(signal?: AbortSignal) {
   try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-function isAuthResponse(value: unknown): value is AuthResponse {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  const user =
-    candidate.user && typeof candidate.user === "object"
-      ? (candidate.user as Record<string, unknown>)
-      : null;
-
-  return (
-    typeof candidate.userId === "string" &&
-    !!user &&
-    typeof user.id === "string" &&
-    typeof user.username === "string" &&
-    typeof user.currencyPreference === "string" &&
-    typeof user.createdAt === "string"
-  );
-}
-
-export function loadUserSession(storage = getBrowserStorage()) {
-  if (!storage) {
-    return null;
-  }
-
-  try {
-    const rawValue = storage.getItem(USER_SESSION_STORAGE_KEY);
-
-    if (!rawValue) {
+    return await fetchJson<AuthResponse>("/auth/me", signal);
+  } catch (error) {
+    if (isAuthRequiredError(error)) {
       return null;
     }
 
-    const parsedValue = JSON.parse(rawValue) as unknown;
-
-    return isAuthResponse(parsedValue) ? parsedValue : null;
-  } catch {
-    return null;
+    throw error;
   }
 }
 
-export function saveUserSession(session: AuthResponse, storage = getBrowserStorage()) {
-  storage?.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(session));
-  return session;
+export function isAuthRequiredError(error: unknown) {
+  return (
+    error instanceof ApiClientError &&
+    (error.code === "session_expired" || error.code === "unauthenticated")
+  );
 }
 
-export function clearUserSession(storage = getBrowserStorage()) {
-  storage?.removeItem(USER_SESSION_STORAGE_KEY);
+export function getAuthErrorMessage(
+  error: unknown,
+  fallbackMessage: string,
+) {
+  if (error instanceof ApiClientError) {
+    switch (error.code) {
+      case "invalid_credentials":
+        return "Invalid username or password.";
+      case "username_taken":
+        return "That username is already taken.";
+      case "session_expired":
+        return "Your session expired. Please log in again.";
+      case "unauthenticated":
+        return "Please log in to continue.";
+      default:
+        return error.message;
+    }
+  }
+
+  return error instanceof Error ? error.message : fallbackMessage;
 }

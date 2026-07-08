@@ -18,7 +18,13 @@ import {
   rememberListings,
   resetListingCatalog,
 } from "./services/listingCatalogService.js";
-import { createUser, getUserById, loginUser, resetUserStore, saveOnboardingPreferences } from "./user-service.js";
+import {
+  createUser,
+  getUserById,
+  loginUser,
+  resetUserStore,
+  saveOnboardingPreferences,
+} from "./user-service.js";
 import { seedDatabase } from "./db/seed.js";
 
 const testListing = {
@@ -66,18 +72,18 @@ describe("database persistence services", () => {
   });
 
   it("persists users across database reinitialization", () => {
-    const signup = createUser("archivekid", "mohair");
+    const signup = createUser("archivekid", "mohaircoat");
 
     closeDatabaseConnection();
 
-    const login = loginUser("archivekid", "mohair");
+    const login = loginUser("archivekid", "mohaircoat");
 
     expect(login.userId).toBe(signup.userId);
     expect(login.user.username).toBe("archivekid");
   });
 
   it("persists onboarding preferences across database reinitialization", () => {
-    const signup = createUser("closetlover", "jacket");
+    const signup = createUser("closetlover", "jacketcoat");
 
     saveOnboardingPreferences(signup.userId, {
       favoriteBrands: ["Our Legacy", "Acne Studios"],
@@ -97,7 +103,7 @@ describe("database persistence services", () => {
   });
 
   it("persists likes and dedupes duplicate likes", () => {
-    const signup = createUser("liker", "heart");
+    const signup = createUser("liker", "heartcoat");
 
     const firstLike = addLike(signup.userId, testListing.id, testListing.source.id);
     const secondLike = addLike(signup.userId, testListing.id, testListing.source.id);
@@ -116,7 +122,7 @@ describe("database persistence services", () => {
   });
 
   it("persists recent searches with dedupe, ordering, and an 8-item limit", async () => {
-    const signup = createUser("searchfan", "thread");
+    const signup = createUser("searchfan", "threadcoat");
 
     addRecentSearch({
       userId: signup.userId,
@@ -162,7 +168,7 @@ describe("database persistence services", () => {
   });
 
   it("persists saved searches and supports delete by params", () => {
-    const signup = createUser("saver", "knits");
+    const signup = createUser("saver", "knitscoat");
 
     addSavedSearch({
       userId: signup.userId,

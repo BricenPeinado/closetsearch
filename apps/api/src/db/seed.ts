@@ -1,10 +1,6 @@
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { hashPassword } from "../auth/password-service.js";
 import { closeDatabaseConnection, getDatabase, getDatabasePath } from "./database.js";
-
-function hashPassword(password: string) {
-  return createHash("sha256").update(password).digest("hex");
-}
 
 export function seedDatabase() {
   const database = getDatabase();

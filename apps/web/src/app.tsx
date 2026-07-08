@@ -47,7 +47,11 @@ import {
   type RecentSearchEntry,
   type SearchFormValues,
 } from "./search-utils";
-import { clearUserSession, loadUserSession, saveUserSession } from "./user-session";
+import {
+  getAuthErrorMessage,
+  isAuthRequiredError,
+  loadUserSession,
+} from "./user-session";
 
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
@@ -259,7 +263,11 @@ function hasCompletedOnboarding(session: AuthResponse | null) {
   );
 }
 
-function useLikes(userId?: string) {
+function useLikes(
+  session: AuthResponse | null,
+  onAuthFailure: () => void,
+) {
+  const userId = session?.userId;
   const [likes, setLikes] = useState<Like[]>([]);
 
   useEffect(() => {
@@ -270,12 +278,15 @@ function useLikes(userId?: string) {
 
     const controller = new AbortController();
 
-    void fetchJson<LikesResponse>(`/likes/${userId}`, controller.signal)
+    void fetchJson<LikesResponse>("/likes", controller.signal)
       .then((response) => {
         setLikes(response.likes);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!controller.signal.aborted) {
+          if (isAuthRequiredError(error)) {
+            onAuthFailure();
+          }
           setLikes([]);
         }
       });
@@ -283,7 +294,7 @@ function useLikes(userId?: string) {
     return () => {
       controller.abort();
     };
-  }, [userId]);
+  }, [onAuthFailure, userId]);
 
   async function toggleLike(listing: Listing, nextLiked: boolean) {
     if (!userId) {
@@ -309,7 +320,6 @@ function useLikes(userId?: string) {
 
       try {
         const response = await sendJson<LikeResponse>("/likes", "POST", {
-          userId,
           listingId: listing.id,
           source: listing.source.id,
         });
@@ -322,6 +332,9 @@ function useLikes(userId?: string) {
           return [response.like, ...remainingLikes];
         });
       } catch (error) {
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+        }
         setLikes((currentLikes) =>
           currentLikes.filter((like) => like.listingId !== listing.id),
         );
@@ -339,10 +352,13 @@ function useLikes(userId?: string) {
 
     try {
       await sendJson<{ removed: boolean }>("/likes", "DELETE", {
-        userId,
         listingId: listing.id,
       });
     } catch (error) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+
       if (existingLike) {
         setLikes((currentLikes) => {
           if (currentLikes.some((like) => like.listingId === existingLike.listingId)) {
@@ -449,9 +465,15 @@ function LoadingListings({ count = 8 }: { count?: number }) {
   );
 }
 
-function HomePage({ session }: { session: AuthResponse | null }) {
+function HomePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
   const navigate = useNavigate();
-  const { likedListingIds, toggleLike } = useLikes(session?.userId);
+  const { likedListingIds, toggleLike } = useLikes(session, onAuthFailure);
   const [reloadCount, setReloadCount] = useState(0);
   const needsPreferenceReminder = Boolean(session) && !hasCompletedOnboarding(session);
   const [state, setState] = useState<FeedRequestState>({
@@ -467,10 +489,6 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       page: "1",
       pageSize: String(homeFeedPageSize),
     });
-
-    if (session?.userId) {
-      feedParams.set("userId", session.userId);
-    }
 
     setState({
       isPersonalized: false,
@@ -528,10 +546,6 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       feedParams.set("cursor", state.pagination.nextCursor);
     } else if (state.pagination.nextPage) {
       feedParams.set("page", String(state.pagination.nextPage));
-    }
-
-    if (session?.userId) {
-      feedParams.set("userId", session.userId);
     }
 
     setState((currentState) => ({
@@ -1022,9 +1036,15 @@ function SearchResults({
   );
 }
 
-function SearchRoutePage({ session }: { session: AuthResponse | null }) {
+function SearchRoutePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
   const navigate = useNavigate();
-  const { likedListingIds, toggleLike } = useLikes(session?.userId);
+  const { likedListingIds, toggleLike } = useLikes(session, onAuthFailure);
   const [searchParams] = useSearchParams();
   const searchKey = searchParams.toString();
   const values = parseSearchFormValues(searchParams);
@@ -1095,11 +1115,17 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
     }
 
     void sendJson<RecentSearchesResponse>("/recent-searches", "POST", {
-      userId: session.userId,
       label: entry.label,
       description: entry.description,
       params: entry.params,
-    }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        saveRecentSearch(values);
+      }
+
+      return undefined;
+    });
   }, [
     query,
     session?.userId,
@@ -1107,6 +1133,7 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
     state.response?.pagination.page,
     state.status,
     values,
+    onAuthFailure,
   ]);
 
   function handleSubmit(nextValues: SearchFormValues) {
@@ -1203,7 +1230,13 @@ function formatRecentSearchDate(value: string) {
   }).format(new Date(value));
 }
 
-function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) {
+function RecentSearchesRoutePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
   const navigate = useNavigate();
   const [entries, setEntries] = useState<RecentSearchEntry[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
@@ -1223,7 +1256,7 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
     setErrorMessage(undefined);
 
     void fetchJson<RecentSearchesResponse>(
-      "/recent-searches/" + encodeURIComponent(session.userId),
+      "/recent-searches",
       controller.signal,
     )
       .then((response) => {
@@ -1232,6 +1265,14 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
+          return;
+        }
+
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+          setEntries(loadRecentSearches());
+          setErrorMessage(undefined);
+          setStatus("success");
           return;
         }
 
@@ -1245,7 +1286,7 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
     return () => {
       controller.abort();
     };
-  }, [session?.userId]);
+  }, [onAuthFailure, session?.userId]);
 
   function handleClear() {
     if (!session?.userId) {
@@ -1256,7 +1297,7 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
     }
 
     void sendJson<{ cleared: boolean }>(
-      "/recent-searches/" + encodeURIComponent(session.userId),
+      "/recent-searches",
       "DELETE",
       {},
     )
@@ -1265,6 +1306,14 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
         setStatus("success");
       })
       .catch((error: unknown) => {
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+          setEntries(loadRecentSearches());
+          setErrorMessage(undefined);
+          setStatus("success");
+          return;
+        }
+
         setErrorMessage(
           error instanceof Error ? error.message : "Recent searches could not be cleared.",
         );
@@ -1340,14 +1389,7 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    const params = new URLSearchParams();
-
-    if (session?.userId) {
-      params.set("userId", session.userId);
-    }
-
-    const query = params.toString();
-    const suffix = query.length > 0 ? `?${query}` : "";
+    const suffix = "";
 
     setState({
       insights: [],
@@ -1572,8 +1614,14 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
   );
 }
 
-function ProfileRoutePage({ session }: { session: AuthResponse | null }) {
-  const { likes } = useLikes(session?.userId);
+function ProfileRoutePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
+  const { likes } = useLikes(session, onAuthFailure);
 
   if (!session) {
     return (
@@ -1910,7 +1958,7 @@ function SignupRoutePage({
         navigate("/onboarding");
       });
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : "Signup failed.");
+      setErrorMessage(getAuthErrorMessage(error, "Signup failed."));
     } finally {
       setIsSubmitting(false);
     }
@@ -1945,7 +1993,7 @@ function SignupRoutePage({
             <input
               id="signup-password"
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="At least 4 characters"
+              placeholder="At least 8 characters"
               type="password"
               value={password}
             />
@@ -1997,7 +2045,7 @@ function LoginRoutePage({
         navigate(hasCompletedOnboarding(nextSession) ? "/profile" : "/onboarding");
       });
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : "Login failed.");
+      setErrorMessage(getAuthErrorMessage(error, "Login failed."));
     } finally {
       setIsSubmitting(false);
     }
@@ -2055,9 +2103,11 @@ function LoginRoutePage({
 }
 
 function OnboardingRoutePage({
+  onAuthFailure,
   onSessionChange,
   session,
 }: {
+  onAuthFailure: () => void;
   onSessionChange: (session: AuthResponse) => void;
   session: AuthResponse | null;
 }) {
@@ -2086,7 +2136,6 @@ function OnboardingRoutePage({
 
     try {
       const nextSession = await sendJson<AuthResponse>("/users/onboarding", "POST", {
-        userId: session.userId,
         preferences: {
           favoriteBrands: parseCommaSeparatedList(favoriteBrands),
           categories: parseCommaSeparatedList(categories),
@@ -2100,7 +2149,14 @@ function OnboardingRoutePage({
         navigate("/");
       });
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : "Preferences could not be saved.");
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        startTransition(() => {
+          navigate("/login");
+        });
+      }
+
+      setErrorMessage(getAuthErrorMessage(error, "Preferences could not be saved."));
     } finally {
       setIsSubmitting(false);
     }
@@ -2170,20 +2226,56 @@ function OnboardingRoutePage({
 
 export function AppLayout() {
   const navigate = useNavigate();
-  const [session, setSession] = useState<AuthResponse | null>(() => loadUserSession());
+  const [session, setSession] = useState<AuthResponse | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(
+    () => typeof window !== "undefined",
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    void loadUserSession(controller.signal)
+      .then((nextSession) => {
+        setSession(nextSession);
+        setIsSessionLoading(false);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setSession(null);
+          setIsSessionLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   function handleSessionChange(nextSession: AuthResponse) {
-    saveUserSession(nextSession);
     setSession(nextSession);
+    setIsSessionLoading(false);
+  }
+
+  function handleSessionExpired() {
+    setSession(null);
+    setIsSessionLoading(false);
   }
 
   function handleLogout() {
-    clearUserSession();
-    setSession(null);
+    void sendJson<{ success: boolean }>("/auth/logout", "POST", {})
+      .catch(() => undefined)
+      .finally(() => {
+        setSession(null);
+        setIsSessionLoading(false);
 
-    startTransition(() => {
-      navigate("/");
-    });
+        startTransition(() => {
+          navigate("/");
+        });
+      });
   }
 
   return (
@@ -2200,7 +2292,9 @@ export function AppLayout() {
         </Link>
         <GlobalSearchBar />
         <div className="topbar-actions">
-          {session ? (
+          {isSessionLoading ? (
+            <span className="info-chip">Loading session...</span>
+          ) : session ? (
             <div className="session-pill">
               <span>@{session.user.username}</span>
               <button className="secondary-button session-pill__button" onClick={handleLogout} type="button">
@@ -2239,11 +2333,28 @@ export function AppLayout() {
 
       <main className="page-main">
         <Routes>
-          <Route element={<HomePage session={session} />} path="/" />
-          <Route element={<SearchRoutePage session={session} />} path="/search" />
-          <Route element={<RecentSearchesRoutePage session={session} />} path="/recent-searches" />
+          <Route
+            element={<HomePage onAuthFailure={handleSessionExpired} session={session} />}
+            path="/"
+          />
+          <Route
+            element={<SearchRoutePage onAuthFailure={handleSessionExpired} session={session} />}
+            path="/search"
+          />
+          <Route
+            element={
+              <RecentSearchesRoutePage
+                onAuthFailure={handleSessionExpired}
+                session={session}
+              />
+            }
+            path="/recent-searches"
+          />
           <Route element={<AnalyticsRoutePage session={session} />} path="/analytics" />
-          <Route element={<ProfileRoutePage session={session} />} path="/profile" />
+          <Route
+            element={<ProfileRoutePage onAuthFailure={handleSessionExpired} session={session} />}
+            path="/profile"
+          />
           <Route
             element={<SignupRoutePage onAuthSuccess={handleSessionChange} session={session} />}
             path="/signup"
@@ -2253,7 +2364,13 @@ export function AppLayout() {
             path="/login"
           />
           <Route
-            element={<OnboardingRoutePage onSessionChange={handleSessionChange} session={session} />}
+            element={
+              <OnboardingRoutePage
+                onAuthFailure={handleSessionExpired}
+                onSessionChange={handleSessionChange}
+                session={session}
+              />
+            }
             path="/onboarding"
           />
           <Route element={<BrandsRoutePage />} path="/brands" />

@@ -2,9 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Brand } from "@closetsearch/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { handleRequest } from "./app.js";
-import { resetLikeStore } from "./like-service.js";
+import { createApp } from "./app.js";
+import { resetAuthSessionStore } from "./auth/session-service.js";
+import { getDatabase } from "./db/database.js";
 import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.js";
+import { resetLikeStore } from "./like-service.js";
 import { resetRecentSearchStore } from "./recent-search-service.js";
 import { resetSavedSearchStore } from "./saved-search-service.js";
 import { resetEngagementStore } from "./services/engagementService.js";
@@ -15,10 +17,15 @@ function createResponseRecorder() {
   let statusCode = 0;
   let headers: Record<string, string> = {};
   let body = "";
+  let resolveDone: () => void = () => {};
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
 
   const response = {
     end(chunk?: string) {
       body = chunk ?? "";
+      resolveDone();
       return response;
     },
     writeHead(code: number, nextHeaders: Record<string, string>) {
@@ -29,6 +36,7 @@ function createResponseRecorder() {
   } as unknown as ServerResponse<IncomingMessage>;
 
   return {
+    done,
     response,
     snapshot: () => ({
       body,
@@ -38,14 +46,66 @@ function createResponseRecorder() {
   };
 }
 
-function createJsonRequest(method: string, url: string, body?: unknown) {
+function createRequest(method: string, url: string, headers?: Record<string, string>) {
+  const stream = Readable.from([]) as IncomingMessage;
+  stream.headers = headers ?? {};
+  stream.method = method;
+  stream.url = url;
+  return stream;
+}
+
+function createJsonRequest(
+  method: string,
+  url: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+) {
   const json = body === undefined ? "" : JSON.stringify(body);
   const stream = Readable.from(json ? [json] : []) as IncomingMessage;
 
+  stream.headers = {
+    ...(headers ?? {}),
+    "content-type": "application/json",
+  };
   stream.method = method;
   stream.url = url;
 
   return stream;
+}
+
+async function runRequest(request: IncomingMessage) {
+  const recorder = createResponseRecorder();
+  const app = createApp();
+  const requestListener = app.listeners("request")[0] as (
+    request: IncomingMessage,
+    response: ServerResponse<IncomingMessage>,
+  ) => void;
+
+  requestListener(request, recorder.response);
+  await recorder.done;
+
+  return recorder.snapshot();
+}
+
+async function signupAndGetSession(username: string, password = "closetpass") {
+  const signupSnapshot = await runRequest(
+    createJsonRequest("POST", "/auth/signup", {
+      username,
+      password,
+    }),
+  );
+
+  expect(signupSnapshot.statusCode).toBe(201);
+  expect(signupSnapshot.headers["set-cookie"]).toContain("HttpOnly");
+
+  return {
+    body: JSON.parse(signupSnapshot.body) as {
+      user: { username: string };
+      userId: string;
+    },
+    cookie: signupSnapshot.headers["set-cookie"],
+    snapshot: signupSnapshot,
+  };
 }
 
 describe("handleRequest", () => {
@@ -53,6 +113,7 @@ describe("handleRequest", () => {
 
   beforeEach(() => {
     databasePath = useIsolatedDatabase("app");
+    resetAuthSessionStore();
     resetUserStore();
     resetLikeStore();
     resetEngagementStore();
@@ -65,25 +126,23 @@ describe("handleRequest", () => {
     cleanupIsolatedDatabase(databasePath);
   });
 
-  it("returns a healthy JSON response from /health", async () => {
-    const request = {
-      method: "GET",
-      url: "/health",
-    } as IncomingMessage;
+  it("returns a healthy JSON response from /health with credential-safe CORS", async () => {
+    const snapshot = await runRequest(
+      createRequest("GET", "/health", {
+        origin: "http://localhost:5173",
+      }),
+    );
 
-    const recorder = createResponseRecorder();
-
-    await handleRequest(request, recorder.response);
-
-    expect(recorder.snapshot()).toMatchObject({
+    expect(snapshot).toMatchObject({
       headers: {
-        "access-control-allow-origin": "*",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-origin": "http://localhost:5173",
         "content-type": "application/json; charset=utf-8",
       },
       statusCode: 200,
     });
 
-    expect(JSON.parse(recorder.snapshot().body)).toMatchObject({
+    expect(JSON.parse(snapshot.body)).toMatchObject({
       service: "closetsearch-api",
       status: "ok",
     });
@@ -100,16 +159,47 @@ describe("handleRequest", () => {
     process.env.GRAILED_SCRAPING_ALLOWED = "true";
     process.env.GRAILED_USER_AGENT = "ClosetSearchBot/0.1 contact:team.com";
 
-    const recorder = createResponseRecorder();
-
     try {
-      await handleRequest(
-        {
-          method: "GET",
-          url: "/providers/health",
-        } as IncomingMessage,
-        recorder.response,
+      const snapshot = await runRequest(createRequest("GET", "/providers/health"));
+      expect(snapshot.statusCode).toBe(200);
+
+      const body = JSON.parse(snapshot.body) as {
+        providerRuntimeMode: string;
+        providers: Array<{
+          active: boolean;
+          configured: boolean;
+          displayName: string;
+          id: string;
+          mode: string;
+          providerMode: string;
+          requiredEnvVars?: string[];
+          scrapingAllowed?: boolean;
+        }>;
+      };
+
+      expect(body.providerRuntimeMode).toBe("hybrid");
+      expect(body.providers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "mock",
+            displayName: "Mock Closet",
+            active: true,
+            configured: true,
+            mode: "fixture",
+            providerMode: "mock",
+          }),
+          expect.objectContaining({
+            id: "grailed",
+            displayName: "Grailed",
+            active: true,
+            configured: true,
+            mode: "authorized-live",
+            providerMode: "real",
+            scrapingAllowed: true,
+          }),
+        ]),
       );
+      expect(snapshot.body).not.toContain("super-secret-key");
     } finally {
       if (previousMode === undefined) delete process.env.PROVIDER_RUNTIME_MODE;
       else process.env.PROVIDER_RUNTIME_MODE = previousMode;
@@ -120,236 +210,250 @@ describe("handleRequest", () => {
       if (previousUserAgent === undefined) delete process.env.GRAILED_USER_AGENT;
       else process.env.GRAILED_USER_AGENT = previousUserAgent;
     }
-
-    expect(recorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(recorder.snapshot().body) as {
-      providerRuntimeMode: string;
-      providers: Array<{
-        active: boolean;
-        configured: boolean;
-        displayName: string;
-        id: string;
-        mode: string;
-        providerMode: string;
-        requiredEnvVars?: string[];
-        scrapingAllowed?: boolean;
-      }>;
-    };
-
-    expect(body.providerRuntimeMode).toBe("hybrid");
-    expect(body.providers).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: "mock",
-          displayName: "Mock Closet",
-          active: true,
-          configured: true,
-          mode: "fixture",
-          providerMode: "mock",
-        }),
-        expect.objectContaining({
-          id: "grailed",
-          displayName: "Grailed",
-          active: true,
-          configured: true,
-          mode: "authorized-live",
-          providerMode: "real",
-          scrapingAllowed: true,
-          requiredEnvVars: expect.arrayContaining([
-            "GRAILED_PROVIDER_ENABLED",
-            "GRAILED_SCRAPING_ALLOWED",
-            "GRAILED_BASE_URL",
-            "GRAILED_USER_AGENT",
-          ]),
-        }),
-      ]),
-    );
-    expect(recorder.snapshot().body).not.toContain("super-secret-key");
   });
 
-  it("creates and logs in a user through auth endpoints", async () => {
-    const signupRecorder = createResponseRecorder();
+  it("creates a user, sets a session cookie, and returns only public user data", async () => {
+    const signup = await signupAndGetSession("archivekid", "mohaircoat");
 
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "archivekid",
-        password: "mohair",
+    expect(signup.body.userId).toBeTruthy();
+    expect(signup.body.user.username).toBe("archivekid");
+    expect(signup.snapshot.body).not.toContain("passwordHash");
+
+    const meSnapshot = await runRequest(
+      createRequest("GET", "/auth/me", {
+        cookie: signup.cookie,
       }),
-      signupRecorder.response,
     );
 
-    expect(signupRecorder.snapshot().statusCode).toBe(201);
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
+    expect(meSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(meSnapshot.body)).toMatchObject({
       user: {
-        currencyPreference: string;
-        onboardingPreferences: { favoriteBrands: string[] };
-        username: string;
-      };
-      userId: string;
-    };
+        username: "archivekid",
+      },
+      userId: signup.body.userId,
+    });
+  });
 
-    expect(signupBody.userId).toBeTruthy();
-    expect(signupBody.user.username).toBe("archivekid");
-    expect(signupBody.user.currencyPreference).toBe("USD");
-    expect(signupBody.user.onboardingPreferences.favoriteBrands).toEqual([]);
+  it("rejects duplicate usernames with a structured auth error", async () => {
+    await signupAndGetSession("archivekid", "mohaircoat");
 
-    const loginRecorder = createResponseRecorder();
+    const snapshot = await runRequest(
+      createJsonRequest("POST", "/auth/signup", {
+        username: "archivekid",
+        password: "differentpass",
+      }),
+    );
 
-    await handleRequest(
+    expect(snapshot.statusCode).toBe(409);
+    expect(JSON.parse(snapshot.body)).toMatchObject({
+      error: "username_taken",
+      message: "That username is already taken.",
+    });
+  });
+
+  it("creates a new login session and rejects invalid credentials generically", async () => {
+    await signupAndGetSession("archivekid", "mohaircoat");
+
+    const loginSnapshot = await runRequest(
       createJsonRequest("POST", "/auth/login", {
         username: "archivekid",
-        password: "mohair",
+        password: "mohaircoat",
       }),
-      loginRecorder.response,
     );
 
-    expect(loginRecorder.snapshot().statusCode).toBe(200);
+    expect(loginSnapshot.statusCode).toBe(200);
+    expect(loginSnapshot.headers["set-cookie"]).toContain("HttpOnly");
 
-    const loginBody = JSON.parse(loginRecorder.snapshot().body) as {
-      userId: string;
-    };
+    const invalidSnapshot = await runRequest(
+      createJsonRequest("POST", "/auth/login", {
+        username: "archivekid",
+        password: "wrongpass",
+      }),
+    );
 
-    expect(loginBody.userId).toBe(signupBody.userId);
+    expect(invalidSnapshot.statusCode).toBe(401);
+    expect(JSON.parse(invalidSnapshot.body)).toMatchObject({
+      error: "invalid_credentials",
+      message: "Invalid username or password.",
+    });
   });
 
-  it("saves onboarding preferences for a user", async () => {
-    const signupRecorder = createResponseRecorder();
+  it("returns 401 from /auth/me without a cookie", async () => {
+    const snapshot = await runRequest(createRequest("GET", "/auth/me"));
 
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "closetlover",
-        password: "jacket",
+    expect(snapshot.statusCode).toBe(401);
+    expect(JSON.parse(snapshot.body)).toMatchObject({
+      error: "unauthenticated",
+    });
+  });
+
+  it("logout revokes the session and clears the cookie", async () => {
+    const signup = await signupAndGetSession("logoutdemo", "mohaircoat");
+
+    const logoutSnapshot = await runRequest(
+      createJsonRequest("POST", "/auth/logout", {}, {
+        cookie: signup.cookie,
       }),
-      signupRecorder.response,
     );
 
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
+    expect(logoutSnapshot.statusCode).toBe(200);
+    expect(logoutSnapshot.headers["set-cookie"]).toContain("Max-Age=0");
 
-    const onboardingRecorder = createResponseRecorder();
+    const meSnapshot = await runRequest(
+      createRequest("GET", "/auth/me", {
+        cookie: signup.cookie,
+      }),
+    );
 
-    await handleRequest(
+    expect(meSnapshot.statusCode).toBe(401);
+    expect(JSON.parse(meSnapshot.body)).toMatchObject({
+      error: "session_expired",
+    });
+  });
+
+  it("returns 401 for expired sessions and clears the stale cookie", async () => {
+    const signup = await signupAndGetSession("expireddemo", "mohaircoat");
+
+    getDatabase()
+      .prepare("UPDATE auth_sessions SET expires_at = ?")
+      .run("2000-01-01T00:00:00.000Z");
+
+    const meSnapshot = await runRequest(
+      createRequest("GET", "/auth/me", {
+        cookie: signup.cookie,
+      }),
+    );
+
+    expect(meSnapshot.statusCode).toBe(401);
+    expect(meSnapshot.headers["set-cookie"]).toContain("Max-Age=0");
+    expect(JSON.parse(meSnapshot.body)).toMatchObject({
+      error: "session_expired",
+    });
+  });
+
+  it("requires auth for onboarding and uses the authenticated user instead of a spoofed userId", async () => {
+    const unauthenticatedSnapshot = await runRequest(
       createJsonRequest("POST", "/users/onboarding", {
-        userId: signupBody.userId,
         preferences: {
-          favoriteBrands: ["Our Legacy", "Acne Studios"],
-          categories: ["jackets", "knitwear"],
+          favoriteBrands: ["Acne Studios"],
+          categories: ["knitwear"],
           priceRange: "$100-$300",
         },
       }),
-      onboardingRecorder.response,
     );
 
-    expect(onboardingRecorder.snapshot().statusCode).toBe(200);
+    expect(unauthenticatedSnapshot.statusCode).toBe(401);
 
-    const onboardingBody = JSON.parse(onboardingRecorder.snapshot().body) as {
+    const primary = await signupAndGetSession("preflover", "mohaircoat");
+    const secondary = await signupAndGetSession("otheruser", "mohaircoat");
+
+    const onboardingSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/users/onboarding",
+        {
+          userId: secondary.body.userId,
+          preferences: {
+            favoriteBrands: ["Acne Studios"],
+            categories: ["knitwear"],
+            priceRange: "$100-$300",
+          },
+        },
+        {
+          cookie: primary.cookie,
+        },
+      ),
+    );
+
+    expect(onboardingSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(onboardingSnapshot.body)).toMatchObject({
+      userId: primary.body.userId,
       user: {
         onboardingPreferences: {
-          categories: string[];
-          favoriteBrands: string[];
-          priceRange: string;
-        };
-      };
-    };
-
-    expect(onboardingBody.user.onboardingPreferences).toEqual({
-      favoriteBrands: ["Our Legacy", "Acne Studios"],
-      categories: ["jackets", "knitwear"],
-      priceRange: "$100-$300",
+          favoriteBrands: ["Acne Studios"],
+          categories: ["knitwear"],
+          priceRange: "$100-$300",
+        },
+      },
     });
   });
 
-  it("creates and removes likes for a user", async () => {
-    const signupRecorder = createResponseRecorder();
+  it("requires auth for likes and ignores spoofed userId values", async () => {
+    const primary = await signupAndGetSession("liker", "mohaircoat");
+    const secondary = await signupAndGetSession("secondliker", "mohaircoat");
 
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "liker",
-        password: "heart",
-      }),
-      signupRecorder.response,
-    );
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-
-    const createLikeRecorder = createResponseRecorder();
-
-    await handleRequest(
+    const unauthenticatedSnapshot = await runRequest(
       createJsonRequest("POST", "/likes", {
-        userId: signupBody.userId,
         listingId: "mock:mock-jacket-001",
         source: "mock",
       }),
-      createLikeRecorder.response,
     );
 
-    expect(createLikeRecorder.snapshot().statusCode).toBe(201);
+    expect(unauthenticatedSnapshot.statusCode).toBe(401);
 
-    const getLikesRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/likes/${signupBody.userId}`,
-      } as IncomingMessage,
-      getLikesRecorder.response,
+    const createLikeSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/likes",
+        {
+          userId: secondary.body.userId,
+          listingId: "mock:mock-jacket-001",
+          source: "mock",
+        },
+        {
+          cookie: primary.cookie,
+        },
+      ),
     );
 
-    const getLikesBody = JSON.parse(getLikesRecorder.snapshot().body) as {
-      likes: Array<{ listingId: string; source: string }>;
-    };
-
-    expect(getLikesBody.likes).toHaveLength(1);
-    expect(getLikesBody.likes[0]).toMatchObject({
-      listingId: "mock:mock-jacket-001",
-      source: "mock",
+    expect(createLikeSnapshot.statusCode).toBe(201);
+    expect(JSON.parse(createLikeSnapshot.body)).toMatchObject({
+      like: {
+        listingId: "mock:mock-jacket-001",
+        userId: primary.body.userId,
+      },
     });
 
-    const deleteLikeRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("DELETE", "/likes", {
-        userId: signupBody.userId,
-        listingId: "mock:mock-jacket-001",
+    const primaryLikesSnapshot = await runRequest(
+      createRequest("GET", "/likes", {
+        cookie: primary.cookie,
       }),
-      deleteLikeRecorder.response,
     );
 
-    expect(deleteLikeRecorder.snapshot().statusCode).toBe(200);
-    expect(JSON.parse(deleteLikeRecorder.snapshot().body)).toEqual({
-      removed: true,
+    expect(JSON.parse(primaryLikesSnapshot.body)).toMatchObject({
+      likes: [
+        {
+          listingId: "mock:mock-jacket-001",
+          userId: primary.body.userId,
+        },
+      ],
+      userId: primary.body.userId,
+    });
+
+    const secondaryLikesSnapshot = await runRequest(
+      createRequest("GET", "/likes", {
+        cookie: secondary.cookie,
+      }),
+    );
+
+    expect(JSON.parse(secondaryLikesSnapshot.body)).toMatchObject({
+      likes: [],
+      userId: secondary.body.userId,
     });
   });
 
   it("returns normalized search results from /search", async () => {
-    const request = {
-      method: "GET",
-      url: "/search?q=jacket",
-    } as IncomingMessage;
+    const snapshot = await runRequest(createRequest("GET", "/search?q=jacket"));
 
-    const recorder = createResponseRecorder();
+    expect(snapshot.statusCode).toBe(200);
 
-    await handleRequest(request, recorder.response);
-
-    expect(recorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(recorder.snapshot().body) as {
+    const body = JSON.parse(snapshot.body) as {
       listings: Array<{
-        brand: { name: string };
         providerId: string;
-        riskSignal?: {
-          explanation: string;
-          riskLevel: string;
-        };
+        riskSignal?: { riskLevel: string };
         title: string;
       }>;
       pagination: {
-        hasMore: boolean;
         page: number;
         pageSize: number;
         totalCount?: number;
@@ -367,614 +471,200 @@ describe("handleRequest", () => {
         riskLevel: expect.any(String),
       },
     });
-    expect(body.listings.some((listing) => listing.title.toLowerCase().includes("jacket"))).toBe(
-      true,
-    );
-    expect(body.listings[0]?.riskSignal?.explanation).toBeTruthy();
   });
 
-  it("supports normalized sort and listing type filters on /search", async () => {
-    const request = {
-      method: "GET",
-      url: "/search?q=jacket&sort=price_asc&listingType=auction&source=mock",
-    } as IncomingMessage;
+  it("returns paginated normalized feed results and personalizes them from the session cookie", async () => {
+    const signedOutSnapshot = await runRequest(createRequest("GET", "/feed?page=1&pageSize=4"));
 
-    const recorder = createResponseRecorder();
-
-    await handleRequest(request, recorder.response);
-
-    expect(recorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(recorder.snapshot().body) as {
-      listings: Array<{
-        listingType: string;
-        price: { amount: number };
-        providerId: string;
-        riskSignal?: {
-          riskLevel: string;
-        };
-      }>;
+    expect(signedOutSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(signedOutSnapshot.body)).toMatchObject({
+      isPersonalized: false,
       pagination: {
-        hasMore: boolean;
-        page: number;
-        pageSize: number;
-        totalCount?: number;
-      };
-      query: {
-        listingTypes?: string[];
-        page?: number;
-        pageSize?: number;
-        sort?: string;
-        sourceIds?: string[];
-      };
-    };
-
-    expect(body.query.sort).toBe("price_asc");
-    expect(body.query.listingTypes).toEqual(["auction"]);
-    expect(body.query.sourceIds).toEqual(["mock"]);
-    expect(body.query.page).toBe(1);
-    expect(body.query.pageSize).toBe(24);
-    expect(body.pagination.page).toBe(1);
-    expect(body.pagination.pageSize).toBe(24);
-    expect(body.listings).toHaveLength(1);
-    expect(body.listings[0]).toMatchObject({
-      listingType: "auction",
-      providerId: "mock",
-      riskSignal: {
-        riskLevel: expect.any(String),
+        page: 1,
+        pageSize: 4,
       },
     });
-    expect(body.listings[0]?.price.amount).toBe(195);
-  });
 
-  it("returns paginated normalized feed results from /feed", async () => {
-    const request = {
-      method: "GET",
-      url: "/feed?page=1&pageSize=4",
-    } as IncomingMessage;
+    const signup = await signupAndGetSession("preflover", "mohaircoat");
 
-    const recorder = createResponseRecorder();
+    await runRequest(
+      createJsonRequest(
+        "POST",
+        "/users/onboarding",
+        {
+          preferences: {
+            favoriteBrands: ["Acne Studios"],
+            categories: ["knitwear"],
+            priceRange: "$100-$300",
+          },
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
 
-    await handleRequest(request, recorder.response);
+    const personalizedSnapshot = await runRequest(
+      createRequest("GET", "/feed?page=1&pageSize=4", {
+        cookie: signup.cookie,
+      }),
+    );
 
-    expect(recorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(recorder.snapshot().body) as {
+    const body = JSON.parse(personalizedSnapshot.body) as {
       isPersonalized: boolean;
-      listings: Array<{
-        brand: { name: string };
-        providerId: string;
-        riskSignal?: {
-          explanation: string;
-          riskLevel: string;
-        };
-        source: { name: string };
-        sourceUrl: string;
-        title: string;
-      }>;
-      pagination: {
-        hasMore: boolean;
-        nextPage?: number;
-        page: number;
-        pageSize: number;
-        totalCount?: number;
-      };
+      listings: Array<{ brand: { name: string }; category?: string }>;
     };
 
-    expect(body.isPersonalized).toBe(false);
-    expect(body.pagination.page).toBe(1);
-    expect(body.pagination.pageSize).toBe(4);
-    expect(body.pagination.totalCount).toBeGreaterThan(4);
-    expect(body.pagination.hasMore).toBe(true);
-    expect(body.pagination.nextPage).toBe(2);
-    expect(body.listings).toHaveLength(4);
+    expect(body.isPersonalized).toBe(true);
     expect(body.listings[0]).toMatchObject({
-      brand: {
-        name: "Our Legacy",
-      },
-      providerId: "mock",
-      riskSignal: {
-        riskLevel: expect.any(String),
-      },
-      source: {
-        name: "Mock Closet",
-      },
+      brand: { name: "Acne Studios" },
+      category: "knitwear",
     });
-    expect(body.listings[0].sourceUrl).toContain("https://");
-    expect(body.listings[0]?.riskSignal?.explanation).toBeTruthy();
   });
 
-  it("lists brands from /brands and filters by query", async () => {
-    const recorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: "/brands?q=streetwear",
-      } as IncomingMessage,
-      recorder.response,
-    );
-
-    expect(recorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(recorder.snapshot().body) as {
+  it("lists brands and returns individual brand detail responses", async () => {
+    const listSnapshot = await runRequest(createRequest("GET", "/brands?q=streetwear"));
+    const listBody = JSON.parse(listSnapshot.body) as {
       brands: Brand[];
-      query?: string;
       total: number;
     };
 
-    expect(body.query).toBe("streetwear");
-    expect(body.total).toBeGreaterThan(0);
-    expect(body.brands.some((brand) => brand.name === "Supreme")).toBe(true);
-    expect(body.brands.some((brand) => brand.name === "Undercover")).toBe(true);
-  });
+    expect(listSnapshot.statusCode).toBe(200);
+    expect(listBody.total).toBeGreaterThan(0);
+    expect(listBody.brands.some((brand) => brand.name === "Supreme")).toBe(true);
 
-  it("returns a single brand by slug from /brands/:slug", async () => {
-    const recorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: "/brands/kapital",
-      } as IncomingMessage,
-      recorder.response,
-    );
-
-    expect(recorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(recorder.snapshot().body) as {
-      brand: Brand;
-    };
-
-    expect(body.brand).toMatchObject({
-      slug: "kapital",
-      name: "Kapital",
-    });
-    expect(body.brand.tags).toContain("japanese");
-  });
-
-  it("returns 404 when a brand slug is unknown", async () => {
-    const recorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: "/brands/not-a-brand",
-      } as IncomingMessage,
-      recorder.response,
-    );
-
-    expect(recorder.snapshot().statusCode).toBe(404);
-  });
-
-  it("returns a locked analytics overview for missing or non-premium users", async () => {
-    const lockedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: "/analytics/overview",
-      } as IncomingMessage,
-      lockedRecorder.response,
-    );
-
-    expect(lockedRecorder.snapshot().statusCode).toBe(200);
-
-    const lockedBody = JSON.parse(lockedRecorder.snapshot().body) as {
-      locked: boolean;
-      premiumPreviewUsername?: string;
-    };
-
-    expect(lockedBody.locked).toBe(true);
-    expect(lockedBody.premiumPreviewUsername).toBe("premiumdemo");
-
-    const signupRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "regularuser",
-        password: "mohair",
-      }),
-      signupRecorder.response,
-    );
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-    const nonPremiumRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/analytics/overview?userId=${signupBody.userId}`,
-      } as IncomingMessage,
-      nonPremiumRecorder.response,
-    );
-
-    const nonPremiumBody = JSON.parse(nonPremiumRecorder.snapshot().body) as {
-      locked: boolean;
-      premiumAccess?: { isPremium: boolean; planName: string };
-    };
-
-    expect(nonPremiumBody.locked).toBe(true);
-    expect(nonPremiumBody.premiumAccess).toMatchObject({
-      isPremium: false,
-      planName: "Free",
+    const detailSnapshot = await runRequest(createRequest("GET", "/brands/kapital"));
+    expect(detailSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(detailSnapshot.body)).toMatchObject({
+      brand: {
+        slug: "kapital",
+        name: "Kapital",
+      },
     });
   });
 
-  it("returns mock analytics data for premium preview users", async () => {
-    const signupRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "premiumdemo",
-        password: "mohair",
-      }),
-      signupRecorder.response,
-    );
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-
-    const overviewRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/analytics/overview?userId=${signupBody.userId}`,
-      } as IncomingMessage,
-      overviewRecorder.response,
-    );
-
-    const overviewBody = JSON.parse(overviewRecorder.snapshot().body) as {
-      locked: boolean;
-      overview: {
-        marketInsightCount: number;
-        underpricedSignalCount: number;
-        trackedBrands: number;
-      };
-      premiumAccess: { isPremium: boolean; planName: string };
-      sampleData: boolean;
-    };
-
-    expect(overviewBody.locked).toBe(false);
-    expect(overviewBody.sampleData).toBe(true);
-    expect(overviewBody.premiumAccess).toMatchObject({
-      isPremium: true,
-      planName: "Collector Preview",
+  it("uses the authenticated session for premium analytics access", async () => {
+    const lockedSnapshot = await runRequest(createRequest("GET", "/analytics/overview"));
+    expect(JSON.parse(lockedSnapshot.body)).toMatchObject({
+      locked: true,
     });
-    expect(overviewBody.overview.trackedBrands).toBeGreaterThan(0);
-    expect(overviewBody.overview.marketInsightCount).toBeGreaterThan(0);
 
-    const insightsRecorder = createResponseRecorder();
+    const premium = await signupAndGetSession("premiumdemo", "mohaircoat");
 
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/analytics/market-insights?userId=${signupBody.userId}`,
-      } as IncomingMessage,
-      insightsRecorder.response,
+    const overviewSnapshot = await runRequest(
+      createRequest("GET", "/analytics/overview", {
+        cookie: premium.cookie,
+      }),
     );
 
-    const insightsBody = JSON.parse(insightsRecorder.snapshot().body) as {
-      insights: Array<{ id: string; title: string }>;
-      locked: boolean;
-    };
-
-    expect(insightsBody.locked).toBe(false);
-    expect(insightsBody.insights.length).toBeGreaterThan(0);
-
-    const underpricedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/analytics/underpriced?userId=${signupBody.userId}`,
-      } as IncomingMessage,
-      underpricedRecorder.response,
-    );
-
-    const underpricedBody = JSON.parse(underpricedRecorder.snapshot().body) as {
-      locked: boolean;
-      signals: Array<{ id: string; percentBelowMarket: number }>;
-    };
-
-    expect(underpricedBody.locked).toBe(false);
-    expect(underpricedBody.signals.length).toBeGreaterThan(0);
-    expect(underpricedBody.signals[0]?.percentBelowMarket).toBeGreaterThan(0);
+    expect(JSON.parse(overviewSnapshot.body)).toMatchObject({
+      locked: false,
+      premiumAccess: {
+        isPremium: true,
+        planName: "Collector Preview",
+      },
+    });
   });
 
-  it("personalizes the feed with onboarding preferences while keeping exploration", async () => {
-    const signupRecorder = createResponseRecorder();
+  it("persists recent searches through authenticated API routes", async () => {
+    const signup = await signupAndGetSession("searchhistory", "mohaircoat");
 
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "preflover",
-        password: "mohair",
-      }),
-      signupRecorder.response,
-    );
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-
-    await handleRequest(
-      createJsonRequest("POST", "/users/onboarding", {
-        userId: signupBody.userId,
-        preferences: {
-          favoriteBrands: ["Acne Studios"],
-          categories: ["knitwear"],
-          priceRange: "$100-$300",
+    const createSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/recent-searches",
+        {
+          label: "jacket",
+          description: "Keyword search",
+          params: "q=jacket",
         },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(createSnapshot.statusCode).toBe(201);
+
+    const listSnapshot = await runRequest(
+      createRequest("GET", "/recent-searches", {
+        cookie: signup.cookie,
       }),
-      createResponseRecorder().response,
     );
 
-    const feedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/feed?page=1&pageSize=4&userId=${signupBody.userId}`,
-      } as IncomingMessage,
-      feedRecorder.response,
-    );
-
-    expect(feedRecorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(feedRecorder.snapshot().body) as {
-      isPersonalized: boolean;
-      listings: Array<{
-        brand: { name: string };
-        category?: string;
-        title: string;
-      }>;
-    };
-
-    expect(body.isPersonalized).toBe(true);
-    expect(body.listings[0]).toMatchObject({
-      brand: {
-        name: "Acne Studios",
-      },
-      category: "knitwear",
-    });
-    expect(
-      body.listings.slice(0, 3).some((listing) => listing.brand.name !== "Acne Studios"),
-    ).toBe(true);
-  });
-
-  it("uses liked listings to influence future feed ranking", async () => {
-    const signupRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "heartfirst",
-        password: "mohair",
-      }),
-      signupRecorder.response,
-    );
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: "/feed?page=1&pageSize=6",
-      } as IncomingMessage,
-      createResponseRecorder().response,
-    );
-
-    await handleRequest(
-      createJsonRequest("POST", "/likes", {
-        userId: signupBody.userId,
-        listingId: "mock:mock-jacket-002",
-        source: "mock",
-      }),
-      createResponseRecorder().response,
-    );
-
-    const feedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/feed?page=1&pageSize=4&userId=${signupBody.userId}`,
-      } as IncomingMessage,
-      feedRecorder.response,
-    );
-
-    expect(feedRecorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(feedRecorder.snapshot().body) as {
-      isPersonalized: boolean;
-      listings: Array<{
-        brand: { name: string };
-        title: string;
-      }>;
-    };
-
-    expect(body.isPersonalized).toBe(true);
-    expect(body.listings[0]).toMatchObject({
-      brand: {
-        name: "Our Legacy",
-      },
-      title: "Our Legacy reversible coach jacket",
-    });
-  });
-
-  it("falls back safely to the default feed when a signed-in user has no preference data yet", async () => {
-    const signupRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "newuser",
-        password: "mohair",
-      }),
-      signupRecorder.response,
-    );
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-
-    const feedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: `/feed?page=1&pageSize=4&userId=${signupBody.userId}`,
-      } as IncomingMessage,
-      feedRecorder.response,
-    );
-
-    expect(feedRecorder.snapshot().statusCode).toBe(200);
-
-    const body = JSON.parse(feedRecorder.snapshot().body) as {
-      isPersonalized: boolean;
-      listings: Array<{
-        brand: { name: string };
-      }>;
-    };
-
-    expect(body.isPersonalized).toBe(false);
-    expect(body.listings[0]).toMatchObject({
-      brand: {
-        name: "Our Legacy",
-      },
-    });
-  });
-  it("persists recent searches through the API routes", async () => {
-    const signupRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "searchhistory",
-        password: "mohair",
-      }),
-      signupRecorder.response,
-    );
-
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-
-    const createRecentRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("POST", "/recent-searches", {
-        userId: signupBody.userId,
-        label: "jacket",
-        description: "Keyword search",
-        params: "q=jacket",
-      }),
-      createRecentRecorder.response,
-    );
-
-    expect(createRecentRecorder.snapshot().statusCode).toBe(201);
-
-    const listRecentRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: "/recent-searches/" + signupBody.userId,
-      } as IncomingMessage,
-      listRecentRecorder.response,
-    );
-
-    expect(JSON.parse(listRecentRecorder.snapshot().body)).toMatchObject({
+    expect(JSON.parse(listSnapshot.body)).toMatchObject({
       recentSearches: [
         {
           label: "jacket",
           params: "q=jacket",
         },
       ],
-      userId: signupBody.userId,
+      userId: signup.body.userId,
     });
 
-    const clearRecentRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "DELETE",
-        url: "/recent-searches/" + signupBody.userId,
-      } as IncomingMessage,
-      clearRecentRecorder.response,
+    const clearSnapshot = await runRequest(
+      createJsonRequest("DELETE", "/recent-searches", {}, {
+        cookie: signup.cookie,
+      }),
     );
 
-    expect(JSON.parse(clearRecentRecorder.snapshot().body)).toEqual({
+    expect(JSON.parse(clearSnapshot.body)).toEqual({
       cleared: true,
-      userId: signupBody.userId,
+      userId: signup.body.userId,
     });
   });
 
-  it("creates, lists, and deletes saved searches through the API routes", async () => {
-    const signupRecorder = createResponseRecorder();
+  it("creates, lists, and deletes saved searches through authenticated API routes", async () => {
+    const signup = await signupAndGetSession("savedsearcher", "mohaircoat");
 
-    await handleRequest(
-      createJsonRequest("POST", "/auth/signup", {
-        username: "savedsearcher",
-        password: "mohair",
+    const createSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/saved-searches",
+        {
+          label: "Archive outerwear",
+          description: "grailed • Price high to low",
+          params: "q=archive+outerwear&source=grailed&sort=price_desc",
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(createSnapshot.statusCode).toBe(201);
+
+    const listSnapshot = await runRequest(
+      createRequest("GET", "/saved-searches", {
+        cookie: signup.cookie,
       }),
-      signupRecorder.response,
     );
 
-    const signupBody = JSON.parse(signupRecorder.snapshot().body) as {
-      userId: string;
-    };
-
-    const createSavedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("POST", "/saved-searches", {
-        userId: signupBody.userId,
-        label: "Archive outerwear",
-        description: "grailed • Price high to low",
-        params: "q=archive+outerwear&source=grailed&sort=price_desc",
-      }),
-      createSavedRecorder.response,
-    );
-
-    expect(createSavedRecorder.snapshot().statusCode).toBe(201);
-
-    const listSavedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      {
-        method: "GET",
-        url: "/saved-searches/" + signupBody.userId,
-      } as IncomingMessage,
-      listSavedRecorder.response,
-    );
-
-    const listSavedBody = JSON.parse(listSavedRecorder.snapshot().body) as {
-      savedSearches: Array<{ label: string; params: string }>;
-    };
-
-    expect(listSavedBody.savedSearches).toHaveLength(1);
-    expect(listSavedBody.savedSearches[0]).toMatchObject({
-      label: "Archive outerwear",
-      params: "q=archive+outerwear&source=grailed&sort=price_desc",
+    expect(JSON.parse(listSnapshot.body)).toMatchObject({
+      savedSearches: [
+        {
+          label: "Archive outerwear",
+          params: "q=archive+outerwear&source=grailed&sort=price_desc",
+        },
+      ],
+      userId: signup.body.userId,
     });
 
-    const deleteSavedRecorder = createResponseRecorder();
-
-    await handleRequest(
-      createJsonRequest("DELETE", "/saved-searches", {
-        userId: signupBody.userId,
-        params: "q=archive+outerwear&source=grailed&sort=price_desc",
-      }),
-      deleteSavedRecorder.response,
+    const deleteSnapshot = await runRequest(
+      createJsonRequest(
+        "DELETE",
+        "/saved-searches",
+        {
+          params: "q=archive+outerwear&source=grailed&sort=price_desc",
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
     );
 
-    expect(JSON.parse(deleteSavedRecorder.snapshot().body)).toEqual({
+    expect(JSON.parse(deleteSnapshot.body)).toEqual({
       removed: true,
     });
   });
-
 });

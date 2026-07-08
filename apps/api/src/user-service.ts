@@ -1,40 +1,29 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type {
   AuthResponse,
   OnboardingPreferences,
   StoredUser,
   User,
 } from "@closetsearch/shared";
+import { ApiError } from "./api-error.js";
+import { hashPassword, verifyPassword } from "./auth/password-service.js";
 import {
   clearUsers,
   findUserById,
   findUserByNormalizedUsername,
   insertUser,
+  updateUserPasswordHash,
   updateUserPreferences,
 } from "./db/repositories/users.js";
 
-const defaultPreferences: OnboardingPreferences = {
+const defaultOnboardingPreferences: OnboardingPreferences = {
   favoriteBrands: [],
   categories: [],
   priceRange: "",
 };
 
-const defaultCurrencyPreference = "USD";
-
 function normalizeUsername(username: string) {
   return username.trim().toLowerCase();
-}
-
-function validateUsername(username: string) {
-  return username.trim().length >= 3;
-}
-
-function validatePassword(password: string) {
-  return password.length >= 4;
-}
-
-function hashPassword(password: string) {
-  return createHash("sha256").update(password).digest("hex");
 }
 
 function toPublicUser(user: StoredUser): User {
@@ -47,100 +36,97 @@ function toPublicUser(user: StoredUser): User {
   };
 }
 
+function toAuthResponse(user: StoredUser): AuthResponse {
+  return {
+    user: toPublicUser(user),
+    userId: user.id,
+  };
+}
+
+function validateUsername(username: string) {
+  if (username.trim().length < 3) {
+    throw new ApiError(400, "invalid_request", "Username must be at least 3 characters.");
+  }
+}
+
+function validatePassword(password: string) {
+  if (password.length < 8) {
+    throw new ApiError(400, "invalid_request", "Password must be at least 8 characters.");
+  }
+}
+
 export function resetUserStore() {
   clearUsers();
 }
 
-export function createUser(username: string, password: string): AuthResponse {
+export function createUser(username: string, password: string) {
   const trimmedUsername = username.trim();
   const normalizedUsername = normalizeUsername(trimmedUsername);
 
-  if (!validateUsername(trimmedUsername)) {
-    throw new Error("Username must be at least 3 characters long.");
-  }
-
-  if (!validatePassword(password)) {
-    throw new Error("Password must be at least 4 characters long.");
-  }
+  validateUsername(trimmedUsername);
+  validatePassword(password);
 
   if (findUserByNormalizedUsername(normalizedUsername)) {
-    throw new Error("That username is already taken.");
+    throw new ApiError(409, "username_taken", "That username is already taken.");
   }
 
-  const user: StoredUser = {
+  const storedUser: StoredUser = {
     id: randomUUID(),
     username: trimmedUsername,
     passwordHash: hashPassword(password),
-    onboardingPreferences: {
-      favoriteBrands: [...defaultPreferences.favoriteBrands],
-      categories: [...defaultPreferences.categories],
-      priceRange: defaultPreferences.priceRange,
-    },
-    currencyPreference: defaultCurrencyPreference,
+    onboardingPreferences: defaultOnboardingPreferences,
+    currencyPreference: "USD",
     createdAt: new Date().toISOString(),
   };
 
   insertUser({
-    id: user.id,
-    username: user.username,
+    ...storedUser,
     normalizedUsername,
-    passwordHash: user.passwordHash,
-    onboardingPreferences: user.onboardingPreferences,
-    currencyPreference: user.currencyPreference,
-    createdAt: user.createdAt,
   });
 
-  return {
-    userId: user.id,
-    user: toPublicUser(user),
-  };
+  return toAuthResponse(storedUser);
 }
 
-export function loginUser(username: string, password: string): AuthResponse {
-  const user = findUserByNormalizedUsername(normalizeUsername(username));
+export function loginUser(username: string, password: string) {
+  const normalizedUsername = normalizeUsername(username);
+  const existingUser = findUserByNormalizedUsername(normalizedUsername);
 
-  if (!user || user.passwordHash !== hashPassword(password)) {
-    throw new Error("Invalid username or password.");
+  if (!existingUser) {
+    throw new ApiError(401, "invalid_credentials", "Invalid username or password.");
   }
 
-  return {
-    userId: user.id,
-    user: toPublicUser(user),
-  };
+  const verification = verifyPassword(existingUser.passwordHash, password);
+
+  if (!verification.isValid) {
+    throw new ApiError(401, "invalid_credentials", "Invalid username or password.");
+  }
+
+  const upgradedUser = verification.needsRehash && verification.upgradedHash
+    ? updateUserPasswordHash(existingUser.id, verification.upgradedHash) ?? {
+        ...existingUser,
+        passwordHash: verification.upgradedHash,
+      }
+    : existingUser;
+
+  return toAuthResponse(upgradedUser);
 }
 
 export function saveOnboardingPreferences(
   userId: string,
   preferences: OnboardingPreferences,
-  currencyPreference?: string,
+  currencyPreference = "USD",
 ) {
-  const user = findUserById(userId);
+  const updatedUser = updateUserPreferences(userId, preferences, currencyPreference);
 
-  if (!user) {
-    throw new Error("User not found.");
+  if (!updatedUser) {
+    throw new ApiError(404, "user_not_found", "User not found.");
   }
 
-  const nextUser = updateUserPreferences(
-    userId,
-    {
-      favoriteBrands: preferences.favoriteBrands,
-      categories: preferences.categories,
-      priceRange: preferences.priceRange,
-    },
-    currencyPreference?.trim() || user.currencyPreference,
-  );
-
-  if (!nextUser) {
-    throw new Error("User not found.");
-  }
-
-  return {
-    userId: nextUser.id,
-    user: toPublicUser(nextUser),
-  };
+  return toAuthResponse(updatedUser);
 }
 
 export function getUserById(userId: string) {
-  const user = findUserById(userId);
-  return user ? toPublicUser(user) : undefined;
+  const storedUser = findUserById(userId);
+
+  return storedUser ? toPublicUser(storedUser) : undefined;
 }
