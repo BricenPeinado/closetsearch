@@ -22,3 +22,6 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Local database
+apps/api/.data/

@@ -1,4 +1,4 @@
-import type { ListingType, SearchSortMode } from "@closetsearch/shared";
+import type { ListingType, SearchHistoryEntry, SearchSortMode } from "@closetsearch/shared";
 
 export type SearchListingTypeFilter = "" | Exclude<ListingType, "unknown">;
 
@@ -11,13 +11,7 @@ export interface SearchFormValues {
   maxPrice: string;
 }
 
-export interface RecentSearchEntry {
-  id: string;
-  label: string;
-  description: string;
-  params: string;
-  createdAt: string;
-}
+export type RecentSearchEntry = SearchHistoryEntry;
 
 interface StorageLike {
   getItem(key: string): string | null;

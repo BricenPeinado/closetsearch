@@ -30,6 +30,7 @@ What is implemented now:
 - search with filters, sorting, and recent searches
 - brand directory and brand detail shell
 - signup, login, onboarding, profile, and likes/hearts foundations
+- local SQLite-backed persistence for users, onboarding preferences, likes, recent searches, saved searches, and listing cache
 - simple signed-in personalization based on likes and onboarding preferences
 - premium analytics placeholder surfaces and mock signals
 - trust / fake-risk placeholder signals with careful assistive wording
@@ -39,7 +40,7 @@ What is still placeholder, mock, or intentionally lightweight:
 - listing data is still mock/test data
 - real marketplace provider integrations are not complete
 - auth is still a lightweight foundation, not a production-grade auth stack
-- persistence is still in-memory or browser-local foundation behavior
+- persistence is now a local SQLite foundation inside the API, not a production-grade database stack yet
 - analytics are placeholder foundations, not real market analytics
 - fake-risk is a trust placeholder, not real authenticity detection
 - there is no production-ready billing, subscriptions, watchlist delivery, or deployment hardening yet
@@ -53,7 +54,6 @@ Near-term roadmap direction:
 - QA and stabilization across all current flows
 - first real provider foundation and first real provider integration
 - real feed/search pagination and infinite-scroll friendly behavior
-- database persistence for users, likes, preferences, and saved searches
 - production-ready auth foundation
 - saved user features such as persistent likes and saved searches
 - stronger personalization built on real engagement data
@@ -126,6 +126,7 @@ corepack pnpm typecheck
 corepack pnpm build
 corepack pnpm lint
 corepack pnpm test
+corepack pnpm db:migrate
 ```
 
 ## Local Development
@@ -152,8 +153,8 @@ corepack pnpm dev
 
 Be careful not to overstate the current product state:
 
-- provider data is mock-backed today
-- user persistence is not yet database-backed
+- provider coverage is still limited and may run in mock or authorized Grailed mode depending on runtime configuration
+- persistence is local SQLite only and not a production-ready database deployment
 - auth is not yet production-grade
 - analytics and fake-risk are foundation-only systems
 - alerts and watchlists are still roadmap items
