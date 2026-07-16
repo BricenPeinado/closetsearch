@@ -340,3 +340,93 @@ ClosetSearch now has a safer, reviewable auth baseline that:
 - keeps future migration to stronger auth and broader account features possible
 
 OAuth, email verification, password reset, advanced recovery, and broader account-management features remain later milestones.
+
+### Saved User Features Stop at Persistence, Not Delivery
+
+**Date:** 2026-07-10  
+**Status:** Accepted
+
+#### Context
+
+Milestone 16 needs to make the signed-in account surface genuinely useful without reopening the auth foundation or dragging in alerts, notifications, or deeper personalization logic too early.
+
+#### Decision
+
+Saved-user work in Milestone 16 stops at persisted account data and account UI:
+
+- persistent liked items
+- saved searches
+- saved filters / presets
+- watchlist shell records
+- basic user settings and profile improvements
+
+Watchlists are stored intent only for now. They do not trigger alerts, background jobs, email delivery, push notifications, or personalization V2 behavior yet.
+
+#### Alternatives Considered
+
+- bundle alerts and watchlists together in the same milestone
+- delay all saved-user work until personalization and alerts are ready
+- add a larger account-system redesign instead of a focused saved-features pass
+
+#### Consequences
+
+The account area becomes meaningfully useful now, core user data survives refreshes and restarts, and later milestones can build delivery and personalization on stable persisted user intent instead of reworking the storage model.
+
+
+### Explainable Rule-Based Personalization Comes Before ML
+
+**Date:** 2026-07-14  
+**Status:** Accepted
+
+#### Context
+
+Milestone 17 needs a noticeably better signed-in feed, but the product is still early: provider coverage is still growing, analytics are still placeholder, and saved-user data only recently became persistent. This is the wrong stage to add embeddings, vector search, or opaque recommendation models.
+
+#### Decision
+
+Personalization V2 uses explainable rules-based scoring before any ML-driven recommendation stack.
+
+The feed now ranks signed-in listings using reviewable inputs such as:
+
+- liked listing snapshots
+- onboarding preferences
+- saved searches
+- saved filters
+- watchlist shell intent as a weak signal
+- preferred sources from user settings
+- freshness, listing completeness, impression-count engagement, diversity, and repetition penalties
+
+The API can also return debug score breakdowns on `GET /feed?debugPersonalization=1` so tests and development review can inspect why a listing ranked where it did without exposing sensitive account details.
+
+#### Alternatives Considered
+
+- jump directly to embeddings or vector search
+- wait for real analytics or provider scale before improving the feed at all
+- build a heavier recommendation service that would be difficult to inspect at this stage
+
+#### Consequences
+
+This approach is easier to test, easier to debug, and appropriate for the current product stage while keeping the future path to ML open. It also forces ranking behavior, diversity controls, and cold-start fallback rules to stay explicit instead of becoming implicit inside an opaque model too early.
+
+### Observed Analytics Must Stay Cautious and Non-Predictive
+
+**Date:** 2026-07-16  
+**Status:** Accepted
+
+#### Context
+
+ClosetSearch now records real observed listing prices, which makes it possible to add more meaningful pricing context. That same capability creates pressure to overstate certainty with forecasting, investment framing, or guaranteed underpriced claims before the product has enough reliable history.
+
+#### Decision
+
+Analytics V1 will stay limited to observed price snapshots, brand/category ranges, same-currency similar-listing comparisons, and cautious labels such as below observed range or not enough observed data.
+
+#### Alternatives Considered
+
+- Add price predictions and trend forecasting immediately.
+- Present stronger underpriced language to make analytics feel more actionable.
+- Delay all analytics until a larger market-intelligence system exists.
+
+#### Consequences
+
+The analytics layer is safer, easier to test, and easier to explain to users. It also creates a durable snapshot foundation for later pricing intelligence without committing the product to unsupported financial or authenticity claims.

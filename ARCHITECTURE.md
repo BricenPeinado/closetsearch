@@ -236,32 +236,40 @@ This data should feed personalization and alerts later, but it should not leak b
 
 ## Personalization Layer
 
-Personalization should remain a distinct subsystem built on normalized listing data plus user engagement data.
+Personalization remains a distinct subsystem built on normalized listing data plus persisted user signals and lightweight engagement data.
 
-Inputs may include:
+Current Personalization V2 inputs include:
 
-- onboarding preferences
-- liked brands or categories
-- saved searches or watchlists
-- recent interactions
+- onboarding favorite brands, categories, and price range
+- persisted liked listing snapshots and their brand/category/size/condition/source/listing-type attributes
+- saved searches and their query/source/category/price intent
+- saved filters and their source/listing-type/price intent
+- watchlist shell entries as weak intent signals only
+- preferred sources from user settings
+- freshness, listing completeness, and impression-count engagement
 
-Recommended principles:
+Current ranking rules are intentionally explainable:
 
-- keep ranking inputs explainable
-- support sparse-user fallback behavior
-- avoid overfitting on small user histories
-- preserve exploration and diversity controls
+- additive score reasons such as brand affinity, category affinity, source preference, price affinity, query intent, freshness, quality, and engagement
+- diversity penalties for repeated brands, categories, sources, and near-identical listing signatures
+- a small exploration mix so personalized results do not collapse into one narrow cluster
+- cold-start fallback to the generic newest-first feed when persisted signals are missing
+
+This layer should stay reviewable and rule-based until richer recommendation infrastructure is justified.
 
 ## Analytics Snapshots
 
 Analytics should be built from observed data before predictions.
 
-Analytics v1 architecture should favor:
+The current Analytics V1 architecture uses a lightweight observed-price pipeline:
 
-- price snapshot collection
-- brand/category price range summaries
-- simple under-market comparisons
-- explicit sample/mock boundaries when real data is absent
+- feed and search record normalized listing price snapshots as a best-effort side effect
+- the snapshot store dedupes repeated same-price observations by refreshing `last_seen_at`
+- a changed observed price creates a new snapshot row for the same source listing
+- overview, brand ranges, category ranges, and under-market signals are computed from latest observed snapshots
+- same-currency comparison is required before a listing can receive a market comparison signal
+- under-market labels stay cautious: observed range, below observed median, or not enough observed data
+- explicit sample/mock boundaries remain visible when only mock observations exist
 
 Avoid building forecasting or advanced price prediction systems before observed-data pipelines are reliable.
 

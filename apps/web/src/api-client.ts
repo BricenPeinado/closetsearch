@@ -47,7 +47,7 @@ export async function fetchJson<T>(
 
 export async function sendJson<T>(
   path: string,
-  method: "POST" | "DELETE",
+  method: "POST" | "PATCH" | "DELETE",
   body: unknown,
 ): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {

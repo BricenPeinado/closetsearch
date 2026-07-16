@@ -4,6 +4,7 @@ import { createProviderRuntime, type ProviderRuntime } from "./providers/registr
 import { runProviderSearch } from "./providers/orchestrator.js";
 import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
+import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { generateRiskSignal } from "./services/riskService.js";
 
 function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
@@ -36,6 +37,17 @@ function attachRiskSignal(listing: Listing): Listing {
   };
 }
 
+function rememberAnalyticsListings(listings: Listing[]) {
+  try {
+    recordObservedListings(listings);
+  } catch (error) {
+    console.error("Analytics snapshot recording failed", {
+      message: error instanceof Error ? error.message : "Unknown analytics snapshot error",
+      route: "search",
+    });
+  }
+}
+
 function shouldThrowProviderUnavailable(
   providers: Array<{ status: "success" | "failure" }>,
   listings: Listing[],
@@ -56,6 +68,7 @@ export async function searchListings(
   const responseListings = sortListings(execution.listings.map(attachRiskSignal), query.sort);
 
   rememberListings(responseListings);
+  rememberAnalyticsListings(responseListings);
   recordListingImpressions(responseListings);
 
   return {

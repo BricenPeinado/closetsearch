@@ -206,12 +206,12 @@ Exit criteria:
 
 ## Milestone 16: Saved User Features
 
-- [ ] Add persistent liked items
-- [ ] Add saved searches
-- [ ] Add saved filters
-- [ ] Add watchlist shell
-- [ ] Improve the profile surface
-- [ ] Add user settings such as preferred currency
+- [x] Add persistent liked items
+- [x] Add saved searches
+- [x] Add saved filters
+- [x] Add watchlist shell
+- [x] Improve the profile surface
+- [x] Add user settings such as preferred currency
 
 Exit criteria:
 
@@ -220,12 +220,12 @@ Exit criteria:
 
 ## Milestone 17: Personalization V2
 
-- [ ] Refine ranking weights
-- [ ] Use real likes and preferences
-- [ ] Improve brand and category boosts
-- [ ] Add diversity and exploration balancing
-- [ ] Avoid repetitive feed results
-- [ ] Document recommendation scoring inputs
+- [x] Refine ranking weights
+- [x] Use real likes and preferences
+- [x] Improve brand and category boosts
+- [x] Add diversity and exploration balancing
+- [x] Avoid repetitive feed results
+- [x] Document recommendation scoring inputs
 
 Exit criteria:
 
@@ -234,12 +234,12 @@ Exit criteria:
 
 ## Milestone 18: Real Analytics V1
 
-- [ ] Collect price snapshots
-- [ ] Compute simple brand and category pricing ranges
-- [ ] Compare listing price to observed market ranges
-- [ ] Show simple under-market signals
-- [ ] Keep disclaimers clear
-- [ ] Avoid unsupported predictions
+- [x] Collect price snapshots
+- [x] Compute simple brand and category pricing ranges
+- [x] Compare listing price to observed market ranges
+- [x] Show simple under-market signals
+- [x] Keep disclaimers clear
+- [x] Avoid unsupported predictions
 
 Exit criteria:
 

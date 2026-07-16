@@ -9,8 +9,16 @@ import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.
 import { resetLikeStore } from "./like-service.js";
 import { resetRecentSearchStore } from "./recent-search-service.js";
 import { resetSavedSearchStore } from "./saved-search-service.js";
+import { resetSavedFilterStore } from "./saved-filter-service.js";
+import { resetUserSettingsStore } from "./user-settings-service.js";
+import { resetWatchlistStore } from "./watchlist-service.js";
 import { resetEngagementStore } from "./services/engagementService.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
+import {
+  getObservedPriceSnapshots,
+  recordObservedListings,
+  resetPriceSnapshotStore,
+} from "./services/priceSnapshotService.js";
 import { resetUserStore } from "./user-service.js";
 
 function createResponseRecorder() {
@@ -108,6 +116,68 @@ async function signupAndGetSession(username: string, password = "closetpass") {
   };
 }
 
+const sampleLikedListing = {
+  id: "mock:mock-jacket-001",
+  providerId: "mock",
+  providerListingId: "mock-jacket-001",
+  source: {
+    id: "mock",
+    name: "Mock Closet",
+  },
+  sourceUrl: "https://mockcloset.example/listings/mock-jacket-001",
+  title: "Mock Jacket",
+  brand: {
+    id: "brand:mock-label",
+    slug: "mock-label",
+    name: "Mock Label",
+  },
+  imageUrl: "https://cdn.example.com/mock-jacket.jpg",
+  price: {
+    amount: 200,
+    currency: "USD",
+  },
+  listingType: "buy_now" as const,
+  fetchedAt: "2026-07-10T12:00:00.000Z",
+};
+
+function createAnalyticsListing(overrides?: Partial<typeof sampleLikedListing> & {
+  brandName?: string;
+  category?: string;
+  id?: string;
+  priceAmount?: number;
+}) {
+  const listingId = overrides?.id ?? "mock:analytics-listing";
+  const providerListingId = overrides?.providerListingId ?? listingId.split(":").pop() ?? listingId;
+  const brandName = overrides?.brandName ?? overrides?.brand?.name ?? "Kapital";
+  const brandSlug = brandName.toLowerCase().replace(/\s+/g, "-");
+
+  return {
+    ...sampleLikedListing,
+    ...overrides,
+    id: listingId,
+    providerId: overrides?.providerId ?? "mock",
+    providerListingId,
+    source: overrides?.source ?? {
+      id: "mock",
+      name: "Mock Closet",
+    },
+    sourceUrl: overrides?.sourceUrl ?? `https://mockcloset.example/listings/${providerListingId}`,
+    title: overrides?.title ?? `${brandName} listing`,
+    brand: overrides?.brand ?? {
+      id: `brand:${brandSlug}`,
+      slug: brandSlug,
+      name: brandName,
+    },
+    imageUrl: overrides?.imageUrl ?? `https://cdn.example.com/${providerListingId}.jpg`,
+    price: overrides?.price ?? {
+      amount: overrides?.priceAmount ?? 200,
+      currency: "USD",
+    },
+    category: overrides?.category,
+    fetchedAt: overrides?.fetchedAt ?? "2026-07-16T12:00:00.000Z",
+  };
+}
+
 describe("handleRequest", () => {
   let databasePath = "";
 
@@ -116,8 +186,12 @@ describe("handleRequest", () => {
     resetAuthSessionStore();
     resetUserStore();
     resetLikeStore();
+    resetSavedFilterStore();
+    resetWatchlistStore();
+    resetUserSettingsStore();
     resetEngagementStore();
     resetListingCatalog();
+    resetPriceSnapshotStore();
     resetRecentSearchStore();
     resetSavedSearchStore();
   });
@@ -383,9 +457,9 @@ describe("handleRequest", () => {
     const secondary = await signupAndGetSession("secondliker", "mohaircoat");
 
     const unauthenticatedSnapshot = await runRequest(
-      createJsonRequest("POST", "/likes", {
-        listingId: "mock:mock-jacket-001",
-        source: "mock",
+      createJsonRequest("POST", "/me/likes", {
+        listingId: sampleLikedListing.id,
+        source: sampleLikedListing.source.id,
       }),
     );
 
@@ -394,11 +468,12 @@ describe("handleRequest", () => {
     const createLikeSnapshot = await runRequest(
       createJsonRequest(
         "POST",
-        "/likes",
+        "/me/likes",
         {
           userId: secondary.body.userId,
-          listingId: "mock:mock-jacket-001",
-          source: "mock",
+          listingId: sampleLikedListing.id,
+          source: sampleLikedListing.source.id,
+          listing: sampleLikedListing,
         },
         {
           cookie: primary.cookie,
@@ -408,22 +483,41 @@ describe("handleRequest", () => {
 
     expect(createLikeSnapshot.statusCode).toBe(201);
     expect(JSON.parse(createLikeSnapshot.body)).toMatchObject({
-      like: {
-        listingId: "mock:mock-jacket-001",
-        userId: primary.body.userId,
+      likedListing: {
+        like: {
+          listingId: sampleLikedListing.id,
+          userId: primary.body.userId,
+        },
+        listing: {
+          id: sampleLikedListing.id,
+          title: sampleLikedListing.title,
+        },
       },
+      userId: primary.body.userId,
     });
 
     const primaryLikesSnapshot = await runRequest(
-      createRequest("GET", "/likes", {
+      createRequest("GET", "/me/likes", {
         cookie: primary.cookie,
       }),
     );
 
     expect(JSON.parse(primaryLikesSnapshot.body)).toMatchObject({
+      likedListings: [
+        {
+          like: {
+            listingId: sampleLikedListing.id,
+            userId: primary.body.userId,
+          },
+          listing: {
+            id: sampleLikedListing.id,
+            title: sampleLikedListing.title,
+          },
+        },
+      ],
       likes: [
         {
-          listingId: "mock:mock-jacket-001",
+          listingId: sampleLikedListing.id,
           userId: primary.body.userId,
         },
       ],
@@ -431,18 +525,82 @@ describe("handleRequest", () => {
     });
 
     const secondaryLikesSnapshot = await runRequest(
-      createRequest("GET", "/likes", {
+      createRequest("GET", "/me/likes", {
         cookie: secondary.cookie,
       }),
     );
 
     expect(JSON.parse(secondaryLikesSnapshot.body)).toMatchObject({
+      likedListings: [],
       likes: [],
       userId: secondary.body.userId,
     });
   });
 
-  it("returns normalized search results from /search", async () => {
+  it("dedupes duplicate likes and deletes likes by listing id", async () => {
+    const signup = await signupAndGetSession("dupeliker", "mohaircoat");
+
+    const firstSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/me/likes",
+        {
+          listingId: sampleLikedListing.id,
+          source: sampleLikedListing.source.id,
+          listing: sampleLikedListing,
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+    const secondSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/me/likes",
+        {
+          listingId: sampleLikedListing.id,
+          source: sampleLikedListing.source.id,
+          listing: sampleLikedListing,
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(firstSnapshot.statusCode).toBe(201);
+    expect(secondSnapshot.statusCode).toBe(201);
+
+    const firstBody = JSON.parse(firstSnapshot.body) as {
+      likedListing: { like: { id: string } };
+    };
+    const secondBody = JSON.parse(secondSnapshot.body) as {
+      likedListing: { like: { id: string } };
+    };
+
+    expect(secondBody.likedListing.like.id).toBe(firstBody.likedListing.like.id);
+
+    const deleteSnapshot = await runRequest(
+      createJsonRequest(
+        "DELETE",
+        "/me/likes",
+        {
+          listingId: sampleLikedListing.id,
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(JSON.parse(deleteSnapshot.body)).toEqual({
+      removed: true,
+      userId: signup.body.userId,
+    });
+  });
+
+  it("returns normalized search results from /search and records observed price snapshots", async () => {
     const snapshot = await runRequest(createRequest("GET", "/search?q=jacket"));
 
     expect(snapshot.statusCode).toBe(200);
@@ -471,6 +629,7 @@ describe("handleRequest", () => {
         riskLevel: expect.any(String),
       },
     });
+    expect(getObservedPriceSnapshots().length).toBeGreaterThan(0);
   });
 
   it("returns paginated normalized feed results and personalizes them from the session cookie", async () => {
@@ -484,6 +643,7 @@ describe("handleRequest", () => {
         pageSize: 4,
       },
     });
+    expect(getObservedPriceSnapshots().length).toBeGreaterThan(0);
 
     const signup = await signupAndGetSession("preflover", "mohaircoat");
 
@@ -505,21 +665,35 @@ describe("handleRequest", () => {
     );
 
     const personalizedSnapshot = await runRequest(
-      createRequest("GET", "/feed?page=1&pageSize=4", {
+      createRequest("GET", "/feed?page=1&pageSize=4&debugPersonalization=1", {
         cookie: signup.cookie,
       }),
     );
 
     const body = JSON.parse(personalizedSnapshot.body) as {
+      debugPersonalization?: { scoreBreakdowns: Array<{ listingId: string; reasons: Array<{ code: string }> }> };
       isPersonalized: boolean;
-      listings: Array<{ brand: { name: string }; category?: string }>;
+      listings: Array<{ brand: { name: string }; category?: string; id: string }>;
+      personalizationSummary?: { isPersonalized: boolean; message: string; signalLabels: string[] };
     };
 
     expect(body.isPersonalized).toBe(true);
+    expect(body.personalizationSummary).toMatchObject({
+      isPersonalized: true,
+      signalLabels: expect.arrayContaining(["onboarding preferences"]),
+    });
     expect(body.listings[0]).toMatchObject({
       brand: { name: "Acne Studios" },
       category: "knitwear",
     });
+    expect(body.debugPersonalization?.scoreBreakdowns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          listingId: body.listings[0]?.id,
+          reasons: expect.arrayContaining([expect.objectContaining({ code: "brand_affinity" })]),
+        }),
+      ]),
+    );
   });
 
   it("lists brands and returns individual brand detail responses", async () => {
@@ -543,11 +717,24 @@ describe("handleRequest", () => {
     });
   });
 
-  it("uses the authenticated session for premium analytics access", async () => {
+  it("preserves locked analytics for free users and returns observed analytics for premium preview users", async () => {
     const lockedSnapshot = await runRequest(createRequest("GET", "/analytics/overview"));
     expect(JSON.parse(lockedSnapshot.body)).toMatchObject({
       locked: true,
+      message: expect.stringContaining("Collector Preview"),
     });
+
+    recordObservedListings([
+      createAnalyticsListing({ id: "mock:kapital-1", brandName: "Kapital", category: "jackets", priceAmount: 120, title: "Kapital lower-priced jacket" }),
+      createAnalyticsListing({ id: "mock:kapital-2", brandName: "Kapital", category: "jackets", priceAmount: 180 }),
+      createAnalyticsListing({ id: "mock:kapital-3", brandName: "Kapital", category: "jackets", priceAmount: 210 }),
+      createAnalyticsListing({ id: "mock:kapital-4", brandName: "Kapital", category: "jackets", priceAmount: 240 }),
+      createAnalyticsListing({ id: "mock:kapital-5", brandName: "Kapital", category: "jackets", priceAmount: 260 }),
+      createAnalyticsListing({ id: "mock:undercover-1", brandName: "Undercover", category: "tops", priceAmount: 90 }),
+      createAnalyticsListing({ id: "mock:undercover-2", brandName: "Undercover", category: "tops", priceAmount: 120 }),
+      createAnalyticsListing({ id: "mock:undercover-3", brandName: "Undercover", category: "tops", priceAmount: 150 }),
+      createAnalyticsListing({ id: "mock:undercover-4", brandName: "Undercover", category: "tops", priceAmount: 200 }),
+    ]);
 
     const premium = await signupAndGetSession("premiumdemo", "mohaircoat");
 
@@ -556,14 +743,80 @@ describe("handleRequest", () => {
         cookie: premium.cookie,
       }),
     );
+    const overviewBody = JSON.parse(overviewSnapshot.body) as {
+      locked: boolean;
+      overview?: {
+        dataQuality: { note: string; status: string };
+        observedBrandCount: number;
+        observedCategoryCount: number;
+        observedListingCount: number;
+      };
+      premiumAccess?: { isPremium: boolean; planName: string };
+      sampleData?: boolean;
+    };
 
-    expect(JSON.parse(overviewSnapshot.body)).toMatchObject({
+    expect(overviewBody).toMatchObject({
       locked: false,
       premiumAccess: {
         isPremium: true,
         planName: "Collector Preview",
       },
+      sampleData: true,
+      overview: {
+        observedBrandCount: 2,
+        observedCategoryCount: 2,
+        observedListingCount: 9,
+      },
     });
+    expect(overviewBody.overview?.dataQuality.note.toLowerCase()).toContain("observed");
+
+    const insightsSnapshot = await runRequest(
+      createRequest("GET", "/analytics/market-insights", {
+        cookie: premium.cookie,
+      }),
+    );
+    expect(JSON.parse(insightsSnapshot.body)).toMatchObject({
+      locked: false,
+      brandSummaries: expect.arrayContaining([
+        expect.objectContaining({
+          brand: "Kapital",
+          range: expect.objectContaining({
+            medianPrice: 210,
+            minPrice: 120,
+            maxPrice: 260,
+          }),
+        }),
+      ]),
+      categorySummaries: expect.arrayContaining([
+        expect.objectContaining({
+          category: "jackets",
+          range: expect.objectContaining({
+            count: 5,
+          }),
+        }),
+      ]),
+    });
+
+    const underpricedSnapshot = await runRequest(
+      createRequest("GET", "/analytics/underpriced", {
+        cookie: premium.cookie,
+      }),
+    );
+    const underpricedBody = JSON.parse(underpricedSnapshot.body) as {
+      locked: boolean;
+      signals?: Array<{ label: string; summary: string }>;
+    };
+
+    expect(underpricedBody.locked).toBe(false);
+    expect(underpricedBody.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Below observed range",
+          summary: expect.stringContaining("observed"),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(underpricedBody).toLowerCase()).not.toContain("profit");
   });
 
   it("persists recent searches through authenticated API routes", async () => {
@@ -620,7 +873,7 @@ describe("handleRequest", () => {
     const createSnapshot = await runRequest(
       createJsonRequest(
         "POST",
-        "/saved-searches",
+        "/me/saved-searches",
         {
           label: "Archive outerwear",
           description: "grailed • Price high to low",
@@ -635,7 +888,7 @@ describe("handleRequest", () => {
     expect(createSnapshot.statusCode).toBe(201);
 
     const listSnapshot = await runRequest(
-      createRequest("GET", "/saved-searches", {
+      createRequest("GET", "/me/saved-searches", {
         cookie: signup.cookie,
       }),
     );
@@ -653,7 +906,7 @@ describe("handleRequest", () => {
     const deleteSnapshot = await runRequest(
       createJsonRequest(
         "DELETE",
-        "/saved-searches",
+        "/me/saved-searches",
         {
           params: "q=archive+outerwear&source=grailed&sort=price_desc",
         },
@@ -665,6 +918,195 @@ describe("handleRequest", () => {
 
     expect(JSON.parse(deleteSnapshot.body)).toEqual({
       removed: true,
+      userId: signup.body.userId,
     });
+  });
+
+  it("creates, lists, and deletes saved filters through authenticated API routes", async () => {
+    const signup = await signupAndGetSession("savedfilterer", "mohaircoat");
+
+    const createSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/me/saved-filters",
+        {
+          userId: "spoofed",
+          label: "Kapital preset",
+          queryText: "kapital",
+          source: "grailed",
+          minPrice: 120,
+          maxPrice: 260,
+          sortMode: "newest",
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(createSnapshot.statusCode).toBe(201);
+    const createBody = JSON.parse(createSnapshot.body) as {
+      savedFilter: { id: string; userId: string };
+      userId: string;
+    };
+    expect(createBody.savedFilter.userId).toBe(signup.body.userId);
+    expect(createBody.userId).toBe(signup.body.userId);
+
+    const listSnapshot = await runRequest(
+      createRequest("GET", "/me/saved-filters", {
+        cookie: signup.cookie,
+      }),
+    );
+
+    expect(JSON.parse(listSnapshot.body)).toMatchObject({
+      savedFilters: [
+        {
+          label: "Kapital preset",
+          source: "grailed",
+        },
+      ],
+      userId: signup.body.userId,
+    });
+
+    const deleteSnapshot = await runRequest(
+      createJsonRequest(
+        "DELETE",
+        "/me/saved-filters",
+        {
+          id: createBody.savedFilter.id,
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(JSON.parse(deleteSnapshot.body)).toEqual({
+      removed: true,
+      userId: signup.body.userId,
+    });
+  });
+
+  it("creates, lists, and deletes watchlist shell items", async () => {
+    const signup = await signupAndGetSession("watchlister", "mohaircoat");
+
+    const createSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/me/watchlists",
+        {
+          label: "Kapital under $250",
+          queryText: "kapital",
+          brand: "Kapital",
+          maxPrice: 250,
+          source: "grailed",
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(createSnapshot.statusCode).toBe(201);
+    const createBody = JSON.parse(createSnapshot.body) as {
+      watchlist: { id: string };
+      userId: string;
+    };
+
+    const listSnapshot = await runRequest(
+      createRequest("GET", "/me/watchlists", {
+        cookie: signup.cookie,
+      }),
+    );
+
+    expect(JSON.parse(listSnapshot.body)).toMatchObject({
+      watchlists: [
+        {
+          label: "Kapital under $250",
+          brand: "Kapital",
+          source: "grailed",
+        },
+      ],
+      userId: signup.body.userId,
+    });
+
+    const deleteSnapshot = await runRequest(
+      createJsonRequest(
+        "DELETE",
+        "/me/watchlists",
+        {
+          id: createBody.watchlist.id,
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(JSON.parse(deleteSnapshot.body)).toEqual({
+      removed: true,
+      userId: signup.body.userId,
+    });
+  });
+
+  it("gets and patches authenticated user settings", async () => {
+    const signup = await signupAndGetSession("settingsuser", "mohaircoat");
+
+    const initialSnapshot = await runRequest(
+      createRequest("GET", "/me/settings", {
+        cookie: signup.cookie,
+      }),
+    );
+
+    expect(JSON.parse(initialSnapshot.body)).toMatchObject({
+      settings: {
+        preferredCurrency: "USD",
+        preferredSources: [],
+      },
+      userId: signup.body.userId,
+    });
+
+    const patchSnapshot = await runRequest(
+      createJsonRequest(
+        "PATCH",
+        "/me/settings",
+        {
+          userId: "spoofed",
+          preferredCurrency: "EUR",
+          defaultSortMode: "newest",
+          preferredSources: ["grailed", "mock"],
+          displayName: "Archive Hunter",
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(JSON.parse(patchSnapshot.body)).toMatchObject({
+      settings: {
+        userId: signup.body.userId,
+        preferredCurrency: "EUR",
+        defaultSortMode: "newest",
+        preferredSources: ["grailed", "mock"],
+        displayName: "Archive Hunter",
+      },
+      userId: signup.body.userId,
+    });
+  });
+
+  it("rejects unauthenticated saved-user routes", async () => {
+    const routes = [
+      createRequest("GET", "/me/likes"),
+      createRequest("GET", "/me/saved-searches"),
+      createRequest("GET", "/me/saved-filters"),
+      createRequest("GET", "/me/watchlists"),
+      createRequest("GET", "/me/settings"),
+    ];
+
+    for (const request of routes) {
+      const snapshot = await runRequest(request);
+      expect(snapshot.statusCode).toBe(401);
+    }
   });
 });

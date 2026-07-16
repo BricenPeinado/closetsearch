@@ -4,6 +4,7 @@ import {
   clearRecentSearches,
   createSearchParams,
   describeSearch,
+  hasActiveSearchValues,
   loadRecentSearches,
   mergeRecentSearchEntries,
   parseSearchFormValues,
@@ -49,6 +50,23 @@ describe("search utils", () => {
     );
     expect(buildSearchPath(values)).toBe(
       "/search?q=jacket&sort=price_asc&source=mock&listingType=auction&minPrice=100&maxPrice=250",
+    );
+  });
+
+
+  it("builds a filter-only search path when query text is empty", () => {
+    const values = {
+      query: "",
+      sort: "newest" as const,
+      source: "grailed",
+      listingType: "buy_now" as const,
+      minPrice: "120",
+      maxPrice: "260",
+    };
+
+    expect(hasActiveSearchValues(values)).toBe(true);
+    expect(buildSearchPath(values)).toBe(
+      "/search?sort=newest&source=grailed&listingType=buy_now&minPrice=120&maxPrice=260",
     );
   });
 

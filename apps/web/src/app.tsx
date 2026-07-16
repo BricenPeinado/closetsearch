@@ -10,15 +10,22 @@ import type {
   AnalyticsOverview,
   AuthResponse,
   Brand,
+  BrandMarketSummary,
+  CategoryMarketSummary,
   FeedResponse,
-  PaginationInfo,
+  LikedListing,
   Like,
   Listing,
-  MarketInsight,
+  PaginationInfo,
+  PersonalizationSummary,
   PremiumAccess,
+  SavedFilter,
+  SavedSearch,
   SearchResponse,
   SearchSortMode,
   UnderpricedListingSignal,
+  UserSettings,
+  Watchlist,
 } from "@closetsearch/shared";
 import {
   BrowserRouter,
@@ -41,6 +48,7 @@ import {
   createDefaultSearchFormValues,
   createSearchParams,
   describeSearch,
+  hasActiveSearchValues,
   loadRecentSearches,
   parseSearchFormValues,
   saveRecentSearch,
@@ -87,11 +95,12 @@ interface PageTemplateProps {
 
 interface FeedRequestState {
   errorMessage?: string;
-  isPersonalized: boolean;
   isLoadingMore: boolean;
+  isPersonalized: boolean;
   listings: Listing[];
   loadMoreErrorMessage?: string;
   pagination?: PaginationInfo;
+  personalizationSummary?: PersonalizationSummary;
   status: "loading" | "success" | "error";
 }
 
@@ -103,8 +112,9 @@ interface SearchRequestState {
   status: "idle" | "loading" | "success" | "error";
 }
 
-interface LikeResponse {
-  like: Like;
+interface LikeMutationResponse {
+  likedListing: LikedListing;
+  userId: string;
 }
 
 interface RecentSearchesResponse {
@@ -113,8 +123,41 @@ interface RecentSearchesResponse {
 }
 
 interface LikesResponse {
+  likedListings: LikedListing[];
   likes: Like[];
   userId: string;
+}
+
+interface SavedSearchesResponse {
+  savedSearch?: SavedSearch;
+  savedSearches: SavedSearch[];
+  userId: string;
+}
+
+interface SavedFiltersResponse {
+  savedFilter?: SavedFilter;
+  savedFilters: SavedFilter[];
+  userId: string;
+}
+
+interface WatchlistsResponse {
+  watchlist?: Watchlist;
+  watchlists: Watchlist[];
+  userId: string;
+}
+
+interface SettingsResponse {
+  settings: UserSettings;
+  userId: string;
+}
+
+interface ProfileCollectionsState {
+  errorMessage?: string;
+  savedFilters: SavedFilter[];
+  savedSearches: SavedSearch[];
+  settings?: UserSettings;
+  status: "loading" | "success" | "error";
+  watchlists: Watchlist[];
 }
 
 interface BrandListResponse {
@@ -150,8 +193,9 @@ interface AnalyticsOverviewResponse {
 }
 
 interface MarketInsightsResponse {
+  brandSummaries?: BrandMarketSummary[];
+  categorySummaries?: CategoryMarketSummary[];
   locked: boolean;
-  insights?: MarketInsight[];
   message?: string;
   premiumAccess?: PremiumAccess;
   premiumPreviewUsername?: string;
@@ -168,8 +212,9 @@ interface UnderpricedSignalsResponse {
 }
 
 interface AnalyticsRequestState {
+  brandSummaries: BrandMarketSummary[];
+  categorySummaries: CategoryMarketSummary[];
   errorMessage?: string;
-  insights: MarketInsight[];
   locked: boolean;
   message?: string;
   overview?: AnalyticsOverview;
@@ -237,9 +282,10 @@ function formatBrandMetadata(brand: Brand) {
   return [aliases, tags].filter(Boolean).join(" • ") || "Brand reference";
 }
 
-function formatConfidence(value: number) {
-  return `${Math.round(value * 100)}% confidence`;
+function formatObservedRange(minPrice: number, maxPrice: number, currency: string) {
+  return `${formatCurrencyAmount(minPrice, currency)} to ${formatCurrencyAmount(maxPrice, currency)}`;
 }
+
 
 function formatCurrencyAmount(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -263,24 +309,118 @@ function hasCompletedOnboarding(session: AuthResponse | null) {
   );
 }
 
+export function getHomeFeedPresentation(
+  session: AuthResponse | null,
+  summary?: PersonalizationSummary,
+) {
+  if (!session) {
+    return {
+      chipLabel: "Trending",
+      introCopy: "Popular finds across resale marketplaces.",
+    };
+  }
+
+  if (summary?.isPersonalized) {
+    return {
+      chipLabel: "For You",
+      introCopy: summary.message,
+    };
+  }
+
+  return {
+    chipLabel: "Fresh Picks",
+    introCopy: summary?.message ?? "Like listings or save a search to personalize this feed.",
+  };
+}
+
+function buildSavedSearchLabel(values: SearchFormValues) {
+  return values.query.trim() || "Saved search";
+}
+
+function buildSavedFilterLabel(values: SearchFormValues) {
+  const query = values.query.trim();
+
+  if (query.length > 0) {
+    return `${query} preset`;
+  }
+
+  if (values.source.trim().length > 0) {
+    return `${values.source.trim()} preset`;
+  }
+
+  if (values.listingType === "auction") {
+    return "Auction preset";
+  }
+
+  if (values.listingType === "buy_now") {
+    return "Fixed price preset";
+  }
+
+  return "Saved filter";
+}
+
+function createSavedFilterValues(savedFilter: SavedFilter): SearchFormValues {
+  return {
+    query: savedFilter.queryText ?? "",
+    sort: savedFilter.sortMode ?? "relevance",
+    source: savedFilter.source ?? "",
+    listingType: savedFilter.listingType ?? "",
+    minPrice: savedFilter.minPrice !== undefined ? String(savedFilter.minPrice) : "",
+    maxPrice: savedFilter.maxPrice !== undefined ? String(savedFilter.maxPrice) : "",
+  };
+}
+
+function summarizeOnboardingPreferences(session: AuthResponse) {
+  const preferences = session.user.onboardingPreferences;
+  const favoriteBrands = preferences.favoriteBrands.join(", ") || "None yet";
+  const categories = preferences.categories.join(", ") || "None yet";
+  const priceRange = preferences.priceRange.trim() || "No price range yet";
+
+  return {
+    favoriteBrands,
+    categories,
+    priceRange,
+  };
+}
+
+function formatFilterSummary(savedFilter: SavedFilter, currency: string) {
+  return describeSearch(createSavedFilterValues(savedFilter)) +
+    (currency ? ` • Prefers ${currency}` : "");
+}
+
+function formatWatchlistSummary(watchlist: Watchlist, currency: string) {
+  const details = [watchlist.queryText, watchlist.brand, watchlist.source].filter(
+    (value): value is string => Boolean(value && value.trim().length > 0),
+  );
+
+  if (watchlist.maxPrice !== undefined) {
+    details.push(`Up to ${formatCurrencyAmount(watchlist.maxPrice, currency)}`);
+  }
+
+  return details.join(" • ") || "Watching for future matches.";
+}
+
 function useLikes(
   session: AuthResponse | null,
   onAuthFailure: () => void,
 ) {
   const userId = session?.userId;
   const [likes, setLikes] = useState<Like[]>([]);
+  const [likedListings, setLikedListings] = useState<LikedListing[]>([]);
 
   useEffect(() => {
     if (!userId) {
       setLikes([]);
+      setLikedListings([]);
       return;
     }
 
     const controller = new AbortController();
 
-    void fetchJson<LikesResponse>("/likes", controller.signal)
+    void fetchJson<LikesResponse>("/me/likes", controller.signal)
       .then((response) => {
         setLikes(response.likes);
+        setLikedListings(response.likedListings);
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
@@ -288,6 +428,7 @@ function useLikes(
             onAuthFailure();
           }
           setLikes([]);
+          setLikedListings([]);
         }
       });
 
@@ -309,6 +450,11 @@ function useLikes(
         source: listing.source.id,
         createdAt: new Date().toISOString(),
       };
+      const optimisticLikedListing: LikedListing = {
+        like: optimisticLike,
+        listing,
+        snapshotStatus: "snapshot",
+      };
 
       setLikes((currentLikes) => {
         if (currentLikes.some((like) => like.listingId === listing.id)) {
@@ -317,19 +463,34 @@ function useLikes(
 
         return [optimisticLike, ...currentLikes];
       });
+      setLikedListings((currentLikedListings) => {
+        if (currentLikedListings.some((entry) => entry.like.listingId === listing.id)) {
+          return currentLikedListings;
+        }
+
+        return [optimisticLikedListing, ...currentLikedListings];
+      });
 
       try {
-        const response = await sendJson<LikeResponse>("/likes", "POST", {
+        const response = await sendJson<LikeMutationResponse>("/me/likes", "POST", {
           listingId: listing.id,
           source: listing.source.id,
+          listing,
         });
 
         setLikes((currentLikes) => {
           const remainingLikes = currentLikes.filter(
-            (like) => like.listingId !== response.like.listingId,
+            (like) => like.listingId !== response.likedListing.like.listingId,
           );
 
-          return [response.like, ...remainingLikes];
+          return [response.likedListing.like, ...remainingLikes];
+        });
+        setLikedListings((currentLikedListings) => {
+          const remainingLikedListings = currentLikedListings.filter(
+            (entry) => entry.like.listingId !== response.likedListing.like.listingId,
+          );
+
+          return [response.likedListing, ...remainingLikedListings];
         });
       } catch (error) {
         if (isAuthRequiredError(error)) {
@@ -338,6 +499,9 @@ function useLikes(
         setLikes((currentLikes) =>
           currentLikes.filter((like) => like.listingId !== listing.id),
         );
+        setLikedListings((currentLikedListings) =>
+          currentLikedListings.filter((entry) => entry.like.listingId !== listing.id),
+        );
         throw error;
       }
 
@@ -345,13 +509,19 @@ function useLikes(
     }
 
     const existingLike = likes.find((like) => like.listingId === listing.id);
+    const existingLikedListing = likedListings.find(
+      (entry) => entry.like.listingId === listing.id,
+    );
 
     setLikes((currentLikes) =>
       currentLikes.filter((like) => like.listingId !== listing.id),
     );
+    setLikedListings((currentLikedListings) =>
+      currentLikedListings.filter((entry) => entry.like.listingId !== listing.id),
+    );
 
     try {
-      await sendJson<{ removed: boolean }>("/likes", "DELETE", {
+      await sendJson<{ removed: boolean }>("/me/likes", "DELETE", {
         listingId: listing.id,
       });
     } catch (error) {
@@ -369,6 +539,16 @@ function useLikes(
         });
       }
 
+      if (existingLikedListing) {
+        setLikedListings((currentLikedListings) => {
+          if (currentLikedListings.some((entry) => entry.like.listingId === existingLikedListing.like.listingId)) {
+            return currentLikedListings;
+          }
+
+          return [existingLikedListing, ...currentLikedListings];
+        });
+      }
+
       throw error;
     }
   }
@@ -376,6 +556,7 @@ function useLikes(
   return {
     likes,
     likedListingIds: new Set(likes.map((like) => like.listingId)),
+    likedListings,
     toggleLike,
   };
 }
@@ -477,8 +658,8 @@ function HomePage({
   const [reloadCount, setReloadCount] = useState(0);
   const needsPreferenceReminder = Boolean(session) && !hasCompletedOnboarding(session);
   const [state, setState] = useState<FeedRequestState>({
-    isPersonalized: false,
     isLoadingMore: false,
+    isPersonalized: false,
     listings: [],
     status: "loading",
   });
@@ -491,8 +672,8 @@ function HomePage({
     });
 
     setState({
-      isPersonalized: false,
       isLoadingMore: false,
+      isPersonalized: false,
       listings: [],
       status: "loading",
     });
@@ -500,10 +681,11 @@ function HomePage({
     void fetchJson<FeedResponse>("/feed?" + feedParams.toString(), controller.signal)
       .then((response) => {
         setState({
-          isPersonalized: response.isPersonalized,
           isLoadingMore: false,
+          isPersonalized: response.isPersonalized,
           listings: response.listings,
           pagination: response.pagination,
+          personalizationSummary: response.personalizationSummary,
           status: "success",
         });
       })
@@ -515,8 +697,8 @@ function HomePage({
         setState({
           errorMessage:
             error instanceof Error ? error.message : "The feed request failed.",
-          isPersonalized: false,
           isLoadingMore: false,
+          isPersonalized: false,
           listings: [],
           status: "error",
         });
@@ -558,11 +740,13 @@ function HomePage({
       .then((response) => {
         setState((currentState) => ({
           ...currentState,
-          isPersonalized: response.isPersonalized,
           isLoadingMore: false,
+          isPersonalized: response.isPersonalized,
           listings: mergeUniqueListings(currentState.listings, response.listings),
           loadMoreErrorMessage: undefined,
           pagination: response.pagination,
+          personalizationSummary:
+            response.personalizationSummary ?? currentState.personalizationSummary,
           status: "success",
         }));
       })
@@ -591,20 +775,20 @@ function HomePage({
     });
   }
 
-  const introCopy = session
-    ? "Based on your likes and preferences."
-    : "Popular finds across resale marketplaces.";
+  const presentation = getHomeFeedPresentation(session, state.personalizationSummary);
   const listingCount = state.pagination?.totalCount ?? state.listings.length;
+  const showLowSignalPrompt =
+    Boolean(session) && state.status === "success" && !state.isPersonalized && !needsPreferenceReminder;
 
   return (
     <section className="page-shell page-shell--home">
       <header className="market-header">
         <div>
           <h1>Find your next piece</h1>
-          <p className="page-description">{introCopy}</p>
+          <p className="page-description">{presentation.introCopy}</p>
         </div>
         <div className="chip-row chip-row--tabs">
-          <span className="info-chip info-chip--accent">{session ? "For You" : "Trending"}</span>
+          <span className="info-chip info-chip--accent">{presentation.chipLabel}</span>
           <span className="info-chip">New Finds</span>
           <span className="info-chip">{listingCount > 0 ? String(listingCount) + " listings" : "Fresh updates"}</span>
         </div>
@@ -615,6 +799,15 @@ function HomePage({
           <p>Choose brands and categories to shape your feed.</p>
           <Link className="secondary-button link-button" to="/onboarding">
             Update preferences
+          </Link>
+        </section>
+      ) : null}
+
+      {showLowSignalPrompt ? (
+        <section className="inline-banner">
+          <p>Like listings or save a search to make this feed more personal.</p>
+          <Link className="secondary-button link-button" to="/search">
+            Explore search
           </Link>
         </section>
       ) : null}
@@ -784,9 +977,11 @@ function NotFoundPage() {
 function SearchControlPanel({
   initialValues,
   onSubmit,
+  secondaryActions,
 }: {
   initialValues: SearchFormValues;
   onSubmit: (values: SearchFormValues) => void;
+  secondaryActions?: ReactNode;
 }) {
   const [values, setValues] = useState(initialValues);
 
@@ -927,6 +1122,8 @@ function SearchControlPanel({
           Clear filters
         </button>
       </div>
+
+      {secondaryActions ? <div className="state-card__action">{secondaryActions}</div> : null}
     </form>
   );
 }
@@ -976,7 +1173,9 @@ function SearchResults({
     return (
       <StateCard
         body={
-          'No results found for "' + query + '". Try broadening your search or clearing a filter.'
+          query.trim().length > 0
+            ? 'No results found for "' + query + '". Try broadening your search or clearing a filter.'
+            : "No results found for these filters. Try broadening your search or clearing a filter."
         }
         title="No results found"
       />
@@ -984,13 +1183,16 @@ function SearchResults({
   }
 
   const listingCount = response.pagination.totalCount ?? response.listings.length;
+  const resultsLabel = response.query.text.trim().length > 0
+    ? 'Results for "' + response.query.text + '".'
+    : "Results for your active filters.";
 
   return (
     <section className="search-results">
       <div className="section-heading">
         <div>
           <h2>{listingCount} listings</h2>
-          <p>{'Results for "' + response.query.text + '".'}</p>
+          <p>{resultsLabel}</p>
         </div>
         <div className="chip-row">
           <span className="info-chip">{summary}</span>
@@ -1048,15 +1250,24 @@ function SearchRoutePage({
   const [searchParams] = useSearchParams();
   const searchKey = searchParams.toString();
   const values = parseSearchFormValues(searchParams);
+  const hasActiveSearch = hasActiveSearchValues(values);
   const query = values.query;
   const [reloadCount, setReloadCount] = useState(0);
+  const [saveFeedback, setSaveFeedback] = useState<string | undefined>();
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | undefined>();
+  const [savingAction, setSavingAction] = useState<"search" | "filters" | null>(null);
   const [state, setState] = useState<SearchRequestState>({
     isLoadingMore: false,
-    status: query.length > 0 ? "loading" : "idle",
+    status: hasActiveSearch ? "loading" : "idle",
   });
 
   useEffect(() => {
-    if (query.length === 0) {
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+  }, [searchKey, session?.userId]);
+
+  useEffect(() => {
+    if (!hasActiveSearch) {
       setState({ isLoadingMore: false, status: "idle" });
       return;
     }
@@ -1091,7 +1302,7 @@ function SearchRoutePage({
     return () => {
       controller.abort();
     };
-  }, [query, reloadCount, searchKey]);
+  }, [hasActiveSearch, reloadCount, searchKey]);
 
   useEffect(() => {
     if (
@@ -1127,13 +1338,13 @@ function SearchRoutePage({
       return undefined;
     });
   }, [
+    onAuthFailure,
     query,
+    searchKey,
     session?.userId,
     state.isLoadingMore,
     state.response?.pagination.page,
     state.status,
-    values,
-    onAuthFailure,
   ]);
 
   function handleSubmit(nextValues: SearchFormValues) {
@@ -1203,16 +1414,128 @@ function SearchRoutePage({
     await toggleLike(listing, nextLiked);
   }
 
+  async function handleSaveSearch() {
+    if (!hasActiveSearch) {
+      return;
+    }
+
+    if (!session) {
+      setSaveFeedback("Log in to save searches and filter presets.");
+      setSaveErrorMessage(undefined);
+      return;
+    }
+
+    setSavingAction("search");
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+
+    try {
+      await sendJson<SavedSearchesResponse>("/me/saved-searches", "POST", {
+        label: buildSavedSearchLabel(values),
+        description: describeSearch(values),
+        params: createSearchParams(values).toString(),
+      });
+      setSaveFeedback("Saved this search to your profile.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+      setSaveErrorMessage(
+        error instanceof Error ? error.message : "The search could not be saved.",
+      );
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function handleSaveFilters() {
+    if (!hasActiveSearch) {
+      return;
+    }
+
+    if (!session) {
+      setSaveFeedback("Log in to save searches and filter presets.");
+      setSaveErrorMessage(undefined);
+      return;
+    }
+
+    setSavingAction("filters");
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+
+    try {
+      await sendJson<SavedFiltersResponse>("/me/saved-filters", "POST", {
+        label: buildSavedFilterLabel(values),
+        queryText: values.query.trim() || undefined,
+        source: values.source.trim() || undefined,
+        listingType: values.listingType || undefined,
+        minPrice: values.minPrice ? Number(values.minPrice) : undefined,
+        maxPrice: values.maxPrice ? Number(values.maxPrice) : undefined,
+        sortMode: values.sort,
+      });
+      setSaveFeedback("Saved this filter preset to your profile.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+      setSaveErrorMessage(
+        error instanceof Error ? error.message : "The filters could not be saved.",
+      );
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  const saveActions = hasActiveSearch ? (
+    <div>
+      <div className="inline-actions">
+        {session ? (
+          <>
+            <button
+              className="secondary-button"
+              disabled={savingAction !== null}
+              onClick={handleSaveSearch}
+              type="button"
+            >
+              {savingAction === "search" ? "Saving search..." : "Save search"}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={savingAction !== null}
+              onClick={handleSaveFilters}
+              type="button"
+            >
+              {savingAction === "filters" ? "Saving filters..." : "Save filters"}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="page-description">Log in to save searches and filter presets.</p>
+            <Link className="secondary-button link-button" to="/login">
+              Log in to save
+            </Link>
+          </>
+        )}
+      </div>
+      {saveFeedback ? <p className="page-description">{saveFeedback}</p> : null}
+      {saveErrorMessage ? <p className="form-error">{saveErrorMessage}</p> : null}
+    </div>
+  ) : null;
+
   return (
     <SearchPage>
       <section className="search-layout">
-        <SearchControlPanel initialValues={values} onSubmit={handleSubmit} />
+        <SearchControlPanel
+          initialValues={values}
+          onSubmit={handleSubmit}
+          secondaryActions={saveActions}
+        />
         <SearchResults
           likedListingIds={likedListingIds}
           onLoadMore={handleLoadMore}
           onRetry={handleRetry}
           onToggleLike={handleToggleLike}
-          query={query}
+          query={query || "this search"}
           state={state}
           summary={describeSearch(values)}
         />
@@ -1380,7 +1703,8 @@ function RecentSearchesRoutePage({
 
 function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
   const [state, setState] = useState<AnalyticsRequestState>({
-    insights: [],
+    brandSummaries: [],
+    categorySummaries: [],
     locked: true,
     sampleData: false,
     signals: [],
@@ -1392,7 +1716,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
     const suffix = "";
 
     setState({
-      insights: [],
+      brandSummaries: [],
+      categorySummaries: [],
       locked: true,
       sampleData: false,
       signals: [],
@@ -1403,7 +1728,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
       .then(async (overviewResponse) => {
         if (overviewResponse.locked) {
           setState({
-            insights: [],
+            brandSummaries: [],
+            categorySummaries: [],
             locked: true,
             message: overviewResponse.message,
             overview: overviewResponse.overview,
@@ -1428,7 +1754,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         ]);
 
         setState({
-          insights: insightsResponse.insights ?? [],
+          brandSummaries: insightsResponse.brandSummaries ?? [],
+          categorySummaries: insightsResponse.categorySummaries ?? [],
           locked: false,
           message: overviewResponse.message,
           overview: overviewResponse.overview,
@@ -1448,9 +1775,10 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         }
 
         setState({
+          brandSummaries: [],
+          categorySummaries: [],
           errorMessage:
-            error instanceof Error ? error.message : "The analytics preview could not be loaded.",
-          insights: [],
+            error instanceof Error ? error.message : "The analytics view could not be loaded.",
           locked: true,
           sampleData: false,
           signals: [],
@@ -1475,7 +1803,7 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
     return (
       <AnalyticsPage>
         <StateCard
-          body={state.errorMessage ?? "The analytics preview could not be loaded."}
+          body={state.errorMessage ?? "The analytics view could not be loaded."}
           title="Analytics unavailable"
         />
       </AnalyticsPage>
@@ -1488,24 +1816,24 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         <section className="analytics-shell">
           <section className="market-header market-header--analytics">
             <div>
-              <h2>Premium analytics preview</h2>
+              <h2>Observed pricing context preview</h2>
               <p className="page-description">
                 {state.message ??
-                  "Pricing context, market insights, and under-market signals are still sample-only preview surfaces."}
+                  "Observed brand ranges, category pricing context, and cautious under-market signals are available in Collector Preview."}
               </p>
             </div>
             <div className="chip-row">
               <span className="info-chip info-chip--accent">Premium</span>
-              <span className="info-chip">Preview-only access</span>
+              <span className="info-chip">Collector Preview</span>
             </div>
           </section>
 
           <div className="analytics-preview-grid">
             {[
-              "Track resale pricing",
-              "Spot listings below typical market ranges",
-              "Compare brand demand",
-              "Watch pricing shifts",
+              "Observed brand ranges",
+              "Category pricing context",
+              "Cautious under-market signals",
+              "Seen-listings summaries",
             ].map((title) => (
               <article key={title} className="analytics-preview-card analytics-preview-card--locked">
                 <h2>{title}</h2>
@@ -1528,9 +1856,9 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
       <section className="analytics-shell">
         <section className="market-header market-header--analytics">
           <div>
-            <h2>{state.premiumAccess?.planName ?? "Premium analytics"}</h2>
+            <h2>{state.premiumAccess?.planName ?? "Observed pricing context"}</h2>
             <p className="page-description">
-              Explore sample pricing signals, brand movement, and underpriced listing ideas.
+              Based on listings ClosetSearch has observed. Not financial advice. Not a prediction.
             </p>
           </div>
           <div className="chip-row">
@@ -1540,75 +1868,167 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         </section>
 
         {state.overview ? (
-          <div className="analytics-overview-grid">
-            <article className="analytics-stat-card">
-              <p className="eyebrow">Tracked brands</p>
-              <h2>{state.overview.trackedBrands}</h2>
-            </article>
-            <article className="analytics-stat-card">
-              <p className="eyebrow">Market insights</p>
-              <h2>{state.overview.marketInsightCount}</h2>
-            </article>
-            <article className="analytics-stat-card">
-              <p className="eyebrow">Underpriced signals</p>
-              <h2>{state.overview.underpricedSignalCount}</h2>
-            </article>
-          </div>
+          <>
+            <div className="analytics-overview-grid">
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Observed listings</p>
+                <h2>{state.overview.observedListingCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Observed brands</p>
+                <h2>{state.overview.observedBrandCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Observed categories</p>
+                <h2>{state.overview.observedCategoryCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Under-market signals</p>
+                <h2>{state.overview.underMarketSignalCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Latest observation</p>
+                <h2>
+                  {state.overview.latestObservationAt
+                    ? formatRecentSearchDate(state.overview.latestObservationAt)
+                    : "No data yet"}
+                </h2>
+              </article>
+            </div>
+            <p className="analytics-note">{state.overview.dataQuality.note}</p>
+          </>
         ) : null}
 
         <section className="analytics-section">
           <div className="section-heading">
-            <h2>Market insights</h2>
+            <h2>Brand pricing ranges</h2>
           </div>
-          <div className="analytics-card-grid">
-            {state.insights.map((insight) => (
-              <article key={insight.id} className="analytics-data-card">
-                <div className="analytics-data-card__header">
-                  <div>
-                    <p className="eyebrow">{insight.brand.name}</p>
-                    <h2>{insight.title}</h2>
+          {state.brandSummaries.length > 0 ? (
+            <div className="analytics-card-grid">
+              {state.brandSummaries.map((summary) => (
+                <article key={summary.brand} className="analytics-data-card">
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{summary.brand}</p>
+                      <h2>{summary.range.count} observed listings</h2>
+                    </div>
+                    <span className="info-chip">Median {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}</span>
                   </div>
-                  <span className="info-chip">{insight.category}</span>
-                </div>
-                <p>{insight.summary}</p>
-                <div className="chip-row">
-                  <span className="info-chip">{formatConfidence(insight.confidence)}</span>
-                  <span className="info-chip">{formatRecentSearchDate(insight.createdAt)}</span>
-                </div>
-              </article>
-            ))}
-          </div>
+                  <p>Observed range: {formatObservedRange(summary.range.minPrice, summary.range.maxPrice, summary.range.currency)}</p>
+                  <div className="chip-row">
+                    <span className="info-chip">Average {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}</span>
+                    <span className="info-chip">{summary.range.currency}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="ClosetSearch needs more observed listings before brand ranges are useful."
+              title="No brand pricing data yet"
+            />
+          )}
         </section>
 
         <section className="analytics-section">
           <div className="section-heading">
-            <h2>Underpriced signals</h2>
+            <h2>Category pricing ranges</h2>
           </div>
-          <div className="analytics-card-grid">
-            {state.signals.map((signal) => (
-              <article key={signal.id} className="analytics-data-card">
-                <div className="analytics-data-card__header">
-                  <div>
-                    <p className="eyebrow">{signal.source}</p>
-                    <h2>{signal.listingTitle}</h2>
+          {state.categorySummaries.length > 0 ? (
+            <div className="analytics-card-grid">
+              {state.categorySummaries.map((summary) => (
+                <article key={summary.category} className="analytics-data-card">
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{summary.category}</p>
+                      <h2>{summary.range.count} observed listings</h2>
+                    </div>
+                    <span className="info-chip">Median {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}</span>
                   </div>
-                  <span className="info-chip info-chip--accent">{signal.percentBelowMarket}% below</span>
-                </div>
-                <p>{signal.reason}</p>
-                <div className="analytics-pricing-row">
-                  <div>
-                    <span>Current</span>
-                    <strong>{formatCurrencyAmount(signal.currentPrice, signal.currency)}</strong>
+                  <p>Observed range: {formatObservedRange(summary.range.minPrice, summary.range.maxPrice, summary.range.currency)}</p>
+                  <div className="chip-row">
+                    <span className="info-chip">Average {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}</span>
+                    <span className="info-chip">{summary.range.currency}</span>
                   </div>
-                  <div>
-                    <span>Typical</span>
-                    <strong>{formatCurrencyAmount(signal.estimatedMarketPrice, signal.currency)}</strong>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="ClosetSearch needs more observed listings before category ranges are useful."
+              title="No category pricing data yet"
+            />
+          )}
         </section>
+
+        <section className="analytics-section">
+          <div className="section-heading">
+            <h2>Under-market signals</h2>
+          </div>
+          {state.signals.length > 0 ? (
+            <div className="analytics-card-grid">
+              {state.signals.map((signal) => (
+                <article key={signal.id} className="analytics-data-card">
+                  {signal.imageUrl ? (
+                    <img alt={signal.listingTitle} className="analytics-signal-image" src={signal.imageUrl} />
+                  ) : null}
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{[signal.brand, signal.category].filter(Boolean).join(" • ") || signal.source}</p>
+                      <h2>{signal.listingTitle}</h2>
+                    </div>
+                    <span className="info-chip info-chip--accent">{signal.label}</span>
+                  </div>
+                  <p>{signal.summary}</p>
+                  <div className="analytics-pricing-row">
+                    <div>
+                      <span>Current</span>
+                      <strong>{formatCurrencyAmount(signal.currentPrice, signal.currentCurrency)}</strong>
+                    </div>
+                    <div>
+                      <span>Observed median</span>
+                      <strong>{formatCurrencyAmount(signal.observedMedianPrice, signal.observedCurrency)}</strong>
+                    </div>
+                    <div>
+                      <span>Observed range</span>
+                      <strong>{formatObservedRange(signal.observedMinPrice, signal.observedMaxPrice, signal.observedCurrency)}</strong>
+                    </div>
+                  </div>
+                  <div className="chip-row">
+                    <span className="info-chip">{signal.comparableCount} comparable listings</span>
+                    <span className="info-chip">{signal.comparisonScope}</span>
+                    <span className="info-chip">Seen {formatRecentSearchDate(signal.observedAt)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="No cautious pricing signals are available yet. ClosetSearch only shows these when it has enough similar observed listings."
+              title="No under-market signals yet"
+            />
+          )}
+        </section>
+
+        {state.overview ? (
+          <section className="analytics-section">
+            <div className="section-heading">
+              <h2>Disclaimers</h2>
+            </div>
+            <div className="analytics-card-grid">
+              {state.overview.disclaimers.map((disclaimer) => (
+                <article key={disclaimer.label} className="analytics-data-card">
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{disclaimer.label}</p>
+                      <h2>{disclaimer.text}</h2>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </section>
     </AnalyticsPage>
   );
@@ -1621,7 +2041,99 @@ function ProfileRoutePage({
   onAuthFailure: () => void;
   session: AuthResponse | null;
 }) {
-  const { likes } = useLikes(session, onAuthFailure);
+  const navigate = useNavigate();
+  const { likes, likedListingIds, likedListings, toggleLike } = useLikes(session, onAuthFailure);
+  const [reloadCount, setReloadCount] = useState(0);
+  const [collectionsState, setCollectionsState] = useState<ProfileCollectionsState>({
+    savedFilters: [],
+    savedSearches: [],
+    status: session ? "loading" : "success",
+    watchlists: [],
+  });
+  const [settingsForm, setSettingsForm] = useState({
+    defaultSortMode: "",
+    displayName: "",
+    preferredCurrency: "USD",
+    preferredSources: [] as string[],
+  });
+  const [watchlistForm, setWatchlistForm] = useState({
+    brand: "",
+    label: "",
+    maxPrice: "",
+    queryText: "",
+    source: "",
+  });
+  const [settingsErrorMessage, setSettingsErrorMessage] = useState<string | undefined>();
+  const [settingsFeedback, setSettingsFeedback] = useState<string | undefined>();
+  const [watchlistErrorMessage, setWatchlistErrorMessage] = useState<string | undefined>();
+  const [watchlistFeedback, setWatchlistFeedback] = useState<string | undefined>();
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingWatchlist, setIsSavingWatchlist] = useState(false);
+
+  useEffect(() => {
+    if (!session) {
+      setCollectionsState({
+        savedFilters: [],
+        savedSearches: [],
+        status: "success",
+        watchlists: [],
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setCollectionsState((currentState) => ({
+      ...currentState,
+      errorMessage: undefined,
+      status: "loading",
+    }));
+
+    void Promise.all([
+      fetchJson<SavedSearchesResponse>("/me/saved-searches", controller.signal),
+      fetchJson<SavedFiltersResponse>("/me/saved-filters", controller.signal),
+      fetchJson<WatchlistsResponse>("/me/watchlists", controller.signal),
+      fetchJson<SettingsResponse>("/me/settings", controller.signal),
+    ])
+      .then(([savedSearchResponse, savedFilterResponse, watchlistResponse, settingsResponse]) => {
+        setCollectionsState({
+          savedFilters: savedFilterResponse.savedFilters,
+          savedSearches: savedSearchResponse.savedSearches,
+          settings: settingsResponse.settings,
+          status: "success",
+          watchlists: watchlistResponse.watchlists,
+        });
+        setSettingsForm({
+          defaultSortMode: settingsResponse.settings.defaultSortMode ?? "",
+          displayName: settingsResponse.settings.displayName ?? "",
+          preferredCurrency: settingsResponse.settings.preferredCurrency,
+          preferredSources: settingsResponse.settings.preferredSources,
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+          return;
+        }
+
+        setCollectionsState({
+          errorMessage:
+            error instanceof Error ? error.message : "Your saved account data could not be loaded.",
+          savedFilters: [],
+          savedSearches: [],
+          status: "error",
+          watchlists: [],
+        });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [onAuthFailure, reloadCount, session]);
 
   if (!session) {
     return (
@@ -1637,44 +2149,543 @@ function ProfileRoutePage({
               </Link>
             </div>
           }
-          body="Log in or create an account to save preferences and likes."
+          body="Log in or create an account to save likes, searches, filters, watchlists, and settings."
           title="Profile needs an account"
         />
       </ProfilePage>
     );
   }
 
-  const preferences = session.user.onboardingPreferences;
+  const preferences = summarizeOnboardingPreferences(session);
+  const preferredCurrency =
+    collectionsState.settings?.preferredCurrency ?? session.user.currencyPreference;
+  const displayName = collectionsState.settings?.displayName?.trim() || session.user.username;
+
+  function handleReload() {
+    startTransition(() => {
+      setReloadCount((currentValue) => currentValue + 1);
+    });
+  }
+
+  function handleRunSavedSearch(params: string) {
+    startTransition(() => {
+      navigate(params ? `/search?${params}` : "/search");
+    });
+  }
+
+  function handleApplySavedFilter(savedFilter: SavedFilter) {
+    startTransition(() => {
+      navigate(buildSearchPath(createSavedFilterValues(savedFilter)));
+    });
+  }
+
+  async function handleToggleLikeFromProfile(listing: Listing, nextLiked: boolean) {
+    await toggleLike(listing, nextLiked);
+  }
+
+  async function handleDeleteSavedSearch(savedSearch: SavedSearch) {
+    try {
+      await sendJson<{ removed: boolean }>("/me/saved-searches", "DELETE", {
+        id: savedSearch.id,
+      });
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        savedSearches: currentState.savedSearches.filter((entry) => entry.id !== savedSearch.id),
+      }));
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        errorMessage:
+          error instanceof Error ? error.message : "The saved search could not be deleted.",
+      }));
+    }
+  }
+
+  async function handleDeleteSavedFilter(savedFilter: SavedFilter) {
+    try {
+      await sendJson<{ removed: boolean }>("/me/saved-filters", "DELETE", {
+        id: savedFilter.id,
+      });
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        savedFilters: currentState.savedFilters.filter((entry) => entry.id !== savedFilter.id),
+      }));
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        errorMessage:
+          error instanceof Error ? error.message : "The saved filter could not be deleted.",
+      }));
+    }
+  }
+
+  async function handleDeleteWatchlist(watchlist: Watchlist) {
+    try {
+      await sendJson<{ removed: boolean }>("/me/watchlists", "DELETE", {
+        id: watchlist.id,
+      });
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        watchlists: currentState.watchlists.filter((entry) => entry.id !== watchlist.id),
+      }));
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        errorMessage:
+          error instanceof Error ? error.message : "The watchlist could not be deleted.",
+      }));
+    }
+  }
+
+  async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingSettings(true);
+    setSettingsErrorMessage(undefined);
+    setSettingsFeedback(undefined);
+
+    try {
+      const response = await sendJson<SettingsResponse>("/me/settings", "PATCH", {
+        defaultSortMode: settingsForm.defaultSortMode || null,
+        displayName: settingsForm.displayName.trim() || null,
+        preferredCurrency: settingsForm.preferredCurrency,
+        preferredSources: settingsForm.preferredSources,
+      });
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        settings: response.settings,
+      }));
+      setSettingsForm({
+        defaultSortMode: response.settings.defaultSortMode ?? "",
+        displayName: response.settings.displayName ?? "",
+        preferredCurrency: response.settings.preferredCurrency,
+        preferredSources: response.settings.preferredSources,
+      });
+      setSettingsFeedback("Updated your settings.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setSettingsErrorMessage(
+        error instanceof Error ? error.message : "Your settings could not be saved.",
+      );
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }
+
+  async function handleCreateWatchlist(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingWatchlist(true);
+    setWatchlistErrorMessage(undefined);
+    setWatchlistFeedback(undefined);
+
+    try {
+      const response = await sendJson<WatchlistsResponse>("/me/watchlists", "POST", {
+        brand: watchlistForm.brand.trim() || undefined,
+        label: watchlistForm.label.trim() || watchlistForm.queryText.trim() || watchlistForm.brand.trim() || "Watchlist",
+        maxPrice: watchlistForm.maxPrice ? Number(watchlistForm.maxPrice) : undefined,
+        queryText: watchlistForm.queryText.trim() || undefined,
+        source: watchlistForm.source.trim() || undefined,
+      });
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        watchlists: response.watchlists,
+      }));
+      setWatchlistForm({
+        brand: "",
+        label: "",
+        maxPrice: "",
+        queryText: "",
+        source: "",
+      });
+      setWatchlistFeedback("Saved the watchlist shell. Alert delivery comes later.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setWatchlistErrorMessage(
+        error instanceof Error ? error.message : "The watchlist could not be saved.",
+      );
+    } finally {
+      setIsSavingWatchlist(false);
+    }
+  }
 
   return (
     <ProfilePage>
       <section className="profile-grid">
         <article className="profile-panel">
           <p className="eyebrow">Account</p>
-          <h2>{session.user.username}</h2>
+          <h2>{displayName}</h2>
+          <p>@{session.user.username}</p>
           <p>Joined {formatRecentSearchDate(session.user.createdAt)}.</p>
         </article>
 
         <article className="profile-panel">
-          <p className="eyebrow">Saved pieces</p>
-          <h2>{likes.length}</h2>
+          <p className="eyebrow">Saved overview</p>
+          <h2>{likes.length + collectionsState.savedSearches.length + collectionsState.savedFilters.length + collectionsState.watchlists.length}</h2>
           <p>
-            {likes.length > 0
-              ? "Your likes are ready to shape the feed."
-              : "Like a few listings from home or search to start shaping your feed."}
+            {likes.length} likes • {collectionsState.savedSearches.length} saved searches
+            <br />
+            {collectionsState.savedFilters.length} saved filters • {collectionsState.watchlists.length} watchlists
           </p>
         </article>
 
         <article className="profile-panel">
           <p className="eyebrow">Preferences</p>
-          <h2>{preferences.priceRange || "No price range yet"}</h2>
+          <h2>{preferences.priceRange}</h2>
           <p>
-            Brands: {preferences.favoriteBrands.join(", ") || "None yet"}
+            Brands: {preferences.favoriteBrands}
             <br />
-            Categories: {preferences.categories.join(", ") || "None yet"}
+            Categories: {preferences.categories}
+          </p>
+        </article>
+
+        <article className="profile-panel">
+          <p className="eyebrow">Settings</p>
+          <h2>{preferredCurrency}</h2>
+          <p>
+            Default sort: {collectionsState.settings?.defaultSortMode ?? "relevance"}
+            <br />
+            Preferred sources: {collectionsState.settings?.preferredSources.join(", ") || "Any marketplace"}
           </p>
         </article>
       </section>
+
+      {collectionsState.status === "loading" ? (
+        <StateCard body="Loading your saved account data." title="Fetching profile" />
+      ) : null}
+
+      {collectionsState.status === "error" ? (
+        <StateCard
+          action={
+            <button className="secondary-button" onClick={handleReload} type="button">
+              Try again
+            </button>
+          }
+          body={collectionsState.errorMessage ?? "Your saved account data could not be loaded."}
+          title="Profile unavailable"
+        />
+      ) : null}
+
+      {collectionsState.status === "success" ? (
+        <section className="recent-searches">
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Liked items</h2>
+              <p>Your saved marketplace likes persist here across refreshes and restarts.</p>
+            </div>
+          </div>
+
+          {likedListings.length > 0 ? (
+            <ListingGrid
+              likedListingIds={likedListingIds}
+              listings={likedListings.map((entry) => entry.listing)}
+              onToggleLike={handleToggleLikeFromProfile}
+            />
+          ) : (
+            <StateCard
+              body="Like a few listings from home or search to keep them here."
+              title="No liked items yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Saved searches</h2>
+              <p>Jump back into your saved search params without rebuilding them.</p>
+            </div>
+          </div>
+
+          {collectionsState.savedSearches.length > 0 ? (
+            <div className="recent-search-grid">
+              {collectionsState.savedSearches.map((savedSearch) => (
+                <article key={savedSearch.id} className="recent-search-card">
+                  <h2>{savedSearch.label}</h2>
+                  <p>{savedSearch.description}</p>
+                  <span>{formatRecentSearchDate(savedSearch.createdAt)}</span>
+                  <div className="inline-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleRunSavedSearch(savedSearch.params)}
+                      type="button"
+                    >
+                      Open search
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleDeleteSavedSearch(savedSearch)}
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="Save a search from the search page to reuse it here later."
+              title="No saved searches yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Saved filters</h2>
+              <p>Reuse your source, sort, type, and price presets from one place.</p>
+            </div>
+          </div>
+
+          {collectionsState.savedFilters.length > 0 ? (
+            <div className="recent-search-grid">
+              {collectionsState.savedFilters.map((savedFilter) => (
+                <article key={savedFilter.id} className="recent-search-card">
+                  <h2>{savedFilter.label}</h2>
+                  <p>{formatFilterSummary(savedFilter, preferredCurrency)}</p>
+                  <span>{formatRecentSearchDate(savedFilter.updatedAt)}</span>
+                  <div className="inline-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleApplySavedFilter(savedFilter)}
+                      type="button"
+                    >
+                      Apply filters
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleDeleteSavedFilter(savedFilter)}
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="Save filters from the search page to keep your favorite presets here."
+              title="No saved filters yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Watchlists</h2>
+              <p>Watchlists are saved here now; alert delivery will come later.</p>
+            </div>
+          </div>
+
+          <form className="account-form" onSubmit={handleCreateWatchlist}>
+            <label className="field-group" htmlFor="watchlist-label">
+              <span>Label</span>
+              <input
+                id="watchlist-label"
+                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, label: event.target.value }))}
+                placeholder="Kapital under $250"
+                value={watchlistForm.label}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-query">
+              <span>Query text</span>
+              <input
+                id="watchlist-query"
+                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, queryText: event.target.value }))}
+                placeholder="kapital"
+                value={watchlistForm.queryText}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-brand">
+              <span>Brand</span>
+              <input
+                id="watchlist-brand"
+                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, brand: event.target.value }))}
+                placeholder="Kapital"
+                value={watchlistForm.brand}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-source">
+              <span>Marketplace</span>
+              <select
+                id="watchlist-source"
+                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, source: event.target.value }))}
+                value={watchlistForm.source}
+              >
+                {sourceOptions.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-max-price">
+              <span>Max price</span>
+              <input
+                id="watchlist-max-price"
+                min="0"
+                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, maxPrice: event.target.value }))}
+                placeholder="250"
+                type="number"
+                value={watchlistForm.maxPrice}
+              />
+            </label>
+
+            {watchlistFeedback ? <p className="page-description">{watchlistFeedback}</p> : null}
+            {watchlistErrorMessage ? <p className="form-error">{watchlistErrorMessage}</p> : null}
+
+            <div className="search-panel__actions">
+              <button className="search-form__button" disabled={isSavingWatchlist} type="submit">
+                {isSavingWatchlist ? "Saving watchlist..." : "Save watchlist"}
+              </button>
+            </div>
+          </form>
+
+          {collectionsState.watchlists.length > 0 ? (
+            <div className="recent-search-grid">
+              {collectionsState.watchlists.map((watchlist) => (
+                <article key={watchlist.id} className="recent-search-card">
+                  <h2>{watchlist.label}</h2>
+                  <p>{formatWatchlistSummary(watchlist, preferredCurrency)}</p>
+                  <span>{formatRecentSearchDate(watchlist.updatedAt)}</span>
+                  <div className="inline-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleDeleteWatchlist(watchlist)}
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="Add a watched search or brand now; alerts and notifications are intentionally deferred."
+              title="No watchlists yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Settings</h2>
+              <p>Currency is a display preference scaffold for now; listing prices stay marketplace-native until conversion ships.</p>
+            </div>
+          </div>
+
+          <form className="account-form" onSubmit={handleSaveSettings}>
+            <label className="field-group" htmlFor="settings-display-name">
+              <span>Display name</span>
+              <input
+                id="settings-display-name"
+                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, displayName: event.target.value }))}
+                placeholder="Archive Kid"
+                value={settingsForm.displayName}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="settings-currency">
+              <span>Preferred currency</span>
+              <select
+                id="settings-currency"
+                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, preferredCurrency: event.target.value }))}
+                value={settingsForm.preferredCurrency}
+              >
+                {[
+                  { label: "USD", value: "USD" },
+                  { label: "EUR", value: "EUR" },
+                  { label: "GBP", value: "GBP" },
+                  { label: "JPY", value: "JPY" },
+                ].map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="settings-sort-mode">
+              <span>Default sort mode</span>
+              <select
+                id="settings-sort-mode"
+                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, defaultSortMode: event.target.value }))}
+                value={settingsForm.defaultSortMode}
+              >
+                <option value="">Use search defaults</option>
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <fieldset className="field-group">
+              <span>Preferred sources</span>
+              <div className="chip-row">
+                {sourceOptions
+                  .filter((option) => option.value)
+                  .map((option) => {
+                    const checked = settingsForm.preferredSources.includes(option.value);
+
+                    return (
+                      <label key={option.value} className="info-chip">
+                        <input
+                          checked={checked}
+                          onChange={(event) => {
+                            setSettingsForm((currentState) => ({
+                              ...currentState,
+                              preferredSources: event.target.checked
+                                ? [...currentState.preferredSources, option.value]
+                                : currentState.preferredSources.filter((entry) => entry !== option.value),
+                            }));
+                          }}
+                          type="checkbox"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+              </div>
+            </fieldset>
+
+            {settingsFeedback ? <p className="page-description">{settingsFeedback}</p> : null}
+            {settingsErrorMessage ? <p className="form-error">{settingsErrorMessage}</p> : null}
+
+            <div className="search-panel__actions">
+              <button className="search-form__button" disabled={isSavingSettings} type="submit">
+                {isSavingSettings ? "Saving settings..." : "Save settings"}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
     </ProfilePage>
   );
 }

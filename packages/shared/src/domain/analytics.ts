@@ -1,27 +1,97 @@
-import type { Brand } from "./brand";
+import type {
+  ListingCondition,
+  ListingMarketStatus,
+  ListingType,
+} from "./listing";
 
-export interface MarketInsight {
-  id: string;
-  brand: Brand;
-  category: string;
-  title: string;
-  summary: string;
-  confidence: number;
-  createdAt: string;
-}
-
-export interface UnderpricedListingSignal {
+export interface PriceSnapshot {
   id: string;
   listingId: string;
   source: string;
-  listingTitle: string;
-  currentPrice: number;
-  estimatedMarketPrice: number;
+  sourceListingId: string;
+  brand?: string;
+  category?: string;
+  title?: string;
+  imageUrl?: string;
+  priceAmount: number;
+  priceCurrency: string;
+  normalizedPriceAmount: number;
+  normalizedPriceCurrency: string;
+  condition?: ListingCondition;
+  size?: string;
+  listingType: ListingType;
+  marketStatus: ListingMarketStatus;
+  sourceUrl: string;
+  observedAt: string;
+  lastSeenAt: string;
+}
+
+export interface ObservedMarketRange {
+  averagePrice: number;
+  count: number;
   currency: string;
-  percentBelowMarket: number;
-  confidence: number;
-  reason: string;
-  createdAt: string;
+  latestObservationAt: string;
+  lowerQuartilePrice?: number;
+  maxPrice: number;
+  medianPrice: number;
+  minPrice: number;
+  upperQuartilePrice?: number;
+}
+
+export interface BrandMarketSummary {
+  brand: string;
+  range: ObservedMarketRange;
+}
+
+export interface CategoryMarketSummary {
+  category: string;
+  range: ObservedMarketRange;
+}
+
+export interface AnalyticsDataQuality {
+  comparableListingCount: number;
+  note: string;
+  sampleSizeThreshold: number;
+  status: "empty" | "limited" | "observed";
+}
+
+export interface AnalyticsDisclaimer {
+  label: string;
+  text: string;
+}
+
+export interface ListingPriceComparison {
+  comparableCount: number;
+  comparisonScope: string;
+  currentCurrency: string;
+  currentPrice: number;
+  label: string;
+  listingId: string;
+  message: string;
+  observedRange?: ObservedMarketRange;
+  status: "currency_mismatch" | "limited_data" | "missing_price" | "observed";
+}
+
+export interface UnderpricedListingSignal {
+  brand?: string;
+  category?: string;
+  comparableCount: number;
+  comparisonScope: string;
+  currentCurrency: string;
+  currentPrice: number;
+  id: string;
+  imageUrl?: string;
+  label: string;
+  listingId: string;
+  listingTitle: string;
+  observedAt: string;
+  observedCurrency: string;
+  observedMaxPrice: number;
+  observedMedianPrice: number;
+  observedMinPrice: number;
+  signalStrength: "below_observed_median" | "below_observed_range" | "near_observed_range";
+  source: string;
+  summary: string;
 }
 
 export interface PremiumAccess {
@@ -32,8 +102,11 @@ export interface PremiumAccess {
 }
 
 export interface AnalyticsOverview {
-  trackedBrands: number;
-  marketInsightCount: number;
-  underpricedSignalCount: number;
-  lastUpdatedAt: string;
+  dataQuality: AnalyticsDataQuality;
+  disclaimers: AnalyticsDisclaimer[];
+  latestObservationAt?: string;
+  observedBrandCount: number;
+  observedCategoryCount: number;
+  observedListingCount: number;
+  underMarketSignalCount: number;
 }

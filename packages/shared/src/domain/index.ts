@@ -7,9 +7,15 @@ export {
   RISK_SIGNAL_PRODUCT_LANGUAGE,
 } from "./risk";
 export type {
+  AnalyticsDataQuality,
+  AnalyticsDisclaimer,
   AnalyticsOverview,
-  MarketInsight,
+  BrandMarketSummary,
+  CategoryMarketSummary,
+  ListingPriceComparison,
+  ObservedMarketRange,
   PremiumAccess,
+  PriceSnapshot,
   UnderpricedListingSignal,
 } from "./analytics";
 export type { Brand } from "./brand";
@@ -26,6 +32,12 @@ export type {
   SellerTrustTier,
 } from "./listing";
 export type { PaginationInfo } from "./pagination";
+export type {
+  FeedPersonalizationDebug,
+  PersonalizationSummary,
+  RecommendationReason,
+  RecommendationScoreBreakdown,
+} from "./recommendation";
 export type { RiskLevel, RiskSignal, RiskSignalCategory } from "./risk";
 export type {
   DeleteSavedSearchInput,
@@ -43,4 +55,18 @@ export type {
   SearchSortMode,
 } from "./search";
 export type { Heart, Like } from "./like";
+export type {
+  DeleteLikeInput,
+  DeleteSavedFilterInput,
+  DeleteWatchlistInput,
+  LikedListing,
+  PersistLikeInput,
+  PersistSavedFilterInput,
+  PersistWatchlistInput,
+  SavedFilter,
+  SavedFilterListingType,
+  UpdateUserSettingsInput,
+  UserSettings,
+  Watchlist,
+} from "./saved-user";
 export type { AuthResponse, OnboardingPreferences, StoredUser, User } from "./user";

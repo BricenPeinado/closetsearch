@@ -22,6 +22,20 @@ const migrationDefinitions: MigrationDefinition[] = [
       "utf-8",
     ),
   },
+  {
+    id: "003_saved_user_features",
+    sql: readFileSync(
+      new URL("./schema/003_saved_user_features.sql", import.meta.url),
+      "utf-8",
+    ),
+  },
+  {
+    id: "004_price_snapshots",
+    sql: readFileSync(
+      new URL("./schema/004_price_snapshots.sql", import.meta.url),
+      "utf-8",
+    ),
+  },
 ];
 
 function ensureMigrationTable(database: DatabaseSync) {

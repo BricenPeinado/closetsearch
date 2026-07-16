@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import type {
   FeedQuery,
+  Listing,
   ListingMarketStatus,
   ListingType,
   OnboardingPreferences,
@@ -19,7 +20,7 @@ import {
   revokeCurrentSession,
 } from "./auth/session-service.js";
 import { getFeed } from "./feed-service.js";
-import { addLike, getLikesByUserId, removeLike } from "./like-service.js";
+import { addLike, getLikedListingsByUserId, getLikesByUserId, removeLike } from "./like-service.js";
 import {
   addRecentSearch,
   getRecentSearchesByUserId,
@@ -30,9 +31,12 @@ import {
   getSavedSearchesByUserId,
   removeSavedSearch,
 } from "./saved-search-service.js";
+import { addSavedFilter, getSavedFiltersByUserId, removeSavedFilter } from "./saved-filter-service.js";
 import { searchListings } from "./search-service.js";
 import { createProviderRuntime } from "./providers/registry.js";
+import { getSettingsByUserId, updateSettings } from "./user-settings-service.js";
 import {
+  analyticsUsesSampleData,
   getAnalyticsOverview,
   getMarketInsights,
   getUnderpricedListingSignals,
@@ -43,6 +47,7 @@ import {
   getPremiumPreviewUsername,
 } from "./services/premiumAccessService.js";
 import { createUser, loginUser, saveOnboardingPreferences } from "./user-service.js";
+import { addWatchlist, getWatchlistsByUserId, removeWatchlist } from "./watchlist-service.js";
 
 function buildCorsHeaders(request: IncomingMessage) {
   const origin =
@@ -50,7 +55,7 @@ function buildCorsHeaders(request: IncomingMessage) {
   const authConfig = getAuthConfig();
   const headers: Record<string, string> = {
     "access-control-allow-headers": "content-type",
-    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
   };
 
   if (origin && authConfig.allowedOrigins.has(origin)) {
@@ -184,10 +189,30 @@ function parsePositiveInteger(value: string | null, fallback: number) {
   return parsedValue;
 }
 
+function hasSearchCriteria(requestUrl: URL) {
+  const searchParams = requestUrl.searchParams;
+
+  return (
+    (searchParams.get("q")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("source")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("sources")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("listingType")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("listingTypes")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("minPrice")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("maxPrice")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("marketScope")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("market")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("brands")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("categories")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("sizes")?.trim().length ?? 0) > 0 ||
+    parseSearchSortMode(searchParams.get("sort")) !== "relevance"
+  );
+}
+
 function parseSearchQuery(requestUrl: URL): SearchQuery | null {
   const text = requestUrl.searchParams.get("q")?.trim() ?? "";
 
-  if (text.length === 0) {
+  if (!hasSearchCriteria(requestUrl)) {
     return null;
   }
 
@@ -236,9 +261,13 @@ function parseFeedQuery(requestUrl: URL): FeedQuery {
     requestUrl.searchParams.get("pageSize"),
     12,
   );
+  const debugPersonalizationValue = requestUrl.searchParams.get("debugPersonalization");
 
   return {
     cursor: requestUrl.searchParams.get("cursor") ?? undefined,
+    debugPersonalization:
+      debugPersonalizationValue === "1" ||
+      debugPersonalizationValue?.trim().toLowerCase() === "true",
     page,
     pageSize: Math.min(requestedPageSize, 24),
   };
@@ -256,6 +285,73 @@ function toStringArray(value: unknown) {
   return value
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
+}
+
+
+function toOptionalNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.trunc(value));
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsedValue = Number(value);
+    return Number.isFinite(parsedValue) ? Math.max(0, Math.trunc(parsedValue)) : undefined;
+  }
+
+  return undefined;
+}
+
+function toOptionalSearchSortMode(value: unknown) {
+  if (value === "price_asc" || value === "price_desc" || value === "newest" || value === "relevance") {
+    return value;
+  }
+
+  return undefined;
+}
+
+function toOptionalSavedFilterListingType(value: unknown) {
+  if (value === "auction" || value === "buy_now") {
+    return value;
+  }
+
+  if (value === "fixed_price") {
+    return "buy_now";
+  }
+
+  return undefined;
+}
+
+function toOptionalListingSnapshot(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const listing = value as Listing;
+
+  if (
+    typeof listing.id !== "string" ||
+    typeof listing.providerId !== "string" ||
+    typeof listing.providerListingId !== "string" ||
+    typeof listing.sourceUrl !== "string" ||
+    typeof listing.title !== "string" ||
+    !listing.source ||
+    typeof listing.source.id !== "string" ||
+    typeof listing.source.name !== "string" ||
+    !listing.brand ||
+    typeof listing.brand.id !== "string" ||
+    typeof listing.brand.slug !== "string" ||
+    typeof listing.brand.name !== "string" ||
+    typeof listing.imageUrl !== "string" ||
+    !listing.price ||
+    typeof listing.price.amount !== "number" ||
+    typeof listing.price.currency !== "string" ||
+    typeof listing.listingType !== "string" ||
+    typeof listing.fetchedAt !== "string"
+  ) {
+    return undefined;
+  }
+
+  return listing;
 }
 
 function toOnboardingPreferences(value: unknown): OnboardingPreferences {
@@ -450,10 +546,16 @@ async function handleCreateLike(
     return;
   }
 
-  const like = addLike(user.id, listingId, source);
+  const likedListing = addLike({
+    userId: user.id,
+    listingId,
+    source,
+    listing: toOptionalListingSnapshot(body?.listing),
+  });
 
   sendJson(request, response, 201, {
-    like,
+    likedListing,
+    userId: user.id,
   });
 }
 
@@ -463,15 +565,21 @@ async function handleDeleteLike(
 ) {
   const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const id = toTrimmedString(body?.id);
   const listingId = toTrimmedString(body?.listingId);
 
-  if (!listingId) {
-    sendValidationError(request, response, "listingId is required.");
+  if (!id && !listingId) {
+    sendValidationError(request, response, "Either id or listingId is required.");
     return;
   }
 
   sendJson(request, response, 200, {
-    removed: removeLike(user.id, listingId),
+    removed: removeLike({
+      userId: user.id,
+      id: id || undefined,
+      listingId: listingId || undefined,
+    }),
+    userId: user.id,
   });
 }
 
@@ -482,6 +590,7 @@ function handleGetLikes(
   const user = requireAuth(request);
 
   sendJson(request, response, 200, {
+    likedListings: getLikedListingsByUserId(user.id),
     likes: getLikesByUserId(user.id),
     userId: user.id,
   });
@@ -603,6 +712,181 @@ async function handleDeleteSavedSearch(
       id: id || undefined,
       params: params || undefined,
     }),
+    userId: user.id,
+  });
+}
+
+async function handleCreateSavedFilter(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const label = toTrimmedString(body?.label);
+
+  if (!label) {
+    sendValidationError(request, response, "label is required.");
+    return;
+  }
+
+  const savedFilter = addSavedFilter({
+    userId: user.id,
+    label,
+    queryText: toTrimmedString(body?.queryText) || undefined,
+    source: toTrimmedString(body?.source) || undefined,
+    listingType: toOptionalSavedFilterListingType(body?.listingType),
+    minPrice: toOptionalNumber(body?.minPrice),
+    maxPrice: toOptionalNumber(body?.maxPrice),
+    sortMode: toOptionalSearchSortMode(body?.sortMode),
+  });
+
+  sendJson(request, response, 201, {
+    savedFilter,
+    savedFilters: getSavedFiltersByUserId(user.id),
+    userId: user.id,
+  });
+}
+
+function handleGetSavedFilters(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+
+  sendJson(request, response, 200, {
+    savedFilters: getSavedFiltersByUserId(user.id),
+    userId: user.id,
+  });
+}
+
+async function handleDeleteSavedFilter(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const id = toTrimmedString(body?.id);
+
+  if (!id) {
+    sendValidationError(request, response, "id is required.");
+    return;
+  }
+
+  sendJson(request, response, 200, {
+    removed: removeSavedFilter({
+      userId: user.id,
+      id,
+    }),
+    userId: user.id,
+  });
+}
+
+async function handleCreateWatchlist(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const label = toTrimmedString(body?.label);
+
+  if (!label) {
+    sendValidationError(request, response, "label is required.");
+    return;
+  }
+
+  const watchlist = addWatchlist({
+    userId: user.id,
+    label,
+    queryText: toTrimmedString(body?.queryText) || undefined,
+    brand: toTrimmedString(body?.brand) || undefined,
+    maxPrice: toOptionalNumber(body?.maxPrice),
+    source: toTrimmedString(body?.source) || undefined,
+  });
+
+  sendJson(request, response, 201, {
+    watchlist,
+    watchlists: getWatchlistsByUserId(user.id),
+    userId: user.id,
+  });
+}
+
+function handleGetWatchlists(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+
+  sendJson(request, response, 200, {
+    watchlists: getWatchlistsByUserId(user.id),
+    userId: user.id,
+  });
+}
+
+async function handleDeleteWatchlist(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const id = toTrimmedString(body?.id);
+
+  if (!id) {
+    sendValidationError(request, response, "id is required.");
+    return;
+  }
+
+  sendJson(request, response, 200, {
+    removed: removeWatchlist({
+      userId: user.id,
+      id,
+    }),
+    userId: user.id,
+  });
+}
+
+function handleGetSettings(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+
+  sendJson(request, response, 200, {
+    settings: getSettingsByUserId(user.id),
+    userId: user.id,
+  });
+}
+
+async function handlePatchSettings(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+
+  const settings = updateSettings({
+    userId: user.id,
+    preferredCurrency: toTrimmedString(body?.preferredCurrency) || undefined,
+    defaultSortMode:
+      body && Object.prototype.hasOwnProperty.call(body, "defaultSortMode")
+        ? body.defaultSortMode === null
+          ? null
+          : toOptionalSearchSortMode(body.defaultSortMode)
+        : undefined,
+    preferredSources:
+      body && Object.prototype.hasOwnProperty.call(body, "preferredSources")
+        ? toStringArray(body.preferredSources)
+        : undefined,
+    displayName:
+      body && Object.prototype.hasOwnProperty.call(body, "displayName")
+        ? body.displayName === null
+          ? null
+          : toTrimmedString(body.displayName) || null
+        : undefined,
+  });
+
+  sendJson(request, response, 200, {
+    settings,
+    userId: user.id,
   });
 }
 
@@ -652,7 +936,7 @@ function sendLockedAnalyticsResponse(
   sendJson(request, response, 200, {
     locked: true,
     message:
-      "Premium analytics is still a placeholder. Market insights, underpriced signals, and pricing context are preview-only for now.",
+      "Observed pricing context is part of Collector Preview. Brand ranges, category ranges, and cautious under-market signals use only listings ClosetSearch has observed.",
     premiumAccess: userId
       ? {
           userId,
@@ -680,7 +964,7 @@ function handleAnalyticsOverview(
     locked: false,
     premiumAccess,
     overview: getAnalyticsOverview(),
-    sampleData: true,
+    sampleData: analyticsUsesSampleData(),
   });
 }
 
@@ -696,11 +980,14 @@ function handleMarketInsights(
     return;
   }
 
+  const insights = getMarketInsights();
+
   sendJson(request, response, 200, {
     locked: false,
     premiumAccess,
-    insights: getMarketInsights(),
-    sampleData: true,
+    brandSummaries: insights.brandSummaries,
+    categorySummaries: insights.categorySummaries,
+    sampleData: analyticsUsesSampleData(),
   });
 }
 
@@ -720,7 +1007,7 @@ function handleUnderpricedSignals(
     locked: false,
     premiumAccess,
     signals: getUnderpricedListingSignals(),
-    sampleData: true,
+    sampleData: analyticsUsesSampleData(),
   });
 }
 
@@ -826,7 +1113,7 @@ export async function handleRequest(
     if (!query) {
       sendJson(request, response, 400, {
         error: "invalid_query",
-        message: 'The "q" query parameter is required.',
+        message: "At least one search query or filter parameter is required.",
       });
       return;
     }
@@ -876,19 +1163,24 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "POST" && requestUrl.pathname === "/likes") {
+  if (method === "POST" && (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")) {
     await handleCreateLike(request, response);
     return;
   }
 
-  if (method === "DELETE" && requestUrl.pathname === "/likes") {
+  if (method === "DELETE" && (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")) {
     await handleDeleteLike(request, response);
     return;
   }
 
   if (
     method === "GET" &&
-    (requestUrl.pathname === "/likes" || requestUrl.pathname.startsWith("/likes/"))
+    (
+      requestUrl.pathname === "/likes" ||
+      requestUrl.pathname.startsWith("/likes/") ||
+      requestUrl.pathname === "/me/likes" ||
+      requestUrl.pathname.startsWith("/me/likes/")
+    )
   ) {
     handleGetLikes(request, response);
     return;
@@ -917,22 +1209,72 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "POST" && requestUrl.pathname === "/saved-searches") {
+  if (method === "POST" && (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")) {
     await handleCreateSavedSearch(request, response);
     return;
   }
 
   if (
     method === "GET" &&
-    (requestUrl.pathname === "/saved-searches" ||
-      requestUrl.pathname.startsWith("/saved-searches/"))
+    (
+      requestUrl.pathname === "/saved-searches" ||
+      requestUrl.pathname.startsWith("/saved-searches/") ||
+      requestUrl.pathname === "/me/saved-searches" ||
+      requestUrl.pathname.startsWith("/me/saved-searches/")
+    )
   ) {
     handleGetSavedSearches(request, response);
     return;
   }
 
-  if (method === "DELETE" && requestUrl.pathname === "/saved-searches") {
+  if (method === "DELETE" && (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")) {
     await handleDeleteSavedSearch(request, response);
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/me/saved-filters") {
+    await handleCreateSavedFilter(request, response);
+    return;
+  }
+
+  if (
+    method === "GET" &&
+    (requestUrl.pathname === "/me/saved-filters" || requestUrl.pathname.startsWith("/me/saved-filters/"))
+  ) {
+    handleGetSavedFilters(request, response);
+    return;
+  }
+
+  if (method === "DELETE" && requestUrl.pathname === "/me/saved-filters") {
+    await handleDeleteSavedFilter(request, response);
+    return;
+  }
+
+  if (method === "POST" && requestUrl.pathname === "/me/watchlists") {
+    await handleCreateWatchlist(request, response);
+    return;
+  }
+
+  if (
+    method === "GET" &&
+    (requestUrl.pathname === "/me/watchlists" || requestUrl.pathname.startsWith("/me/watchlists/"))
+  ) {
+    handleGetWatchlists(request, response);
+    return;
+  }
+
+  if (method === "DELETE" && requestUrl.pathname === "/me/watchlists") {
+    await handleDeleteWatchlist(request, response);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/me/settings") {
+    handleGetSettings(request, response);
+    return;
+  }
+
+  if (method === "PATCH" && requestUrl.pathname === "/me/settings") {
+    await handlePatchSettings(request, response);
     return;
   }
 

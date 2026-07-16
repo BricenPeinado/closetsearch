@@ -65,6 +65,46 @@ export const grailedBrokenPublicConfigHtmlFixture = [
   "</html>",
 ].join("\n");
 
+export const grailedAlternateInlineConfigHtmlFixture = [
+  "<html>",
+  "  <head></head>",
+  "  <body>",
+  "    <script>",
+  '      window.__PRELOADED_STATE__ = {"runtime":{"services":{"search":{"algolia":{"applicationId":"grailed-app-234","apiKey":"grailed-key-234"}}}}};',
+  "    </script>",
+  "  </body>",
+  "</html>",
+].join("\n");
+
+export const grailedHomepageScriptHtmlFixture = [
+  "<html>",
+  "  <head>",
+  '    <script src="/assets/runtime.js"></script>',
+  '    <script src="/assets/listings.js"></script>',
+  "  </head>",
+  "  <body>",
+  "    <div id=\"app\"></div>",
+  "  </body>",
+  "</html>",
+].join("\n");
+
+export const grailedNoCredentialHtmlFixture = [
+  "<html>",
+  "  <head>",
+  '    <script src="/assets/runtime.js"></script>',
+  "  </head>",
+  "  <body>",
+  "    <div id=\"app\"></div>",
+  "  </body>",
+  "</html>",
+].join("\n");
+
+export const grailedCredentialBundleFixture = [
+  'window.__APP_DATA__={};',
+  'var listingSearch={indexName:"Listing_production",applicationID:"grailed-app-456",apiKey:"grailed-key-456"};',
+  'var soldListingSearch={indexName:"Listing_sold_production"};',
+].join("\n");
+
 export const grailedAlgoliaActiveResponseFixture = {
   hits: [
     {

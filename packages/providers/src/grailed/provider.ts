@@ -19,7 +19,8 @@ import {
 } from "./algolia";
 import {
   createGrailedCredentialCache,
-  extractGrailedAlgoliaCredentials,
+  GrailedCredentialResolutionError,
+  resolveGrailedAlgoliaCredentials,
   type GrailedCredentialCache,
 } from "./credentials";
 import {
@@ -234,29 +235,20 @@ async function searchFixtureListings(
   });
 }
 
-async function fetchGrailedAlgoliaCredentials(
+async function resolveLiveGrailedAlgoliaCredentials(
   client: ReturnType<typeof createGrailedHttpClient>,
-  baseUrl: string,
-  credentialCache: GrailedCredentialCache,
+  options: {
+    baseUrl: string;
+    credentialCache: GrailedCredentialCache;
+    query: ProviderSearchQuery;
+  },
 ) {
-  const response = await client.getHtml(baseUrl);
-
-  if (!response.ok) {
-    throw new Error(
-      `Grailed credential extraction failed with status ${response.status}.`,
-    );
-  }
-
-  return credentialCache.set(extractGrailedAlgoliaCredentials(response.body));
-}
-
-async function getGrailedAlgoliaCredentials(
-  client: ReturnType<typeof createGrailedHttpClient>,
-  baseUrl: string,
-  credentialCache: GrailedCredentialCache,
-) {
-  return credentialCache.get() ??
-    fetchGrailedAlgoliaCredentials(client, baseUrl, credentialCache);
+  return resolveGrailedAlgoliaCredentials({
+    baseUrl: options.baseUrl,
+    cache: options.credentialCache,
+    client,
+    queryText: options.query.text,
+  });
 }
 
 async function queryGrailedWithCredentialRotation(
@@ -268,11 +260,11 @@ async function queryGrailedWithCredentialRotation(
     query: ProviderSearchQuery;
   },
 ) {
-  let credentials = await getGrailedAlgoliaCredentials(
-    client,
-    options.baseUrl,
-    options.credentialCache,
-  );
+  let credentials = await resolveLiveGrailedAlgoliaCredentials(client, {
+    baseUrl: options.baseUrl,
+    credentialCache: options.credentialCache,
+    query: options.query,
+  });
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const response = await queryGrailedAlgolia(client, {
@@ -292,11 +284,11 @@ async function queryGrailedWithCredentialRotation(
     }
 
     options.credentialCache.clear();
-    credentials = await fetchGrailedAlgoliaCredentials(
-      client,
-      options.baseUrl,
-      options.credentialCache,
-    );
+    credentials = await resolveLiveGrailedAlgoliaCredentials(client, {
+      baseUrl: options.baseUrl,
+      credentialCache: options.credentialCache,
+      query: options.query,
+    });
   }
 
   throw new Error("Grailed credential rotation exhausted unexpectedly.");
@@ -396,6 +388,10 @@ async function searchAuthorizedLiveListings(
       createGrailedPagination(response.body, page),
     );
   } catch (error) {
+    if (error instanceof GrailedCredentialResolutionError) {
+      return createFailure(error.code, error.message, error.retryable);
+    }
+
     if (error instanceof Error && error.name === "AbortError") {
       return createFailure("timeout", "Grailed scraping request timed out.", true);
     }

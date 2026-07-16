@@ -6,7 +6,7 @@ The repo is documentation-led and milestone-based. Foundation work is already in
 
 ## Current Status
 
-ClosetSearch has completed its initial foundation milestones and is now moving into real-data and productization work.
+ClosetSearch has completed its initial foundation milestones, auth hardening, a focused saved-user-features pass, a rules-based Personalization V2 feed pass, and a first observed-data analytics pass. The repo is now moving into broader beta-readiness work.
 
 Completed foundation milestones:
 
@@ -29,10 +29,11 @@ What is implemented now:
 - home feed with listing cards and load-more behavior
 - search with filters, sorting, and recent searches
 - brand directory and brand detail shell
-- signup, login, onboarding, profile, and likes/hearts foundations
-- local SQLite-backed persistence for users, onboarding preferences, likes, recent searches, saved searches, and listing cache
-- simple signed-in personalization based on likes and onboarding preferences
-- premium analytics placeholder surfaces and mock signals
+- signup, login, onboarding, and cookie-backed auth/session foundations
+- a useful signed-in profile with persistent likes, saved searches, saved filters, watchlist shell entries, and basic user settings
+- local SQLite-backed persistence for users, onboarding preferences, likes, saved-user data, recent searches, saved searches, and listing cache
+- explainable rules-based signed-in personalization using likes, onboarding preferences, saved searches, saved filters, watchlists, preferred sources, freshness, and diversity balancing
+- observed-data premium analytics with price snapshots, brand/category pricing ranges, and cautious under-market signals
 - trust / fake-risk placeholder signals with careful assistive wording
 
 What is still placeholder, mock, or intentionally lightweight:
@@ -41,9 +42,9 @@ What is still placeholder, mock, or intentionally lightweight:
 - real marketplace provider integrations are not complete
 - auth now uses cookie-backed server sessions, slow password hashing, and protected API routes, but OAuth, email verification, and password reset are still deferred
 - persistence is now a local SQLite foundation inside the API, not a production-grade database stack yet
-- analytics are placeholder foundations, not real market analytics
+- analytics are now simple observed pricing context, not forecasting or full resale intelligence
 - fake-risk is a trust placeholder, not real authenticity detection
-- there is no production-ready billing, subscriptions, watchlist delivery, or deployment hardening yet
+- there is no production-ready billing, subscriptions, watchlist alert delivery, machine-learning recommendations, or deployment hardening yet
 
 ## Roadmap Direction
 
@@ -55,10 +56,9 @@ Near-term roadmap direction:
 - first real provider foundation and first real provider integration
 - real feed/search pagination and infinite-scroll friendly behavior
 - production-ready auth foundation
-- saved user features such as persistent likes and saved searches
-- stronger personalization built on real engagement data
-- real analytics v1 based on observed pricing data
-- alerts and watchlist foundations
+- deeper recommendation and analytics work beyond the current explainable rules-based personalization layer
+- deeper analytics beyond the current observed-data pricing context layer
+- watchlist alerts and notifications beyond the current saved shell/data foundation
 - beta launch readiness and deployment hardening
 
 ClosetSearch is not production-ready today. The current repo is best described as a solid foundation project that is ready for functional buildout.
@@ -156,8 +156,9 @@ Be careful not to overstate the current product state:
 - provider coverage is still limited and may run in mock or authorized Grailed mode depending on runtime configuration
 - persistence is local SQLite only and not a production-ready database deployment
 - auth now has a production-auth foundation, but OAuth, email verification, password reset, and advanced account recovery are still not implemented
-- analytics and fake-risk are foundation-only systems
-- alerts and watchlists are still roadmap items
+- analytics are observed-data only and intentionally avoid forecasting, investment language, or guaranteed underpriced claims
+- fake-risk remains a foundation-only trust system
+- watchlists are now saved account data, but alert delivery and notifications are still deferred
 - deployment hardening and operational readiness still need dedicated work
 
 ## Next Planned Buildout
@@ -168,8 +169,8 @@ The next functional passes should focus on:
 - real provider runtime and first live provider integration
 - pagination and repeated-search reliability
 - persistence and auth hardening
-- saved user features and improved personalization
+- improved personalization on top of saved-user behavior
 - analytics v1 from observed pricing data
-- alerts/watchlists and beta readiness
+- watchlist delivery, alerts, and beta readiness
 
 Use [TASKS.md](TASKS.md) for the step-by-step milestone roadmap.

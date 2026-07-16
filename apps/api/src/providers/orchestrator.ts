@@ -682,6 +682,12 @@ export async function runProviderSearch(
     }
 
     if (result.failure) {
+      console.error("Provider failure", {
+        providerId: result.failure.providerId,
+        code: result.failure.code,
+        message: result.failure.message,
+        retryable: result.failure.retryable,
+      });
       failures.push(result.failure);
     }
 
