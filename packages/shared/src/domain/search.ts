@@ -3,8 +3,8 @@ import type {
   ListingCondition,
   ListingMarketStatus,
   ListingType,
-} from "./listing";
-import type { PaginationInfo } from "./pagination";
+} from "./listing.js";
+import type { PaginationInfo } from "./pagination.js";
 
 export type SearchSortMode = "relevance" | "price_asc" | "price_desc" | "newest";
 

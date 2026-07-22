@@ -10,15 +10,24 @@ import type {
   AnalyticsOverview,
   AuthResponse,
   Brand,
+  BrandMarketSummary,
+  CategoryMarketSummary,
   FeedResponse,
-  PaginationInfo,
+  LikedListing,
   Like,
   Listing,
-  MarketInsight,
+  NotificationPreferences,
+  PaginationInfo,
+  PersonalizationSummary,
   PremiumAccess,
+  SavedFilter,
+  SavedSearch,
+  SearchProviderSummary,
   SearchResponse,
   SearchSortMode,
   UnderpricedListingSignal,
+  UserSettings,
+  Watchlist,
 } from "@closetsearch/shared";
 import {
   BrowserRouter,
@@ -41,13 +50,18 @@ import {
   createDefaultSearchFormValues,
   createSearchParams,
   describeSearch,
+  hasActiveSearchValues,
   loadRecentSearches,
   parseSearchFormValues,
   saveRecentSearch,
   type RecentSearchEntry,
   type SearchFormValues,
 } from "./search-utils";
-import { clearUserSession, loadUserSession, saveUserSession } from "./user-session";
+import {
+  getAuthErrorMessage,
+  isAuthRequiredError,
+  loadUserSession,
+} from "./user-session";
 
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
@@ -56,6 +70,7 @@ const primaryNavigationItems = [
   { label: "Analytics", path: "/analytics" },
   { label: "Profile", path: "/profile" },
 ] as const;
+const betaFeedbackUrl = "https://github.com/BricenPeinado/closetsearch/issues/new/choose";
 
 const homeFeedPageSize = 12;
 const searchResultsPageSize = 24;
@@ -83,11 +98,13 @@ interface PageTemplateProps {
 
 interface FeedRequestState {
   errorMessage?: string;
-  isPersonalized: boolean;
   isLoadingMore: boolean;
+  isPersonalized: boolean;
   listings: Listing[];
   loadMoreErrorMessage?: string;
   pagination?: PaginationInfo;
+  personalizationSummary?: PersonalizationSummary;
+  providers?: SearchProviderSummary[];
   status: "loading" | "success" | "error";
 }
 
@@ -99,8 +116,9 @@ interface SearchRequestState {
   status: "idle" | "loading" | "success" | "error";
 }
 
-interface LikeResponse {
-  like: Like;
+interface LikeMutationResponse {
+  likedListing: LikedListing;
+  userId: string;
 }
 
 interface RecentSearchesResponse {
@@ -109,8 +127,62 @@ interface RecentSearchesResponse {
 }
 
 interface LikesResponse {
+  likedListings: LikedListing[];
   likes: Like[];
   userId: string;
+}
+
+interface SavedSearchesResponse {
+  savedSearch?: SavedSearch;
+  savedSearches: SavedSearch[];
+  userId: string;
+}
+
+interface SavedFiltersResponse {
+  savedFilter?: SavedFilter;
+  savedFilters: SavedFilter[];
+  userId: string;
+}
+
+interface WatchlistsResponse {
+  watchlist?: Watchlist;
+  watchlists: Watchlist[];
+  userId: string;
+}
+
+interface NotificationPreferencesResponse {
+  notificationPreferences: NotificationPreferences;
+  userId: string;
+}
+
+interface SettingsResponse {
+  settings: UserSettings;
+  userId: string;
+}
+
+interface ProfileCollectionsState {
+  errorMessage?: string;
+  notificationPreferences?: NotificationPreferences;
+  savedFilters: SavedFilter[];
+  savedSearches: SavedSearch[];
+  settings?: UserSettings;
+  status: "loading" | "success" | "error";
+  watchlists: Watchlist[];
+}
+
+interface WatchlistFormState {
+  brand: string;
+  category: string;
+  condition: string;
+  enabled: boolean;
+  label: string;
+  listingType: SearchFormValues["listingType"];
+  maxPriceAmount: string;
+  minPriceAmount: string;
+  priceCurrency: string;
+  queryText: string;
+  size: string;
+  source: string;
 }
 
 interface BrandListResponse {
@@ -146,8 +218,9 @@ interface AnalyticsOverviewResponse {
 }
 
 interface MarketInsightsResponse {
+  brandSummaries?: BrandMarketSummary[];
+  categorySummaries?: CategoryMarketSummary[];
   locked: boolean;
-  insights?: MarketInsight[];
   message?: string;
   premiumAccess?: PremiumAccess;
   premiumPreviewUsername?: string;
@@ -164,8 +237,9 @@ interface UnderpricedSignalsResponse {
 }
 
 interface AnalyticsRequestState {
+  brandSummaries: BrandMarketSummary[];
+  categorySummaries: CategoryMarketSummary[];
   errorMessage?: string;
-  insights: MarketInsight[];
   locked: boolean;
   message?: string;
   overview?: AnalyticsOverview;
@@ -233,9 +307,48 @@ function formatBrandMetadata(brand: Brand) {
   return [aliases, tags].filter(Boolean).join(" • ") || "Brand reference";
 }
 
-function formatConfidence(value: number) {
-  return `${Math.round(value * 100)}% confidence`;
+function formatObservedRange(minPrice: number, maxPrice: number, currency: string) {
+  return `${formatCurrencyAmount(minPrice, currency)} to ${formatCurrencyAmount(maxPrice, currency)}`;
 }
+
+export function getProviderAvailabilityMessage(
+  providers: SearchProviderSummary[] | undefined,
+  surface: "feed" | "search",
+) {
+  if (!providers?.length) {
+    return undefined;
+  }
+
+  const failedProviders = providers.filter((provider) => provider.status === "failure");
+  const actionLabel =
+    surface === "feed" ? "while loading the feed" : "during this search";
+
+  if (failedProviders.length === 0) {
+    return undefined;
+  }
+
+  if (failedProviders.length === 1) {
+    return `Results may be limited right now because ${failedProviders[0]?.providerName} was unavailable ${actionLabel}.`;
+  }
+
+  return `Results may be limited right now because ${failedProviders.length} marketplaces were unavailable ${actionLabel}.`;
+}
+
+function getSearchEmptyStateMessage(
+  query: string,
+  providers: SearchProviderSummary[] | undefined,
+) {
+  const providerAvailabilityMessage = getProviderAvailabilityMessage(providers, "search");
+  const baseMessage =
+    query.trim().length > 0
+      ? `No results found for "${query}". Try broadening your search or clearing a filter.`
+      : "No results found for these filters. Try broadening your search or clearing a filter.";
+
+  return providerAvailabilityMessage
+    ? `${baseMessage} ${providerAvailabilityMessage}`
+    : baseMessage;
+}
+
 
 function formatCurrencyAmount(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -259,31 +372,240 @@ function hasCompletedOnboarding(session: AuthResponse | null) {
   );
 }
 
-function useLikes(userId?: string) {
+export function getHomeFeedPresentation(
+  session: AuthResponse | null,
+  summary?: PersonalizationSummary,
+) {
+  if (!session) {
+    return {
+      chipLabel: "Trending",
+      introCopy: "Popular finds across resale marketplaces.",
+    };
+  }
+
+  if (summary?.isPersonalized) {
+    return {
+      chipLabel: "For You",
+      introCopy: summary.message,
+    };
+  }
+
+  return {
+    chipLabel: "Fresh Picks",
+    introCopy: summary?.message ?? "Like listings or save a search to personalize this feed.",
+  };
+}
+
+function createEmptyWatchlistForm(currency = "USD"): WatchlistFormState {
+  return {
+    brand: "",
+    category: "",
+    condition: "",
+    enabled: true,
+    label: "",
+    listingType: "",
+    maxPriceAmount: "",
+    minPriceAmount: "",
+    priceCurrency: currency,
+    queryText: "",
+    size: "",
+    source: "",
+  };
+}
+
+function createWatchlistFormFromWatchlist(
+  watchlist: Watchlist,
+  fallbackCurrency = "USD",
+): WatchlistFormState {
+  return {
+    brand: watchlist.brand ?? "",
+    category: watchlist.category ?? "",
+    condition: watchlist.condition ?? "",
+    enabled: watchlist.enabled,
+    label: watchlist.label,
+    listingType: watchlist.listingType ?? "",
+    maxPriceAmount:
+      watchlist.maxPriceAmount !== undefined ? String(watchlist.maxPriceAmount) : "",
+    minPriceAmount:
+      watchlist.minPriceAmount !== undefined ? String(watchlist.minPriceAmount) : "",
+    priceCurrency: watchlist.priceCurrency ?? fallbackCurrency,
+    queryText: watchlist.queryText ?? "",
+    size: watchlist.size ?? "",
+    source: watchlist.source ?? "",
+  };
+}
+
+export function createWatchlistDraftFromSearch(
+  values: SearchFormValues,
+  currency = "USD",
+): WatchlistFormState {
+  return {
+    ...createEmptyWatchlistForm(currency),
+    listingType: values.listingType,
+    maxPriceAmount: values.maxPrice,
+    minPriceAmount: values.minPrice,
+    queryText: values.query.trim(),
+    source: values.source.trim(),
+  };
+}
+
+function buildWatchlistPayload(form: WatchlistFormState) {
+  return {
+    brand: form.brand.trim() || undefined,
+    category: form.category.trim() || undefined,
+    condition: form.condition || undefined,
+    enabled: form.enabled,
+    label: form.label.trim() || undefined,
+    listingType: form.listingType || undefined,
+    maxPriceAmount: form.maxPriceAmount ? Number(form.maxPriceAmount) : undefined,
+    minPriceAmount: form.minPriceAmount ? Number(form.minPriceAmount) : undefined,
+    priceCurrency: form.priceCurrency.trim() || undefined,
+    queryText: form.queryText.trim() || undefined,
+    size: form.size.trim() || undefined,
+    source: form.source.trim() || undefined,
+  };
+}
+
+export function buildWatchlistPayloadFromSearch(
+  values: SearchFormValues,
+  currency = "USD",
+) {
+  return buildWatchlistPayload(createWatchlistDraftFromSearch(values, currency));
+}
+
+function formatConditionLabel(condition?: string) {
+  if (!condition) {
+    return undefined;
+  }
+
+  return condition
+    .split("_")
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function buildSavedSearchLabel(values: SearchFormValues) {
+  return values.query.trim() || "Saved search";
+}
+
+function buildSavedFilterLabel(values: SearchFormValues) {
+  const query = values.query.trim();
+
+  if (query.length > 0) {
+    return `${query} preset`;
+  }
+
+  if (values.source.trim().length > 0) {
+    return `${values.source.trim()} preset`;
+  }
+
+  if (values.listingType === "auction") {
+    return "Auction preset";
+  }
+
+  if (values.listingType === "buy_now") {
+    return "Fixed price preset";
+  }
+
+  return "Saved filter";
+}
+
+function createSavedFilterValues(savedFilter: SavedFilter): SearchFormValues {
+  return {
+    query: savedFilter.queryText ?? "",
+    sort: savedFilter.sortMode ?? "relevance",
+    source: savedFilter.source ?? "",
+    listingType: savedFilter.listingType ?? "",
+    minPrice: savedFilter.minPrice !== undefined ? String(savedFilter.minPrice) : "",
+    maxPrice: savedFilter.maxPrice !== undefined ? String(savedFilter.maxPrice) : "",
+  };
+}
+
+function summarizeOnboardingPreferences(session: AuthResponse) {
+  const preferences = session.user.onboardingPreferences;
+  const favoriteBrands = preferences.favoriteBrands.join(", ") || "None yet";
+  const categories = preferences.categories.join(", ") || "None yet";
+  const priceRange = preferences.priceRange.trim() || "No price range yet";
+
+  return {
+    favoriteBrands,
+    categories,
+    priceRange,
+  };
+}
+
+function formatFilterSummary(savedFilter: SavedFilter, currency: string) {
+  return describeSearch(createSavedFilterValues(savedFilter)) +
+    (currency ? ` • Prefers ${currency}` : "");
+}
+
+function formatWatchlistSummary(watchlist: Watchlist, currency: string) {
+  const details = [
+    watchlist.queryText,
+    watchlist.brand,
+    watchlist.category,
+    watchlist.source,
+    watchlist.listingType === "auction"
+      ? "Auction"
+      : watchlist.listingType === "buy_now"
+        ? "Fixed price"
+        : undefined,
+    watchlist.size ? `Size ${watchlist.size}` : undefined,
+    formatConditionLabel(watchlist.condition),
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0));
+
+  if (watchlist.minPriceAmount !== undefined) {
+    details.push(`From ${formatCurrencyAmount(watchlist.minPriceAmount, watchlist.priceCurrency ?? currency)}`);
+  }
+
+  if (watchlist.maxPriceAmount !== undefined) {
+    details.push(`Up to ${formatCurrencyAmount(watchlist.maxPriceAmount, watchlist.priceCurrency ?? currency)}`);
+  }
+
+  if (!watchlist.enabled) {
+    details.push("Paused");
+  }
+
+  return details.join(" • ") || "Watching for future matches.";
+}
+
+function useLikes(
+  session: AuthResponse | null,
+  onAuthFailure: () => void,
+) {
+  const userId = session?.userId;
   const [likes, setLikes] = useState<Like[]>([]);
+  const [likedListings, setLikedListings] = useState<LikedListing[]>([]);
 
   useEffect(() => {
     if (!userId) {
       setLikes([]);
+      setLikedListings([]);
       return;
     }
 
     const controller = new AbortController();
 
-    void fetchJson<LikesResponse>(`/likes/${userId}`, controller.signal)
+    void fetchJson<LikesResponse>("/me/likes", controller.signal)
       .then((response) => {
         setLikes(response.likes);
+        setLikedListings(response.likedListings);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!controller.signal.aborted) {
+          if (isAuthRequiredError(error)) {
+            onAuthFailure();
+          }
           setLikes([]);
+          setLikedListings([]);
         }
       });
 
     return () => {
       controller.abort();
     };
-  }, [userId]);
+  }, [onAuthFailure, userId]);
 
   async function toggleLike(listing: Listing, nextLiked: boolean) {
     if (!userId) {
@@ -298,6 +620,11 @@ function useLikes(userId?: string) {
         source: listing.source.id,
         createdAt: new Date().toISOString(),
       };
+      const optimisticLikedListing: LikedListing = {
+        like: optimisticLike,
+        listing,
+        snapshotStatus: "snapshot",
+      };
 
       setLikes((currentLikes) => {
         if (currentLikes.some((like) => like.listingId === listing.id)) {
@@ -306,24 +633,44 @@ function useLikes(userId?: string) {
 
         return [optimisticLike, ...currentLikes];
       });
+      setLikedListings((currentLikedListings) => {
+        if (currentLikedListings.some((entry) => entry.like.listingId === listing.id)) {
+          return currentLikedListings;
+        }
+
+        return [optimisticLikedListing, ...currentLikedListings];
+      });
 
       try {
-        const response = await sendJson<LikeResponse>("/likes", "POST", {
-          userId,
+        const response = await sendJson<LikeMutationResponse>("/me/likes", "POST", {
           listingId: listing.id,
           source: listing.source.id,
+          listing,
         });
 
         setLikes((currentLikes) => {
           const remainingLikes = currentLikes.filter(
-            (like) => like.listingId !== response.like.listingId,
+            (like) => like.listingId !== response.likedListing.like.listingId,
           );
 
-          return [response.like, ...remainingLikes];
+          return [response.likedListing.like, ...remainingLikes];
+        });
+        setLikedListings((currentLikedListings) => {
+          const remainingLikedListings = currentLikedListings.filter(
+            (entry) => entry.like.listingId !== response.likedListing.like.listingId,
+          );
+
+          return [response.likedListing, ...remainingLikedListings];
         });
       } catch (error) {
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+        }
         setLikes((currentLikes) =>
           currentLikes.filter((like) => like.listingId !== listing.id),
+        );
+        setLikedListings((currentLikedListings) =>
+          currentLikedListings.filter((entry) => entry.like.listingId !== listing.id),
         );
         throw error;
       }
@@ -332,17 +679,26 @@ function useLikes(userId?: string) {
     }
 
     const existingLike = likes.find((like) => like.listingId === listing.id);
+    const existingLikedListing = likedListings.find(
+      (entry) => entry.like.listingId === listing.id,
+    );
 
     setLikes((currentLikes) =>
       currentLikes.filter((like) => like.listingId !== listing.id),
     );
+    setLikedListings((currentLikedListings) =>
+      currentLikedListings.filter((entry) => entry.like.listingId !== listing.id),
+    );
 
     try {
-      await sendJson<{ removed: boolean }>("/likes", "DELETE", {
-        userId,
+      await sendJson<{ removed: boolean }>("/me/likes", "DELETE", {
         listingId: listing.id,
       });
     } catch (error) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+
       if (existingLike) {
         setLikes((currentLikes) => {
           if (currentLikes.some((like) => like.listingId === existingLike.listingId)) {
@@ -353,6 +709,16 @@ function useLikes(userId?: string) {
         });
       }
 
+      if (existingLikedListing) {
+        setLikedListings((currentLikedListings) => {
+          if (currentLikedListings.some((entry) => entry.like.listingId === existingLikedListing.like.listingId)) {
+            return currentLikedListings;
+          }
+
+          return [existingLikedListing, ...currentLikedListings];
+        });
+      }
+
       throw error;
     }
   }
@@ -360,6 +726,7 @@ function useLikes(userId?: string) {
   return {
     likes,
     likedListingIds: new Set(likes.map((like) => like.listingId)),
+    likedListings,
     toggleLike,
   };
 }
@@ -449,14 +816,20 @@ function LoadingListings({ count = 8 }: { count?: number }) {
   );
 }
 
-function HomePage({ session }: { session: AuthResponse | null }) {
+function HomePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
   const navigate = useNavigate();
-  const { likedListingIds, toggleLike } = useLikes(session?.userId);
+  const { likedListingIds, toggleLike } = useLikes(session, onAuthFailure);
   const [reloadCount, setReloadCount] = useState(0);
   const needsPreferenceReminder = Boolean(session) && !hasCompletedOnboarding(session);
   const [state, setState] = useState<FeedRequestState>({
-    isPersonalized: false,
     isLoadingMore: false,
+    isPersonalized: false,
     listings: [],
     status: "loading",
   });
@@ -468,13 +841,9 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       pageSize: String(homeFeedPageSize),
     });
 
-    if (session?.userId) {
-      feedParams.set("userId", session.userId);
-    }
-
     setState({
-      isPersonalized: false,
       isLoadingMore: false,
+      isPersonalized: false,
       listings: [],
       status: "loading",
     });
@@ -482,10 +851,12 @@ function HomePage({ session }: { session: AuthResponse | null }) {
     void fetchJson<FeedResponse>("/feed?" + feedParams.toString(), controller.signal)
       .then((response) => {
         setState({
-          isPersonalized: response.isPersonalized,
           isLoadingMore: false,
+          isPersonalized: response.isPersonalized,
           listings: response.listings,
           pagination: response.pagination,
+          personalizationSummary: response.personalizationSummary,
+          providers: response.providers,
           status: "success",
         });
       })
@@ -497,8 +868,8 @@ function HomePage({ session }: { session: AuthResponse | null }) {
         setState({
           errorMessage:
             error instanceof Error ? error.message : "The feed request failed.",
-          isPersonalized: false,
           isLoadingMore: false,
+          isPersonalized: false,
           listings: [],
           status: "error",
         });
@@ -530,10 +901,6 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       feedParams.set("page", String(state.pagination.nextPage));
     }
 
-    if (session?.userId) {
-      feedParams.set("userId", session.userId);
-    }
-
     setState((currentState) => ({
       ...currentState,
       isLoadingMore: true,
@@ -544,11 +911,14 @@ function HomePage({ session }: { session: AuthResponse | null }) {
       .then((response) => {
         setState((currentState) => ({
           ...currentState,
-          isPersonalized: response.isPersonalized,
           isLoadingMore: false,
+          isPersonalized: response.isPersonalized,
           listings: mergeUniqueListings(currentState.listings, response.listings),
           loadMoreErrorMessage: undefined,
           pagination: response.pagination,
+          personalizationSummary:
+            response.personalizationSummary ?? currentState.personalizationSummary,
+          providers: response.providers,
           status: "success",
         }));
       })
@@ -577,20 +947,21 @@ function HomePage({ session }: { session: AuthResponse | null }) {
     });
   }
 
-  const introCopy = session
-    ? "Based on your likes and preferences."
-    : "Popular finds across resale marketplaces.";
+  const presentation = getHomeFeedPresentation(session, state.personalizationSummary);
   const listingCount = state.pagination?.totalCount ?? state.listings.length;
+  const showLowSignalPrompt =
+    Boolean(session) && state.status === "success" && !state.isPersonalized && !needsPreferenceReminder;
+  const providerAvailabilityMessage = getProviderAvailabilityMessage(state.providers, "feed");
 
   return (
     <section className="page-shell page-shell--home">
       <header className="market-header">
         <div>
           <h1>Find your next piece</h1>
-          <p className="page-description">{introCopy}</p>
+          <p className="page-description">{presentation.introCopy}</p>
         </div>
         <div className="chip-row chip-row--tabs">
-          <span className="info-chip info-chip--accent">{session ? "For You" : "Trending"}</span>
+          <span className="info-chip info-chip--accent">{presentation.chipLabel}</span>
           <span className="info-chip">New Finds</span>
           <span className="info-chip">{listingCount > 0 ? String(listingCount) + " listings" : "Fresh updates"}</span>
         </div>
@@ -602,6 +973,21 @@ function HomePage({ session }: { session: AuthResponse | null }) {
           <Link className="secondary-button link-button" to="/onboarding">
             Update preferences
           </Link>
+        </section>
+      ) : null}
+
+      {showLowSignalPrompt ? (
+        <section className="inline-banner">
+          <p>Like listings or save a search to make this feed more personal.</p>
+          <Link className="secondary-button link-button" to="/search">
+            Explore search
+          </Link>
+        </section>
+      ) : null}
+
+      {providerAvailabilityMessage ? (
+        <section className="inline-banner">
+          <p>{providerAvailabilityMessage}</p>
         </section>
       ) : null}
 
@@ -623,8 +1009,12 @@ function HomePage({ session }: { session: AuthResponse | null }) {
         <StateCard
           body={
             session
-              ? "There is nothing to show right now. Save a few likes or come back when new listings arrive."
-              : "There are no listings to show right now. Check back soon for fresh finds."
+              ? providerAvailabilityMessage
+                ? `There is nothing to show right now. ${providerAvailabilityMessage}`
+                : "There is nothing to show right now. Save a few likes or come back when new listings arrive."
+              : providerAvailabilityMessage
+                ? `There are no listings to show right now. ${providerAvailabilityMessage}`
+                : "There are no listings to show right now. Check back soon for fresh finds."
           }
           title="Nothing here yet"
         />
@@ -691,7 +1081,7 @@ function AnalyticsPage({ children }: { children?: ReactNode }) {
   return (
     <PageTemplate
       title="Premium Analytics"
-      description="Preview sample pricing context, brand movement, and under-market signals."
+      description="Observed-data pricing context only. No predictions, profit claims, or guaranteed underpriced calls."
     >
       {children}
     </PageTemplate>
@@ -701,6 +1091,17 @@ function AnalyticsPage({ children }: { children?: ReactNode }) {
 function ProfilePage({ children }: { children?: ReactNode }) {
   return (
     <PageTemplate title="Profile" description="Your account, preferences, and saved pieces.">
+      {children}
+    </PageTemplate>
+  );
+}
+
+function BetaInfoPage({ children }: { children?: ReactNode }) {
+  return (
+    <PageTemplate
+      title="Beta Information"
+      description="Privacy, data use, limits, and feedback guidance for the constrained ClosetSearch beta."
+    >
       {children}
     </PageTemplate>
   );
@@ -770,9 +1171,11 @@ function NotFoundPage() {
 function SearchControlPanel({
   initialValues,
   onSubmit,
+  secondaryActions,
 }: {
   initialValues: SearchFormValues;
   onSubmit: (values: SearchFormValues) => void;
+  secondaryActions?: ReactNode;
 }) {
   const [values, setValues] = useState(initialValues);
 
@@ -913,6 +1316,8 @@ function SearchControlPanel({
           Clear filters
         </button>
       </div>
+
+      {secondaryActions ? <div className="state-card__action">{secondaryActions}</div> : null}
     </form>
   );
 }
@@ -957,26 +1362,28 @@ function SearchResults({
   }
 
   const response = state.response;
+  const providerAvailabilityMessage = getProviderAvailabilityMessage(response?.providers, "search");
 
   if (!response || response.listings.length === 0) {
     return (
       <StateCard
-        body={
-          'No results found for "' + query + '". Try broadening your search or clearing a filter.'
-        }
+        body={getSearchEmptyStateMessage(query, response?.providers)}
         title="No results found"
       />
     );
   }
 
   const listingCount = response.pagination.totalCount ?? response.listings.length;
+  const resultsLabel = response.query.text.trim().length > 0
+    ? 'Results for "' + response.query.text + '".'
+    : "Results for your active filters.";
 
   return (
     <section className="search-results">
       <div className="section-heading">
         <div>
           <h2>{listingCount} listings</h2>
-          <p>{'Results for "' + response.query.text + '".'}</p>
+          <p>{resultsLabel}</p>
         </div>
         <div className="chip-row">
           <span className="info-chip">{summary}</span>
@@ -985,6 +1392,12 @@ function SearchResults({
           </span>
         </div>
       </div>
+
+      {providerAvailabilityMessage ? (
+        <section className="inline-banner">
+          <p>{providerAvailabilityMessage}</p>
+        </section>
+      ) : null}
 
       <ListingGrid
         likedListingIds={likedListingIds}
@@ -1022,21 +1435,36 @@ function SearchResults({
   );
 }
 
-function SearchRoutePage({ session }: { session: AuthResponse | null }) {
+function SearchRoutePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
   const navigate = useNavigate();
-  const { likedListingIds, toggleLike } = useLikes(session?.userId);
+  const { likedListingIds, toggleLike } = useLikes(session, onAuthFailure);
   const [searchParams] = useSearchParams();
   const searchKey = searchParams.toString();
   const values = parseSearchFormValues(searchParams);
+  const hasActiveSearch = hasActiveSearchValues(values);
   const query = values.query;
   const [reloadCount, setReloadCount] = useState(0);
+  const [saveFeedback, setSaveFeedback] = useState<string | undefined>();
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | undefined>();
+  const [savingAction, setSavingAction] = useState<"search" | "filters" | "watchlist" | null>(null);
   const [state, setState] = useState<SearchRequestState>({
     isLoadingMore: false,
-    status: query.length > 0 ? "loading" : "idle",
+    status: hasActiveSearch ? "loading" : "idle",
   });
 
   useEffect(() => {
-    if (query.length === 0) {
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+  }, [searchKey, session?.userId]);
+
+  useEffect(() => {
+    if (!hasActiveSearch) {
       setState({ isLoadingMore: false, status: "idle" });
       return;
     }
@@ -1071,7 +1499,7 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
     return () => {
       controller.abort();
     };
-  }, [query, reloadCount, searchKey]);
+  }, [hasActiveSearch, reloadCount, searchKey]);
 
   useEffect(() => {
     if (
@@ -1095,18 +1523,25 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
     }
 
     void sendJson<RecentSearchesResponse>("/recent-searches", "POST", {
-      userId: session.userId,
       label: entry.label,
       description: entry.description,
       params: entry.params,
-    }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        saveRecentSearch(values);
+      }
+
+      return undefined;
+    });
   }, [
+    onAuthFailure,
     query,
+    searchKey,
     session?.userId,
     state.isLoadingMore,
     state.response?.pagination.page,
     state.status,
-    values,
   ]);
 
   function handleSubmit(nextValues: SearchFormValues) {
@@ -1176,10 +1611,169 @@ function SearchRoutePage({ session }: { session: AuthResponse | null }) {
     await toggleLike(listing, nextLiked);
   }
 
+  async function handleSaveSearch() {
+    if (!hasActiveSearch) {
+      return;
+    }
+
+    if (!session) {
+      setSaveFeedback("Log in to save searches and filter presets.");
+      setSaveErrorMessage(undefined);
+      return;
+    }
+
+    setSavingAction("search");
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+
+    try {
+      await sendJson<SavedSearchesResponse>("/me/saved-searches", "POST", {
+        label: buildSavedSearchLabel(values),
+        description: describeSearch(values),
+        params: createSearchParams(values).toString(),
+      });
+      setSaveFeedback("Saved this search to your profile.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+      setSaveErrorMessage(
+        error instanceof Error ? error.message : "The search could not be saved.",
+      );
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  async function handleSaveFilters() {
+    if (!hasActiveSearch) {
+      return;
+    }
+
+    if (!session) {
+      setSaveFeedback("Log in to save searches and filter presets.");
+      setSaveErrorMessage(undefined);
+      return;
+    }
+
+    setSavingAction("filters");
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+
+    try {
+      await sendJson<SavedFiltersResponse>("/me/saved-filters", "POST", {
+        label: buildSavedFilterLabel(values),
+        queryText: values.query.trim() || undefined,
+        source: values.source.trim() || undefined,
+        listingType: values.listingType || undefined,
+        minPrice: values.minPrice ? Number(values.minPrice) : undefined,
+        maxPrice: values.maxPrice ? Number(values.maxPrice) : undefined,
+        sortMode: values.sort,
+      });
+      setSaveFeedback("Saved this filter preset to your profile.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+      setSaveErrorMessage(
+        error instanceof Error ? error.message : "The filters could not be saved.",
+      );
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+
+  async function handleCreateWatchlistFromSearch() {
+    if (!hasActiveSearch) {
+      return;
+    }
+
+    if (!session) {
+      setSaveFeedback("Log in to save searches, filters, and watchlists.");
+      setSaveErrorMessage(undefined);
+      return;
+    }
+
+    setSavingAction("watchlist");
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+
+    try {
+      await sendJson<WatchlistsResponse>("/me/watchlists", "POST", buildWatchlistPayloadFromSearch(
+        values,
+        session.user.currencyPreference,
+      ));
+      setSaveFeedback("Saved this search as a watchlist. Alert delivery will come later.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+      setSaveErrorMessage(
+        error instanceof Error ? error.message : "The watchlist could not be saved.",
+      );
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
+  const saveActions = hasActiveSearch ? (
+    <div>
+      <div className="inline-actions">
+        {session ? (
+          <>
+            <button
+              className="secondary-button"
+              disabled={savingAction !== null}
+              onClick={handleSaveSearch}
+              type="button"
+            >
+              {savingAction === "search" ? "Saving search..." : "Save search"}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={savingAction !== null}
+              onClick={handleSaveFilters}
+              type="button"
+            >
+              {savingAction === "filters" ? "Saving filters..." : "Save filters"}
+            </button>
+            <button
+              className="secondary-button"
+              disabled={savingAction !== null}
+              onClick={handleCreateWatchlistFromSearch}
+              type="button"
+            >
+              {savingAction === "watchlist"
+                ? "Saving watchlist..."
+                : "Create watchlist from this search"}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="page-description">Log in to save searches, filters, and watchlists.</p>
+            <Link className="secondary-button link-button" to="/login">
+              Log in to save
+            </Link>
+          </>
+        )}
+      </div>
+      <p className="page-description">
+        Watchlists save what you want to track. Alert delivery will come in a later milestone.
+      </p>
+      {saveFeedback ? <p className="page-description">{saveFeedback}</p> : null}
+      {saveErrorMessage ? <p className="form-error">{saveErrorMessage}</p> : null}
+    </div>
+  ) : null;
+
   return (
     <SearchPage>
       <section className="search-layout">
-        <SearchControlPanel initialValues={values} onSubmit={handleSubmit} />
+        <SearchControlPanel
+          initialValues={values}
+          onSubmit={handleSubmit}
+          secondaryActions={saveActions}
+        />
         <SearchResults
           likedListingIds={likedListingIds}
           onLoadMore={handleLoadMore}
@@ -1203,7 +1797,13 @@ function formatRecentSearchDate(value: string) {
   }).format(new Date(value));
 }
 
-function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) {
+function RecentSearchesRoutePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
   const navigate = useNavigate();
   const [entries, setEntries] = useState<RecentSearchEntry[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
@@ -1223,7 +1823,7 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
     setErrorMessage(undefined);
 
     void fetchJson<RecentSearchesResponse>(
-      "/recent-searches/" + encodeURIComponent(session.userId),
+      "/recent-searches",
       controller.signal,
     )
       .then((response) => {
@@ -1232,6 +1832,14 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
+          return;
+        }
+
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+          setEntries(loadRecentSearches());
+          setErrorMessage(undefined);
+          setStatus("success");
           return;
         }
 
@@ -1245,7 +1853,7 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
     return () => {
       controller.abort();
     };
-  }, [session?.userId]);
+  }, [onAuthFailure, session?.userId]);
 
   function handleClear() {
     if (!session?.userId) {
@@ -1256,7 +1864,7 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
     }
 
     void sendJson<{ cleared: boolean }>(
-      "/recent-searches/" + encodeURIComponent(session.userId),
+      "/recent-searches",
       "DELETE",
       {},
     )
@@ -1265,6 +1873,14 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
         setStatus("success");
       })
       .catch((error: unknown) => {
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+          setEntries(loadRecentSearches());
+          setErrorMessage(undefined);
+          setStatus("success");
+          return;
+        }
+
         setErrorMessage(
           error instanceof Error ? error.message : "Recent searches could not be cleared.",
         );
@@ -1330,8 +1946,10 @@ function RecentSearchesRoutePage({ session }: { session: AuthResponse | null }) 
 }
 
 function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
+  const [reloadCount, setReloadCount] = useState(0);
   const [state, setState] = useState<AnalyticsRequestState>({
-    insights: [],
+    brandSummaries: [],
+    categorySummaries: [],
     locked: true,
     sampleData: false,
     signals: [],
@@ -1340,17 +1958,11 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    const params = new URLSearchParams();
-
-    if (session?.userId) {
-      params.set("userId", session.userId);
-    }
-
-    const query = params.toString();
-    const suffix = query.length > 0 ? `?${query}` : "";
+    const suffix = "";
 
     setState({
-      insights: [],
+      brandSummaries: [],
+      categorySummaries: [],
       locked: true,
       sampleData: false,
       signals: [],
@@ -1361,7 +1973,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
       .then(async (overviewResponse) => {
         if (overviewResponse.locked) {
           setState({
-            insights: [],
+            brandSummaries: [],
+            categorySummaries: [],
             locked: true,
             message: overviewResponse.message,
             overview: overviewResponse.overview,
@@ -1386,7 +1999,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         ]);
 
         setState({
-          insights: insightsResponse.insights ?? [],
+          brandSummaries: insightsResponse.brandSummaries ?? [],
+          categorySummaries: insightsResponse.categorySummaries ?? [],
           locked: false,
           message: overviewResponse.message,
           overview: overviewResponse.overview,
@@ -1406,9 +2020,10 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         }
 
         setState({
+          brandSummaries: [],
+          categorySummaries: [],
           errorMessage:
-            error instanceof Error ? error.message : "The analytics preview could not be loaded.",
-          insights: [],
+            error instanceof Error ? error.message : "The analytics view could not be loaded.",
           locked: true,
           sampleData: false,
           signals: [],
@@ -1419,7 +2034,13 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
     return () => {
       controller.abort();
     };
-  }, [session?.userId]);
+  }, [reloadCount, session?.userId]);
+
+  function handleRetry() {
+    startTransition(() => {
+      setReloadCount((currentValue) => currentValue + 1);
+    });
+  }
 
   if (state.status === "loading") {
     return (
@@ -1433,7 +2054,15 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
     return (
       <AnalyticsPage>
         <StateCard
-          body={state.errorMessage ?? "The analytics preview could not be loaded."}
+          action={
+            <button className="secondary-button" onClick={handleRetry} type="button">
+              Try again
+            </button>
+          }
+          body={
+            state.errorMessage ??
+            "The analytics view could not be loaded. Observed-data analytics are optional, so core browsing can still continue."
+          }
           title="Analytics unavailable"
         />
       </AnalyticsPage>
@@ -1446,24 +2075,24 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         <section className="analytics-shell">
           <section className="market-header market-header--analytics">
             <div>
-              <h2>Premium analytics preview</h2>
+              <h2>Observed pricing context preview</h2>
               <p className="page-description">
                 {state.message ??
-                  "Pricing context, market insights, and under-market signals are still sample-only preview surfaces."}
+                  "Observed brand ranges, category pricing context, and cautious under-market signals are available in Collector Preview."}
               </p>
             </div>
             <div className="chip-row">
               <span className="info-chip info-chip--accent">Premium</span>
-              <span className="info-chip">Preview-only access</span>
+              <span className="info-chip">Collector Preview</span>
             </div>
           </section>
 
           <div className="analytics-preview-grid">
             {[
-              "Track resale pricing",
-              "Spot listings below typical market ranges",
-              "Compare brand demand",
-              "Watch pricing shifts",
+              "Observed brand ranges",
+              "Category pricing context",
+              "Cautious under-market signals",
+              "Seen-listings summaries",
             ].map((title) => (
               <article key={title} className="analytics-preview-card analytics-preview-card--locked">
                 <h2>{title}</h2>
@@ -1486,9 +2115,9 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
       <section className="analytics-shell">
         <section className="market-header market-header--analytics">
           <div>
-            <h2>{state.premiumAccess?.planName ?? "Premium analytics"}</h2>
+            <h2>{state.premiumAccess?.planName ?? "Observed pricing context"}</h2>
             <p className="page-description">
-              Explore sample pricing signals, brand movement, and underpriced listing ideas.
+              Based on listings ClosetSearch has observed. Not financial advice. Not a prediction.
             </p>
           </div>
           <div className="chip-row">
@@ -1498,82 +2127,391 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         </section>
 
         {state.overview ? (
-          <div className="analytics-overview-grid">
-            <article className="analytics-stat-card">
-              <p className="eyebrow">Tracked brands</p>
-              <h2>{state.overview.trackedBrands}</h2>
-            </article>
-            <article className="analytics-stat-card">
-              <p className="eyebrow">Market insights</p>
-              <h2>{state.overview.marketInsightCount}</h2>
-            </article>
-            <article className="analytics-stat-card">
-              <p className="eyebrow">Underpriced signals</p>
-              <h2>{state.overview.underpricedSignalCount}</h2>
-            </article>
-          </div>
+          <>
+            <div className="analytics-overview-grid">
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Observed listings</p>
+                <h2>{state.overview.observedListingCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Observed brands</p>
+                <h2>{state.overview.observedBrandCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Observed categories</p>
+                <h2>{state.overview.observedCategoryCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Under-market signals</p>
+                <h2>{state.overview.underMarketSignalCount}</h2>
+              </article>
+              <article className="analytics-stat-card">
+                <p className="eyebrow">Latest observation</p>
+                <h2>
+                  {state.overview.latestObservationAt
+                    ? formatRecentSearchDate(state.overview.latestObservationAt)
+                    : "No data yet"}
+                </h2>
+              </article>
+            </div>
+            <p className="analytics-note">{state.overview.dataQuality.note}</p>
+          </>
         ) : null}
 
         <section className="analytics-section">
           <div className="section-heading">
-            <h2>Market insights</h2>
+            <h2>Brand pricing ranges</h2>
           </div>
-          <div className="analytics-card-grid">
-            {state.insights.map((insight) => (
-              <article key={insight.id} className="analytics-data-card">
-                <div className="analytics-data-card__header">
-                  <div>
-                    <p className="eyebrow">{insight.brand.name}</p>
-                    <h2>{insight.title}</h2>
+          {state.brandSummaries.length > 0 ? (
+            <div className="analytics-card-grid">
+              {state.brandSummaries.map((summary) => (
+                <article key={summary.brand} className="analytics-data-card">
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{summary.brand}</p>
+                      <h2>{summary.range.count} observed listings</h2>
+                    </div>
+                    <span className="info-chip">Median {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}</span>
                   </div>
-                  <span className="info-chip">{insight.category}</span>
-                </div>
-                <p>{insight.summary}</p>
-                <div className="chip-row">
-                  <span className="info-chip">{formatConfidence(insight.confidence)}</span>
-                  <span className="info-chip">{formatRecentSearchDate(insight.createdAt)}</span>
-                </div>
-              </article>
-            ))}
-          </div>
+                  <p>Observed range: {formatObservedRange(summary.range.minPrice, summary.range.maxPrice, summary.range.currency)}</p>
+                  <div className="chip-row">
+                    <span className="info-chip">Average {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}</span>
+                    <span className="info-chip">{summary.range.currency}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="ClosetSearch needs more observed listings before brand ranges are useful."
+              title="No brand pricing data yet"
+            />
+          )}
         </section>
 
         <section className="analytics-section">
           <div className="section-heading">
-            <h2>Underpriced signals</h2>
+            <h2>Category pricing ranges</h2>
           </div>
-          <div className="analytics-card-grid">
-            {state.signals.map((signal) => (
-              <article key={signal.id} className="analytics-data-card">
-                <div className="analytics-data-card__header">
-                  <div>
-                    <p className="eyebrow">{signal.source}</p>
-                    <h2>{signal.listingTitle}</h2>
+          {state.categorySummaries.length > 0 ? (
+            <div className="analytics-card-grid">
+              {state.categorySummaries.map((summary) => (
+                <article key={summary.category} className="analytics-data-card">
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{summary.category}</p>
+                      <h2>{summary.range.count} observed listings</h2>
+                    </div>
+                    <span className="info-chip">Median {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}</span>
                   </div>
-                  <span className="info-chip info-chip--accent">{signal.percentBelowMarket}% below</span>
-                </div>
-                <p>{signal.reason}</p>
-                <div className="analytics-pricing-row">
-                  <div>
-                    <span>Current</span>
-                    <strong>{formatCurrencyAmount(signal.currentPrice, signal.currency)}</strong>
+                  <p>Observed range: {formatObservedRange(summary.range.minPrice, summary.range.maxPrice, summary.range.currency)}</p>
+                  <div className="chip-row">
+                    <span className="info-chip">Average {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}</span>
+                    <span className="info-chip">{summary.range.currency}</span>
                   </div>
-                  <div>
-                    <span>Typical</span>
-                    <strong>{formatCurrencyAmount(signal.estimatedMarketPrice, signal.currency)}</strong>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="ClosetSearch needs more observed listings before category ranges are useful."
+              title="No category pricing data yet"
+            />
+          )}
         </section>
+
+        <section className="analytics-section">
+          <div className="section-heading">
+            <h2>Under-market signals</h2>
+          </div>
+          {state.signals.length > 0 ? (
+            <div className="analytics-card-grid">
+              {state.signals.map((signal) => (
+                <article key={signal.id} className="analytics-data-card">
+                  {signal.imageUrl ? (
+                    <img alt={signal.listingTitle} className="analytics-signal-image" src={signal.imageUrl} />
+                  ) : null}
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{[signal.brand, signal.category].filter(Boolean).join(" • ") || signal.source}</p>
+                      <h2>{signal.listingTitle}</h2>
+                    </div>
+                    <span className="info-chip info-chip--accent">{signal.label}</span>
+                  </div>
+                  <p>{signal.summary}</p>
+                  <div className="analytics-pricing-row">
+                    <div>
+                      <span>Current</span>
+                      <strong>{formatCurrencyAmount(signal.currentPrice, signal.currentCurrency)}</strong>
+                    </div>
+                    <div>
+                      <span>Observed median</span>
+                      <strong>{formatCurrencyAmount(signal.observedMedianPrice, signal.observedCurrency)}</strong>
+                    </div>
+                    <div>
+                      <span>Observed range</span>
+                      <strong>{formatObservedRange(signal.observedMinPrice, signal.observedMaxPrice, signal.observedCurrency)}</strong>
+                    </div>
+                  </div>
+                  <div className="chip-row">
+                    <span className="info-chip">{signal.comparableCount} comparable listings</span>
+                    <span className="info-chip">{signal.comparisonScope}</span>
+                    <span className="info-chip">Seen {formatRecentSearchDate(signal.observedAt)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="No cautious pricing signals are available yet. ClosetSearch only shows these when it has enough similar observed listings."
+              title="No under-market signals yet"
+            />
+          )}
+        </section>
+
+        {state.overview ? (
+          <section className="analytics-section">
+            <div className="section-heading">
+              <h2>Disclaimers</h2>
+            </div>
+            <div className="analytics-card-grid">
+              {state.overview.disclaimers.map((disclaimer) => (
+                <article key={disclaimer.label} className="analytics-data-card">
+                  <div className="analytics-data-card__header">
+                    <div>
+                      <p className="eyebrow">{disclaimer.label}</p>
+                      <h2>{disclaimer.text}</h2>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </section>
     </AnalyticsPage>
   );
 }
 
-function ProfileRoutePage({ session }: { session: AuthResponse | null }) {
-  const { likes } = useLikes(session?.userId);
+function BetaInfoRoutePage() {
+  return (
+    <BetaInfoPage>
+      <section className="recent-searches">
+        <div className="section-heading section-heading--split">
+          <div>
+            <h2>Beta privacy and data use</h2>
+            <p>
+              ClosetSearch stores account data such as usernames, onboarding preferences, likes,
+              saved searches, saved filters, watchlists, notification preference shell data, and
+              basic settings. Observed listing snapshots are also stored to support cautious
+              analytics.
+            </p>
+          </div>
+        </div>
+
+        <div className="recent-search-grid">
+          <article className="recent-search-card">
+            <h2>Account and saved data</h2>
+            <p>
+              Your saved likes, searches, filters, watchlists, and settings persist in the beta
+              database so your signed-in experience survives refreshes and restarts.
+            </p>
+          </article>
+          <article className="recent-search-card">
+            <h2>Observed analytics only</h2>
+            <p>
+              Pricing context is based on listings ClosetSearch has observed. It is not financial
+              advice, not a prediction, and not a guarantee that a listing is underpriced.
+            </p>
+          </article>
+          <article className="recent-search-card">
+            <h2>Watchlist delivery is inactive</h2>
+            <p>
+              Watchlists save what you want to track, but email, push, and SMS delivery are not
+              active in this beta yet.
+            </p>
+          </article>
+        </div>
+
+        <div className="section-heading section-heading--split">
+          <div>
+            <h2>Beta feedback</h2>
+            <p>
+              Testers should try feed, search, auth, saved features, personalization, analytics,
+              and watchlists, then share bugs, confusing moments, and missing beta-blocking flows.
+            </p>
+          </div>
+        </div>
+
+        <div className="inline-actions">
+          <a className="secondary-button link-button" href={betaFeedbackUrl} rel="noreferrer" target="_blank">
+            Beta feedback
+          </a>
+          <Link className="secondary-button link-button" to="/profile">
+            Back to profile
+          </Link>
+        </div>
+
+        <p className="page-description">
+          Provider data can be incomplete or delayed, trust signals stay assistive only, and this
+          repo is prepared for a constrained beta rather than a full public production launch.
+        </p>
+      </section>
+    </BetaInfoPage>
+  );
+}
+
+function ProfileRoutePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
+  const navigate = useNavigate();
+  const { likes, likedListingIds, likedListings, toggleLike } = useLikes(session, onAuthFailure);
+  const [reloadCount, setReloadCount] = useState(0);
+  const [collectionsState, setCollectionsState] = useState<ProfileCollectionsState>({
+    notificationPreferences: undefined,
+    savedFilters: [],
+    savedSearches: [],
+    status: session ? "loading" : "success",
+    watchlists: [],
+  });
+  const [settingsForm, setSettingsForm] = useState({
+    defaultSortMode: "",
+    displayName: "",
+    preferredCurrency: "USD",
+    preferredSources: [] as string[],
+  });
+  const [collectionsFeedback, setCollectionsFeedback] = useState<string | undefined>();
+  const [watchlistForm, setWatchlistForm] = useState<WatchlistFormState>(() =>
+    createEmptyWatchlistForm(),
+  );
+  const [editingWatchlistId, setEditingWatchlistId] = useState<string | undefined>();
+  const [notificationPreferencesForm, setNotificationPreferencesForm] = useState({
+    emailEnabled: false,
+    frequency: "daily" as NotificationPreferences["frequency"],
+    inAppEnabled: true,
+    pushEnabled: false,
+    quietHoursEnd: "",
+    quietHoursStart: "",
+    smsEnabled: false,
+  });
+  const [settingsErrorMessage, setSettingsErrorMessage] = useState<string | undefined>();
+  const [settingsFeedback, setSettingsFeedback] = useState<string | undefined>();
+  const [watchlistErrorMessage, setWatchlistErrorMessage] = useState<string | undefined>();
+  const [watchlistFeedback, setWatchlistFeedback] = useState<string | undefined>();
+  const [notificationPreferencesErrorMessage, setNotificationPreferencesErrorMessage] = useState<string | undefined>();
+  const [notificationPreferencesFeedback, setNotificationPreferencesFeedback] = useState<string | undefined>();
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingWatchlist, setIsSavingWatchlist] = useState(false);
+  const [isSavingNotificationPreferences, setIsSavingNotificationPreferences] = useState(false);
+
+  useEffect(() => {
+    if (!session) {
+      setCollectionsState({
+        notificationPreferences: undefined,
+        savedFilters: [],
+        savedSearches: [],
+        status: "success",
+        watchlists: [],
+      });
+      setCollectionsFeedback(undefined);
+      setEditingWatchlistId(undefined);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setCollectionsState((currentState) => ({
+      ...currentState,
+      errorMessage: undefined,
+      status: "loading",
+    }));
+    setCollectionsFeedback(undefined);
+
+    void Promise.all([
+      fetchJson<SavedSearchesResponse>("/me/saved-searches", controller.signal),
+      fetchJson<SavedFiltersResponse>("/me/saved-filters", controller.signal),
+      fetchJson<WatchlistsResponse>("/me/watchlists", controller.signal),
+      fetchJson<SettingsResponse>("/me/settings", controller.signal),
+      fetchJson<NotificationPreferencesResponse>("/me/notification-preferences", controller.signal),
+    ])
+      .then(([
+        savedSearchResponse,
+        savedFilterResponse,
+        watchlistResponse,
+        settingsResponse,
+        notificationPreferencesResponse,
+      ]) => {
+        setCollectionsState({
+          notificationPreferences: notificationPreferencesResponse.notificationPreferences,
+          savedFilters: savedFilterResponse.savedFilters,
+          savedSearches: savedSearchResponse.savedSearches,
+          settings: settingsResponse.settings,
+          status: "success",
+          watchlists: watchlistResponse.watchlists,
+        });
+        setSettingsForm({
+          defaultSortMode: settingsResponse.settings.defaultSortMode ?? "",
+          displayName: settingsResponse.settings.displayName ?? "",
+          preferredCurrency: settingsResponse.settings.preferredCurrency,
+          preferredSources: settingsResponse.settings.preferredSources,
+        });
+        setNotificationPreferencesForm({
+          emailEnabled: notificationPreferencesResponse.notificationPreferences.emailEnabled,
+          frequency: notificationPreferencesResponse.notificationPreferences.frequency,
+          inAppEnabled: notificationPreferencesResponse.notificationPreferences.inAppEnabled,
+          pushEnabled: notificationPreferencesResponse.notificationPreferences.pushEnabled,
+          quietHoursEnd:
+            notificationPreferencesResponse.notificationPreferences.quietHoursEnd ?? "",
+          quietHoursStart:
+            notificationPreferencesResponse.notificationPreferences.quietHoursStart ?? "",
+          smsEnabled: notificationPreferencesResponse.notificationPreferences.smsEnabled,
+        });
+        setWatchlistForm((currentState) => {
+          const hasUserDraft =
+            currentState.label.trim().length > 0 ||
+            currentState.queryText.trim().length > 0 ||
+            currentState.brand.trim().length > 0 ||
+            currentState.category.trim().length > 0 ||
+            currentState.source.trim().length > 0 ||
+            currentState.minPriceAmount.trim().length > 0 ||
+            currentState.maxPriceAmount.trim().length > 0 ||
+            currentState.size.trim().length > 0 ||
+            currentState.condition.trim().length > 0;
+
+          return hasUserDraft
+            ? currentState
+            : createEmptyWatchlistForm(settingsResponse.settings.preferredCurrency);
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        if (isAuthRequiredError(error)) {
+          onAuthFailure();
+          return;
+        }
+
+        setCollectionsState({
+          errorMessage:
+            error instanceof Error ? error.message : "Your saved account data could not be loaded.",
+          notificationPreferences: undefined,
+          savedFilters: [],
+          savedSearches: [],
+          status: "error",
+          watchlists: [],
+        });
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [onAuthFailure, reloadCount, session]);
 
   if (!session) {
     return (
@@ -1589,44 +2527,922 @@ function ProfileRoutePage({ session }: { session: AuthResponse | null }) {
               </Link>
             </div>
           }
-          body="Log in or create an account to save preferences and likes."
+          body="Log in or create an account to save likes, searches, filters, watchlists, and settings."
           title="Profile needs an account"
         />
       </ProfilePage>
     );
   }
 
-  const preferences = session.user.onboardingPreferences;
+  const preferences = summarizeOnboardingPreferences(session);
+  const preferredCurrency =
+    collectionsState.settings?.preferredCurrency ?? session.user.currencyPreference;
+  const displayName = collectionsState.settings?.displayName?.trim() || session.user.username;
+
+
+  function handleReload() {
+    startTransition(() => {
+      setReloadCount((currentValue) => currentValue + 1);
+    });
+  }
+
+  function handleRunSavedSearch(params: string) {
+    startTransition(() => {
+      navigate(params ? "/search?" + params : "/search");
+    });
+  }
+
+  function handleApplySavedFilter(savedFilter: SavedFilter) {
+    startTransition(() => {
+      navigate(buildSearchPath(createSavedFilterValues(savedFilter)));
+    });
+  }
+
+  function resetWatchlistComposer() {
+    setEditingWatchlistId(undefined);
+    setWatchlistForm(createEmptyWatchlistForm(preferredCurrency));
+  }
+
+  async function handleToggleLikeFromProfile(listing: Listing, nextLiked: boolean) {
+    await toggleLike(listing, nextLiked);
+  }
+
+  async function handleDeleteSavedSearch(savedSearch: SavedSearch) {
+    try {
+      await sendJson<{ removed: boolean }>("/me/saved-searches", "DELETE", {
+        id: savedSearch.id,
+      });
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        savedSearches: currentState.savedSearches.filter((entry) => entry.id !== savedSearch.id),
+      }));
+      setCollectionsFeedback(`Deleted saved search "${savedSearch.label}".`);
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        errorMessage:
+          error instanceof Error ? error.message : "The saved search could not be deleted.",
+      }));
+    }
+  }
+
+  async function handleDeleteSavedFilter(savedFilter: SavedFilter) {
+    try {
+      await sendJson<{ removed: boolean }>("/me/saved-filters", "DELETE", {
+        id: savedFilter.id,
+      });
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        savedFilters: currentState.savedFilters.filter((entry) => entry.id !== savedFilter.id),
+      }));
+      setCollectionsFeedback(`Deleted saved filter "${savedFilter.label}".`);
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        errorMessage:
+          error instanceof Error ? error.message : "The saved filter could not be deleted.",
+      }));
+    }
+  }
+
+  function handleEditWatchlist(watchlist: Watchlist) {
+    setEditingWatchlistId(watchlist.id);
+    setWatchlistErrorMessage(undefined);
+    setWatchlistFeedback(undefined);
+    setWatchlistForm(createWatchlistFormFromWatchlist(watchlist, preferredCurrency));
+  }
+
+  async function handleToggleWatchlistEnabled(watchlist: Watchlist) {
+    try {
+      const response = await sendJson<WatchlistsResponse>(
+        "/me/watchlists/" + watchlist.id,
+        "PATCH",
+        {
+          enabled: !watchlist.enabled,
+        },
+      );
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        watchlists: response.watchlists,
+      }));
+      setWatchlistFeedback((watchlist.enabled ? "Paused " : "Resumed ") + watchlist.label + ".");
+      if (editingWatchlistId === watchlist.id) {
+        setWatchlistForm((currentState) => ({
+          ...currentState,
+          enabled: !watchlist.enabled,
+        }));
+      }
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setWatchlistErrorMessage(
+        error instanceof Error ? error.message : "The watchlist could not be updated.",
+      );
+    }
+  }
+
+  async function handleDeleteWatchlist(watchlist: Watchlist) {
+    try {
+      await sendJson<{ removed: boolean }>("/me/watchlists/" + watchlist.id, "DELETE", {});
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        watchlists: currentState.watchlists.filter((entry) => entry.id !== watchlist.id),
+      }));
+      setCollectionsFeedback(`Deleted watchlist "${watchlist.label}".`);
+      if (editingWatchlistId === watchlist.id) {
+        resetWatchlistComposer();
+      }
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        errorMessage:
+          error instanceof Error ? error.message : "The watchlist could not be deleted.",
+      }));
+    }
+  }
+
+  async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingSettings(true);
+    setSettingsErrorMessage(undefined);
+    setSettingsFeedback(undefined);
+
+    try {
+      const response = await sendJson<SettingsResponse>("/me/settings", "PATCH", {
+        defaultSortMode: settingsForm.defaultSortMode || null,
+        displayName: settingsForm.displayName.trim() || null,
+        preferredCurrency: settingsForm.preferredCurrency,
+        preferredSources: settingsForm.preferredSources,
+      });
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        settings: response.settings,
+      }));
+      setSettingsForm({
+        defaultSortMode: response.settings.defaultSortMode ?? "",
+        displayName: response.settings.displayName ?? "",
+        preferredCurrency: response.settings.preferredCurrency,
+        preferredSources: response.settings.preferredSources,
+      });
+      setSettingsFeedback("Updated your settings.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setSettingsErrorMessage(
+        error instanceof Error ? error.message : "Your settings could not be saved.",
+      );
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }
+
+  async function handleSaveWatchlist(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingWatchlist(true);
+    setWatchlistErrorMessage(undefined);
+    setWatchlistFeedback(undefined);
+
+    try {
+      const response = editingWatchlistId
+        ? await sendJson<WatchlistsResponse>(
+            "/me/watchlists/" + editingWatchlistId,
+            "PATCH",
+            buildWatchlistPayload({
+              ...watchlistForm,
+              priceCurrency: watchlistForm.priceCurrency || preferredCurrency,
+            }),
+          )
+        : await sendJson<WatchlistsResponse>(
+            "/me/watchlists",
+            "POST",
+            buildWatchlistPayload({
+              ...watchlistForm,
+              priceCurrency: watchlistForm.priceCurrency || preferredCurrency,
+            }),
+          );
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        watchlists: response.watchlists,
+      }));
+      setWatchlistFeedback(
+        editingWatchlistId
+          ? "Updated your watchlist. Alert delivery is still not active yet."
+          : "Saved your watchlist. Alert delivery will come in a later milestone.",
+      );
+      resetWatchlistComposer();
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setWatchlistErrorMessage(
+        error instanceof Error ? error.message : "The watchlist could not be saved.",
+      );
+    } finally {
+      setIsSavingWatchlist(false);
+    }
+  }
+
+  async function handleSaveNotificationPreferences(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingNotificationPreferences(true);
+    setNotificationPreferencesErrorMessage(undefined);
+    setNotificationPreferencesFeedback(undefined);
+
+    try {
+      const response = await sendJson<NotificationPreferencesResponse>(
+        "/me/notification-preferences",
+        "PATCH",
+        {
+          emailEnabled: notificationPreferencesForm.emailEnabled,
+          frequency: notificationPreferencesForm.frequency,
+          inAppEnabled: notificationPreferencesForm.inAppEnabled,
+          pushEnabled: notificationPreferencesForm.pushEnabled,
+          quietHoursEnd: notificationPreferencesForm.quietHoursEnd || null,
+          quietHoursStart: notificationPreferencesForm.quietHoursStart || null,
+          smsEnabled: notificationPreferencesForm.smsEnabled,
+        },
+      );
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        notificationPreferences: response.notificationPreferences,
+      }));
+      setNotificationPreferencesForm({
+        emailEnabled: response.notificationPreferences.emailEnabled,
+        frequency: response.notificationPreferences.frequency,
+        inAppEnabled: response.notificationPreferences.inAppEnabled,
+        pushEnabled: response.notificationPreferences.pushEnabled,
+        quietHoursEnd: response.notificationPreferences.quietHoursEnd ?? "",
+        quietHoursStart: response.notificationPreferences.quietHoursStart ?? "",
+        smsEnabled: response.notificationPreferences.smsEnabled,
+      });
+      setNotificationPreferencesFeedback(
+        "Saved your notification preference shell. Email, push, and SMS delivery are still inactive.",
+      );
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setNotificationPreferencesErrorMessage(
+        error instanceof Error ? error.message : "Notification preferences could not be saved.",
+      );
+    } finally {
+      setIsSavingNotificationPreferences(false);
+    }
+  }
 
   return (
     <ProfilePage>
       <section className="profile-grid">
         <article className="profile-panel">
           <p className="eyebrow">Account</p>
-          <h2>{session.user.username}</h2>
+          <h2>{displayName}</h2>
+          <p>@{session.user.username}</p>
           <p>Joined {formatRecentSearchDate(session.user.createdAt)}.</p>
         </article>
 
         <article className="profile-panel">
-          <p className="eyebrow">Saved pieces</p>
-          <h2>{likes.length}</h2>
+          <p className="eyebrow">Saved overview</p>
+          <h2>{likes.length + collectionsState.savedSearches.length + collectionsState.savedFilters.length + collectionsState.watchlists.length}</h2>
           <p>
-            {likes.length > 0
-              ? "Your likes are ready to shape the feed."
-              : "Like a few listings from home or search to start shaping your feed."}
+            {likes.length} likes • {collectionsState.savedSearches.length} saved searches
+            <br />
+            {collectionsState.savedFilters.length} saved filters • {collectionsState.watchlists.length} watchlists
           </p>
         </article>
 
         <article className="profile-panel">
           <p className="eyebrow">Preferences</p>
-          <h2>{preferences.priceRange || "No price range yet"}</h2>
+          <h2>{preferences.priceRange}</h2>
           <p>
-            Brands: {preferences.favoriteBrands.join(", ") || "None yet"}
+            Brands: {preferences.favoriteBrands}
             <br />
-            Categories: {preferences.categories.join(", ") || "None yet"}
+            Categories: {preferences.categories}
+          </p>
+        </article>
+
+        <article className="profile-panel">
+          <p className="eyebrow">Settings</p>
+          <h2>{preferredCurrency}</h2>
+          <p>
+            Default sort: {collectionsState.settings?.defaultSortMode ?? "relevance"}
+            <br />
+            Preferred sources: {collectionsState.settings?.preferredSources.join(", ") || "Any marketplace"}
           </p>
         </article>
       </section>
+
+      {collectionsState.status === "loading" ? (
+        <StateCard body="Loading your saved account data." title="Fetching profile" />
+      ) : null}
+
+      {collectionsState.status === "error" ? (
+        <StateCard
+          action={
+            <button className="secondary-button" onClick={handleReload} type="button">
+              Try again
+            </button>
+          }
+          body={collectionsState.errorMessage ?? "Your saved account data could not be loaded."}
+          title="Profile unavailable"
+        />
+      ) : null}
+
+      {collectionsState.status === "success" ? (
+        <section className="recent-searches">
+          {collectionsFeedback ? <p className="page-description">{collectionsFeedback}</p> : null}
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Liked items</h2>
+              <p>Your saved marketplace likes persist here across refreshes and restarts.</p>
+            </div>
+          </div>
+
+          {likedListings.length > 0 ? (
+            <ListingGrid
+              likedListingIds={likedListingIds}
+              listings={likedListings.map((entry) => entry.listing)}
+              onToggleLike={handleToggleLikeFromProfile}
+            />
+          ) : (
+            <StateCard
+              body="Like a few listings from home or search to keep them here."
+              title="No liked items yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Saved searches</h2>
+              <p>Jump back into your saved search params without rebuilding them.</p>
+            </div>
+          </div>
+
+          {collectionsState.savedSearches.length > 0 ? (
+            <div className="recent-search-grid">
+              {collectionsState.savedSearches.map((savedSearch) => (
+                <article key={savedSearch.id} className="recent-search-card">
+                  <h2>{savedSearch.label}</h2>
+                  <p>{savedSearch.description}</p>
+                  <span>{formatRecentSearchDate(savedSearch.createdAt)}</span>
+                  <div className="inline-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleRunSavedSearch(savedSearch.params)}
+                      type="button"
+                    >
+                      Open search
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleDeleteSavedSearch(savedSearch)}
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="Save a search from the search page to reuse it here later."
+              title="No saved searches yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Saved filters</h2>
+              <p>Reuse your source, sort, type, and price presets from one place.</p>
+            </div>
+          </div>
+
+          {collectionsState.savedFilters.length > 0 ? (
+            <div className="recent-search-grid">
+              {collectionsState.savedFilters.map((savedFilter) => (
+                <article key={savedFilter.id} className="recent-search-card">
+                  <h2>{savedFilter.label}</h2>
+                  <p>{formatFilterSummary(savedFilter, preferredCurrency)}</p>
+                  <span>{formatRecentSearchDate(savedFilter.updatedAt)}</span>
+                  <div className="inline-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleApplySavedFilter(savedFilter)}
+                      type="button"
+                    >
+                      Apply filters
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleDeleteSavedFilter(savedFilter)}
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="Save filters from the search page to keep your favorite presets here."
+              title="No saved filters yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Watchlists</h2>
+              <p>Watchlists save what you want to track. Alert delivery will come in a later milestone.</p>
+              <p>No email or push notifications are sent yet.</p>
+            </div>
+          </div>
+
+          <form className="account-form" onSubmit={handleSaveWatchlist}>
+            <label className="field-group" htmlFor="watchlist-label">
+              <span>Label</span>
+              <input
+                id="watchlist-label"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    label: event.target.value,
+                  }))
+                }
+                placeholder="Optional label"
+                value={watchlistForm.label}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-query">
+              <span>Query text</span>
+              <input
+                id="watchlist-query"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    queryText: event.target.value,
+                  }))
+                }
+                placeholder="kapital"
+                value={watchlistForm.queryText}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-brand">
+              <span>Brand</span>
+              <input
+                id="watchlist-brand"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    brand: event.target.value,
+                  }))
+                }
+                placeholder="Kapital"
+                value={watchlistForm.brand}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-category">
+              <span>Category</span>
+              <input
+                id="watchlist-category"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    category: event.target.value,
+                  }))
+                }
+                placeholder="jacket"
+                value={watchlistForm.category}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-source">
+              <span>Marketplace</span>
+              <select
+                id="watchlist-source"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    source: event.target.value,
+                  }))
+                }
+                value={watchlistForm.source}
+              >
+                {sourceOptions.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-listing-type">
+              <span>Listing type</span>
+              <select
+                id="watchlist-listing-type"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    listingType: event.target.value as WatchlistFormState["listingType"],
+                  }))
+                }
+                value={watchlistForm.listingType}
+              >
+                {listingTypeOptions.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-min-price">
+              <span>Min price</span>
+              <input
+                id="watchlist-min-price"
+                min="0"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    minPriceAmount: event.target.value,
+                  }))
+                }
+                placeholder="100"
+                type="number"
+                value={watchlistForm.minPriceAmount}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-max-price">
+              <span>Max price</span>
+              <input
+                id="watchlist-max-price"
+                min="0"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    maxPriceAmount: event.target.value,
+                  }))
+                }
+                placeholder="250"
+                type="number"
+                value={watchlistForm.maxPriceAmount}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-currency">
+              <span>Currency</span>
+              <input
+                id="watchlist-currency"
+                maxLength={3}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    priceCurrency: event.target.value.toUpperCase(),
+                  }))
+                }
+                placeholder="USD"
+                value={watchlistForm.priceCurrency}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-size">
+              <span>Size</span>
+              <input
+                id="watchlist-size"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    size: event.target.value,
+                  }))
+                }
+                placeholder="M"
+                value={watchlistForm.size}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-condition">
+              <span>Condition</span>
+              <select
+                id="watchlist-condition"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    condition: event.target.value,
+                  }))
+                }
+                value={watchlistForm.condition}
+              >
+                <option value="">Any condition</option>
+                <option value="new_with_tags">New with tags</option>
+                <option value="new_without_tags">New without tags</option>
+                <option value="excellent">Excellent</option>
+                <option value="good">Good</option>
+                <option value="fair">Fair</option>
+              </select>
+            </label>
+
+            <label className="info-chip">
+              <input
+                checked={watchlistForm.enabled}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    enabled: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+              Watchlist enabled
+            </label>
+
+            {watchlistFeedback ? <p className="page-description">{watchlistFeedback}</p> : null}
+            {watchlistErrorMessage ? <p className="form-error">{watchlistErrorMessage}</p> : null}
+
+            <div className="search-panel__actions">
+              <button className="search-form__button" disabled={isSavingWatchlist} type="submit">
+                {isSavingWatchlist
+                  ? "Saving watchlist..."
+                  : editingWatchlistId
+                    ? "Update watchlist"
+                    : "Save watchlist"}
+              </button>
+              {editingWatchlistId ? (
+                <button className="secondary-button" onClick={resetWatchlistComposer} type="button">
+                  Cancel edit
+                </button>
+              ) : null}
+            </div>
+          </form>
+
+          {collectionsState.watchlists.length > 0 ? (
+            <div className="recent-search-grid">
+              {collectionsState.watchlists.map((watchlist) => (
+                <article key={watchlist.id} className="recent-search-card">
+                  <h2>{watchlist.label}</h2>
+                  <p>{formatWatchlistSummary(watchlist, preferredCurrency)}</p>
+                  <span>{formatRecentSearchDate(watchlist.updatedAt)}</span>
+                  <div className="inline-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleEditWatchlist(watchlist)}
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleToggleWatchlistEnabled(watchlist)}
+                      type="button"
+                    >
+                      {watchlist.enabled ? "Pause" : "Resume"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleDeleteWatchlist(watchlist)}
+                      type="button"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StateCard
+              body="Add a watched search, brand, or price range now. Alert delivery is intentionally deferred."
+              title="No watchlists yet"
+            />
+          )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Notification preferences</h2>
+              <p>These settings are saved as a shell for a later milestone. Email, push, and SMS delivery are not active yet.</p>
+            </div>
+          </div>
+
+          <form className="account-form" onSubmit={handleSaveNotificationPreferences}>
+            <label className="info-chip">
+              <input
+                checked={notificationPreferencesForm.inAppEnabled}
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    inAppEnabled: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+              In-app enabled
+            </label>
+
+            <label className="info-chip">
+              <input checked={notificationPreferencesForm.emailEnabled} disabled type="checkbox" />
+              Email (coming later)
+            </label>
+
+            <label className="info-chip">
+              <input checked={notificationPreferencesForm.pushEnabled} disabled type="checkbox" />
+              Push (coming later)
+            </label>
+
+            <label className="info-chip">
+              <input checked={notificationPreferencesForm.smsEnabled} disabled type="checkbox" />
+              SMS (coming later)
+            </label>
+
+            <label className="field-group" htmlFor="notification-frequency">
+              <span>Frequency</span>
+              <select
+                id="notification-frequency"
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    frequency: event.target.value as NotificationPreferences["frequency"],
+                  }))
+                }
+                value={notificationPreferencesForm.frequency}
+              >
+                <option value="instant">Instant</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="notification-quiet-start">
+              <span>Quiet hours start</span>
+              <input
+                id="notification-quiet-start"
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    quietHoursStart: event.target.value,
+                  }))
+                }
+                type="time"
+                value={notificationPreferencesForm.quietHoursStart}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="notification-quiet-end">
+              <span>Quiet hours end</span>
+              <input
+                id="notification-quiet-end"
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    quietHoursEnd: event.target.value,
+                  }))
+                }
+                type="time"
+                value={notificationPreferencesForm.quietHoursEnd}
+              />
+            </label>
+
+            {notificationPreferencesFeedback ? (
+              <p className="page-description">{notificationPreferencesFeedback}</p>
+            ) : null}
+            {notificationPreferencesErrorMessage ? (
+              <p className="form-error">{notificationPreferencesErrorMessage}</p>
+            ) : null}
+
+            <div className="search-panel__actions">
+              <button
+                className="search-form__button"
+                disabled={isSavingNotificationPreferences}
+                type="submit"
+              >
+                {isSavingNotificationPreferences ? "Saving preferences..." : "Save notification preferences"}
+              </button>
+            </div>
+          </form>
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Settings</h2>
+              <p>Currency is a display preference scaffold for now; listing prices stay marketplace-native until conversion ships.</p>
+            </div>
+          </div>
+
+          <form className="account-form" onSubmit={handleSaveSettings}>
+            <label className="field-group" htmlFor="settings-display-name">
+              <span>Display name</span>
+              <input
+                id="settings-display-name"
+                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, displayName: event.target.value }))}
+                placeholder="Archive Kid"
+                value={settingsForm.displayName}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="settings-currency">
+              <span>Preferred currency</span>
+              <select
+                id="settings-currency"
+                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, preferredCurrency: event.target.value }))}
+                value={settingsForm.preferredCurrency}
+              >
+                {[
+                  { label: "USD", value: "USD" },
+                  { label: "EUR", value: "EUR" },
+                  { label: "GBP", value: "GBP" },
+                  { label: "JPY", value: "JPY" },
+                ].map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="settings-sort-mode">
+              <span>Default sort mode</span>
+              <select
+                id="settings-sort-mode"
+                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, defaultSortMode: event.target.value }))}
+                value={settingsForm.defaultSortMode}
+              >
+                <option value="">Use search defaults</option>
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <fieldset className="field-group">
+              <span>Preferred sources</span>
+              <div className="chip-row">
+                {sourceOptions
+                  .filter((option) => option.value)
+                  .map((option) => {
+                    const checked = settingsForm.preferredSources.includes(option.value);
+
+                    return (
+                      <label key={option.value} className="info-chip">
+                        <input
+                          checked={checked}
+                          onChange={(event) => {
+                            setSettingsForm((currentState) => ({
+                              ...currentState,
+                              preferredSources: event.target.checked
+                                ? [...currentState.preferredSources, option.value]
+                                : currentState.preferredSources.filter((entry) => entry !== option.value),
+                            }));
+                          }}
+                          type="checkbox"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+              </div>
+            </fieldset>
+
+            {settingsFeedback ? <p className="page-description">{settingsFeedback}</p> : null}
+            {settingsErrorMessage ? <p className="form-error">{settingsErrorMessage}</p> : null}
+
+            <div className="search-panel__actions">
+              <button className="search-form__button" disabled={isSavingSettings} type="submit">
+                {isSavingSettings ? "Saving settings..." : "Save settings"}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
     </ProfilePage>
   );
 }
@@ -1910,7 +3726,7 @@ function SignupRoutePage({
         navigate("/onboarding");
       });
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : "Signup failed.");
+      setErrorMessage(getAuthErrorMessage(error, "Signup failed."));
     } finally {
       setIsSubmitting(false);
     }
@@ -1945,7 +3761,7 @@ function SignupRoutePage({
             <input
               id="signup-password"
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="At least 4 characters"
+              placeholder="At least 8 characters"
               type="password"
               value={password}
             />
@@ -1997,7 +3813,7 @@ function LoginRoutePage({
         navigate(hasCompletedOnboarding(nextSession) ? "/profile" : "/onboarding");
       });
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : "Login failed.");
+      setErrorMessage(getAuthErrorMessage(error, "Login failed."));
     } finally {
       setIsSubmitting(false);
     }
@@ -2055,9 +3871,11 @@ function LoginRoutePage({
 }
 
 function OnboardingRoutePage({
+  onAuthFailure,
   onSessionChange,
   session,
 }: {
+  onAuthFailure: () => void;
   onSessionChange: (session: AuthResponse) => void;
   session: AuthResponse | null;
 }) {
@@ -2086,7 +3904,6 @@ function OnboardingRoutePage({
 
     try {
       const nextSession = await sendJson<AuthResponse>("/users/onboarding", "POST", {
-        userId: session.userId,
         preferences: {
           favoriteBrands: parseCommaSeparatedList(favoriteBrands),
           categories: parseCommaSeparatedList(categories),
@@ -2100,7 +3917,14 @@ function OnboardingRoutePage({
         navigate("/");
       });
     } catch (error: unknown) {
-      setErrorMessage(error instanceof Error ? error.message : "Preferences could not be saved.");
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        startTransition(() => {
+          navigate("/login");
+        });
+      }
+
+      setErrorMessage(getAuthErrorMessage(error, "Preferences could not be saved."));
     } finally {
       setIsSubmitting(false);
     }
@@ -2170,20 +3994,62 @@ function OnboardingRoutePage({
 
 export function AppLayout() {
   const navigate = useNavigate();
-  const [session, setSession] = useState<AuthResponse | null>(() => loadUserSession());
+  const [session, setSession] = useState<AuthResponse | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(
+    () => typeof window !== "undefined",
+  );
+  const [sessionNotice, setSessionNotice] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    void loadUserSession(controller.signal)
+      .then((nextSession) => {
+        setSession(nextSession);
+        setIsSessionLoading(false);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setSession(null);
+          setIsSessionLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   function handleSessionChange(nextSession: AuthResponse) {
-    saveUserSession(nextSession);
     setSession(nextSession);
+    setIsSessionLoading(false);
+    setSessionNotice(undefined);
+  }
+
+  function handleSessionExpired() {
+    setSession(null);
+    setIsSessionLoading(false);
+    setSessionNotice(
+      "Your session expired or you were signed out. Log in again to keep saving likes, searches, and watchlists.",
+    );
   }
 
   function handleLogout() {
-    clearUserSession();
-    setSession(null);
+    void sendJson<{ success: boolean }>("/auth/logout", "POST", {})
+      .catch(() => undefined)
+      .finally(() => {
+        setSession(null);
+        setIsSessionLoading(false);
+        setSessionNotice("You have been logged out.");
 
-    startTransition(() => {
-      navigate("/");
-    });
+        startTransition(() => {
+          navigate("/");
+        });
+      });
   }
 
   return (
@@ -2200,7 +4066,9 @@ export function AppLayout() {
         </Link>
         <GlobalSearchBar />
         <div className="topbar-actions">
-          {session ? (
+          {isSessionLoading ? (
+            <span className="info-chip">Loading session...</span>
+          ) : session ? (
             <div className="session-pill">
               <span>@{session.user.username}</span>
               <button className="secondary-button session-pill__button" onClick={handleLogout} type="button">
@@ -2238,12 +4106,49 @@ export function AppLayout() {
       </nav>
 
       <main className="page-main">
+        {sessionNotice ? (
+          <section className="inline-banner">
+            <p>{sessionNotice}</p>
+            {!session ? (
+              <div className="inline-actions">
+                <Link className="secondary-button link-button" to="/login">
+                  Log in again
+                </Link>
+                <button
+                  className="secondary-button"
+                  onClick={() => setSessionNotice(undefined)}
+                  type="button"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
         <Routes>
-          <Route element={<HomePage session={session} />} path="/" />
-          <Route element={<SearchRoutePage session={session} />} path="/search" />
-          <Route element={<RecentSearchesRoutePage session={session} />} path="/recent-searches" />
+          <Route
+            element={<HomePage onAuthFailure={handleSessionExpired} session={session} />}
+            path="/"
+          />
+          <Route
+            element={<SearchRoutePage onAuthFailure={handleSessionExpired} session={session} />}
+            path="/search"
+          />
+          <Route
+            element={
+              <RecentSearchesRoutePage
+                onAuthFailure={handleSessionExpired}
+                session={session}
+              />
+            }
+            path="/recent-searches"
+          />
           <Route element={<AnalyticsRoutePage session={session} />} path="/analytics" />
-          <Route element={<ProfileRoutePage session={session} />} path="/profile" />
+          <Route
+            element={<ProfileRoutePage onAuthFailure={handleSessionExpired} session={session} />}
+            path="/profile"
+          />
+          <Route element={<BetaInfoRoutePage />} path="/beta" />
           <Route
             element={<SignupRoutePage onAuthSuccess={handleSessionChange} session={session} />}
             path="/signup"
@@ -2253,7 +4158,13 @@ export function AppLayout() {
             path="/login"
           />
           <Route
-            element={<OnboardingRoutePage onSessionChange={handleSessionChange} session={session} />}
+            element={
+              <OnboardingRoutePage
+                onAuthFailure={handleSessionExpired}
+                onSessionChange={handleSessionChange}
+                session={session}
+              />
+            }
             path="/onboarding"
           />
           <Route element={<BrandsRoutePage />} path="/brands" />
@@ -2261,6 +4172,24 @@ export function AppLayout() {
           <Route element={<NotFoundPage />} path="*" />
         </Routes>
       </main>
+
+      <footer className="page-shell">
+        <section className="state-card">
+          <h2>Constrained beta</h2>
+          <p>
+            Observed-data analytics only. Watchlist delivery is not active yet. Privacy, data use,
+            known limits, and beta feedback guidance are available in the beta information page.
+          </p>
+          <div className="inline-actions">
+            <Link className="secondary-button link-button" to="/beta">
+              Beta information
+            </Link>
+            <a className="secondary-button link-button" href={betaFeedbackUrl} rel="noreferrer" target="_blank">
+              Share feedback
+            </a>
+          </div>
+        </section>
+      </footer>
 
       <nav aria-label="Bottom navigation" className="bottom-nav">
         <div className="bottom-nav__bar">

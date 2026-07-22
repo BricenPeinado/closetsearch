@@ -1,4 +1,4 @@
-import type { ProviderSearchQuery } from "../types";
+import type { ProviderSearchQuery } from "../types.js";
 
 export interface GrailedSearchUrlOptions {
   baseUrl: string;

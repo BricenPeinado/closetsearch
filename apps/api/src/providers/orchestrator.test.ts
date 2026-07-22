@@ -256,4 +256,47 @@ describe("runProviderSearch", () => {
       hasMore: false,
     });
   });
+
+  it("ignores malformed provider listings instead of crashing the whole page", async () => {
+    const provider: Provider = {
+      id: "malformed",
+      name: "Malformed Provider",
+      async search() {
+        return {
+          providerId: "malformed",
+          status: "success",
+          listings: [
+            createListing("malformed:good-1"),
+            {
+              ...createListing("malformed:bad-1"),
+              source: {
+                id: "malformed",
+              },
+            } as unknown as Listing,
+          ],
+          pagination: {
+            page: 1,
+            pageSize: 24,
+            hasMore: false,
+            totalCount: 2,
+          },
+        };
+      },
+    };
+
+    const result = await runProviderSearch(
+      { text: "jacket", pageSize: 24 },
+      createRuntime([{ mode: "real", name: provider.name, provider }]),
+    );
+
+    expect(result.listings).toEqual([createListing("malformed:good-1")]);
+    expect(result.providers).toEqual([
+      {
+        providerId: "malformed",
+        providerName: "Malformed Provider",
+        status: "success",
+        resultCount: 1,
+      },
+    ]);
+  });
 });

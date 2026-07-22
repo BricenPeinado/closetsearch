@@ -19,4 +19,4 @@ export type {
   SearchSortMode,
   StoredUser,
   User,
-} from "./domain";
+} from "./domain/index.js";

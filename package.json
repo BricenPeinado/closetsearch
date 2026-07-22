@@ -13,7 +13,9 @@
     "typecheck": "corepack pnpm -r --if-present typecheck",
     "test": "corepack pnpm -r --if-present test",
     "db:migrate": "corepack pnpm --filter @closetsearch/api db:migrate",
-    "db:seed": "corepack pnpm --filter @closetsearch/api db:seed"
+    "db:seed": "corepack pnpm --filter @closetsearch/api db:seed",
+    "beta:smoke": "node scripts/beta-smoke-test.mjs",
+    "smoke:test": "node scripts/smoke-test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",

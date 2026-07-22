@@ -35,6 +35,19 @@ export interface GrailedHttpClientOptions {
   userAgent: string;
 }
 
+export interface GrailedHttpClient {
+  getHtml(url: string): Promise<GrailedHttpClientResponse>;
+  getText(
+    url: string,
+    headers?: Record<string, string>,
+  ): Promise<GrailedHttpClientResponse>;
+  postJson<T>(
+    url: string,
+    body: unknown,
+    headers?: Record<string, string>,
+  ): Promise<GrailedJsonClientResponse<T>>;
+}
+
 function extractContactEmail(userAgent: string) {
   const match = userAgent.match(/contact:([^\s>]+)/i);
   return match?.[1];
@@ -52,7 +65,9 @@ function createBaseHeaders(userAgent: string) {
   };
 }
 
-export function createGrailedHttpClient(options: GrailedHttpClientOptions) {
+export function createGrailedHttpClient(
+  options: GrailedHttpClientOptions,
+): GrailedHttpClient {
   let nextAllowedRequestAt = 0;
   const sleepImpl =
     options.sleepImpl ??
@@ -106,6 +121,18 @@ export function createGrailedHttpClient(options: GrailedHttpClientOptions) {
           accept: "text/html,application/xhtml+xml",
           connection: "keep-alive",
           "upgrade-insecure-requests": "1",
+        },
+      });
+    },
+    getText(
+      url: string,
+      headers: Record<string, string> = {},
+    ): Promise<GrailedHttpClientResponse> {
+      return requestText(url, {
+        headers: {
+          accept: "*/*",
+          connection: "keep-alive",
+          ...headers,
         },
       });
     },

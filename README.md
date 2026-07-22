@@ -6,7 +6,7 @@ The repo is documentation-led and milestone-based. Foundation work is already in
 
 ## Current Status
 
-ClosetSearch has completed its initial foundation milestones and is now moving into real-data and productization work.
+ClosetSearch has completed its initial foundation milestones, auth hardening, a focused saved-user-features pass, a rules-based Personalization V2 feed pass, a first observed-data analytics pass, an alert-ready watchlist foundation, a constrained beta-readiness pass, a beta stability hardening pass, and a launch-candidate hardening pass. The repo can now produce a constrained preview release candidate, not a full public production launch.
 
 Completed foundation milestones:
 
@@ -29,21 +29,28 @@ What is implemented now:
 - home feed with listing cards and load-more behavior
 - search with filters, sorting, and recent searches
 - brand directory and brand detail shell
-- signup, login, onboarding, profile, and likes/hearts foundations
-- local SQLite-backed persistence for users, onboarding preferences, likes, recent searches, saved searches, and listing cache
-- simple signed-in personalization based on likes and onboarding preferences
-- premium analytics placeholder surfaces and mock signals
+- signup, login, onboarding, and cookie-backed auth/session foundations
+- a useful signed-in profile with persistent likes, saved searches, saved filters, alert-ready watchlists, notification preference shell controls, and basic user settings
+- watchlists for watched brands, searches, price ranges, optional marketplace/listing-type criteria, and enable or pause state
+- an alert matching foundation with stored candidate-match data and a pure watchlist-to-listing matcher for future delivery work
+- local SQLite-backed persistence for users, onboarding preferences, likes, saved-user data, recent searches, saved searches, and listing cache
+- explainable rules-based signed-in personalization using likes, onboarding preferences, saved searches, saved filters, watchlists, preferred sources, freshness, and diversity balancing
+- observed-data premium analytics with price snapshots, brand/category pricing ranges, and cautious under-market signals
 - trust / fake-risk placeholder signals with careful assistive wording
+- deployment, environment, seed/demo, QA, limitation, privacy/data-use, feedback, and triage docs for constrained beta operation
+- safer network/provider error states, explicit session-expiry recovery copy, and more honest provider-limited UI messaging for real beta testers
 
 What is still placeholder, mock, or intentionally lightweight:
 
 - listing data is still mock/test data
 - real marketplace provider integrations are not complete
-- auth is still a lightweight foundation, not a production-grade auth stack
+- auth now uses cookie-backed server sessions, slow password hashing, and protected API routes, but OAuth, email verification, and password reset are still deferred
 - persistence is now a local SQLite foundation inside the API, not a production-grade database stack yet
-- analytics are placeholder foundations, not real market analytics
+- analytics are now simple observed pricing context, not forecasting or full resale intelligence
 - fake-risk is a trust placeholder, not real authenticity detection
-- there is no production-ready billing, subscriptions, watchlist delivery, or deployment hardening yet
+- there is no production-ready billing, subscriptions, watchlist alert delivery, machine-learning recommendations, or deployment hardening yet
+- email, push, and SMS alert delivery are intentionally inactive; notification preferences are a saved shell only for now
+- operational logging and launch docs are intentionally lightweight and repo-centric rather than full production observability
 
 ## Roadmap Direction
 
@@ -55,13 +62,12 @@ Near-term roadmap direction:
 - first real provider foundation and first real provider integration
 - real feed/search pagination and infinite-scroll friendly behavior
 - production-ready auth foundation
-- saved user features such as persistent likes and saved searches
-- stronger personalization built on real engagement data
-- real analytics v1 based on observed pricing data
-- alerts and watchlist foundations
+- deeper recommendation and analytics work beyond the current explainable rules-based personalization layer
+- deeper analytics beyond the current observed-data pricing context layer
+- watchlist alerts and notifications beyond the current saved shell/data foundation
 - beta launch readiness and deployment hardening
 
-ClosetSearch is not production-ready today. The current repo is best described as a solid foundation project that is ready for functional buildout.
+ClosetSearch is not production-ready today. The current repo is best described as a constrained preview launch candidate with honest docs, repeatable smoke checks, and explicit release/rollback guidance for a small tester-facing deployment.
 
 ## Product Summary
 
@@ -127,7 +133,41 @@ corepack pnpm build
 corepack pnpm lint
 corepack pnpm test
 corepack pnpm db:migrate
+corepack pnpm db:seed
 ```
+
+## Beta Readiness Docs
+
+- [Docs index](docs/README.md)
+- [Deployment checklist](docs/runbooks/deployment-checklist.md)
+- [Environment reference](docs/runbooks/environment.md)
+- [Seed and demo data](docs/runbooks/seed-demo-data.md)
+- [Manual beta QA checklist](docs/qa/manual-beta-checklist.md)
+- [Known limitations](docs/known-limitations.md)
+- [Beta feedback plan](docs/beta-feedback-plan.md)
+- [Beta privacy copy](docs/legal/privacy-beta.md)
+- [Beta data-use copy](docs/legal/data-use.md)
+
+## Beta Testing
+
+- [Manual beta QA checklist](docs/qa/manual-beta-checklist.md)
+- [Known limitations](docs/known-limitations.md)
+- [Beta triage rubric](docs/beta-triage-rubric.md)
+- [Beta bug report template](docs/templates/beta-bug-report.md)
+- [Beta feature request template](docs/templates/beta-feature-request.md)
+- [Beta usability feedback template](docs/templates/beta-usability-feedback.md)
+- [Post-beta priorities](docs/post-beta-priorities.md)
+
+## Release Candidate Docs
+
+- [Launch candidate scope freeze](docs/release/scope-freeze.md)
+- [Release candidate checklist](docs/release/release-candidate-checklist.md)
+- [Launch go / no-go criteria](docs/release/go-no-go.md)
+- [Rollback plan](docs/release/rollback-plan.md)
+- [Launch blockers](docs/release/launch-blockers.md)
+- [Post-launch monitoring](docs/release/post-launch-monitoring.md)
+- [Release notes template](docs/release/release-notes-template.md)
+- Smoke test command: `corepack pnpm smoke:test`
 
 ## Local Development
 
@@ -155,10 +195,12 @@ Be careful not to overstate the current product state:
 
 - provider coverage is still limited and may run in mock or authorized Grailed mode depending on runtime configuration
 - persistence is local SQLite only and not a production-ready database deployment
-- auth is not yet production-grade
-- analytics and fake-risk are foundation-only systems
-- alerts and watchlists are still roadmap items
-- deployment hardening and operational readiness still need dedicated work
+- auth now has a production-auth foundation, but OAuth, email verification, password reset, and advanced account recovery are still not implemented
+- analytics are observed-data only and intentionally avoid forecasting, investment language, or guaranteed underpriced claims
+- fake-risk remains a foundation-only trust system
+- watchlists are now alert-ready saved intent, but no email, push, SMS, or background monitoring is active yet
+- this repo is ready for a constrained preview release candidate, not a full public production launch
+- deployment, rollback, and smoke-test guidance now exist, but production-scale operations still need dedicated work
 
 ## Next Planned Buildout
 
@@ -168,8 +210,8 @@ The next functional passes should focus on:
 - real provider runtime and first live provider integration
 - pagination and repeated-search reliability
 - persistence and auth hardening
-- saved user features and improved personalization
+- improved personalization on top of saved-user behavior
 - analytics v1 from observed pricing data
-- alerts/watchlists and beta readiness
+- watchlist delivery, alerts, and beta readiness
 
 Use [TASKS.md](TASKS.md) for the step-by-step milestone roadmap.

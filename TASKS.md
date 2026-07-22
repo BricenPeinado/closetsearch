@@ -192,12 +192,12 @@ Exit criteria:
 
 ## Milestone 15: Production Auth Foundation
 
-- [ ] Replace lightweight auth with a safer auth flow
-- [ ] Add password hashing
-- [ ] Add sessions or JWT strategy
-- [ ] Add route protection rules where appropriate
-- [ ] Add logout and session-expiry behavior
-- [ ] Add auth error handling and recovery states
+- [x] Replace lightweight auth with a safer auth flow
+- [x] Add password hashing
+- [x] Add sessions or JWT strategy
+- [x] Add route protection rules where appropriate
+- [x] Add logout and session-expiry behavior
+- [x] Add auth error handling and recovery states
 
 Exit criteria:
 
@@ -206,12 +206,12 @@ Exit criteria:
 
 ## Milestone 16: Saved User Features
 
-- [ ] Add persistent liked items
-- [ ] Add saved searches
-- [ ] Add saved filters
-- [ ] Add watchlist shell
-- [ ] Improve the profile surface
-- [ ] Add user settings such as preferred currency
+- [x] Add persistent liked items
+- [x] Add saved searches
+- [x] Add saved filters
+- [x] Add watchlist shell
+- [x] Improve the profile surface
+- [x] Add user settings such as preferred currency
 
 Exit criteria:
 
@@ -220,12 +220,12 @@ Exit criteria:
 
 ## Milestone 17: Personalization V2
 
-- [ ] Refine ranking weights
-- [ ] Use real likes and preferences
-- [ ] Improve brand and category boosts
-- [ ] Add diversity and exploration balancing
-- [ ] Avoid repetitive feed results
-- [ ] Document recommendation scoring inputs
+- [x] Refine ranking weights
+- [x] Use real likes and preferences
+- [x] Improve brand and category boosts
+- [x] Add diversity and exploration balancing
+- [x] Avoid repetitive feed results
+- [x] Document recommendation scoring inputs
 
 Exit criteria:
 
@@ -234,12 +234,12 @@ Exit criteria:
 
 ## Milestone 18: Real Analytics V1
 
-- [ ] Collect price snapshots
-- [ ] Compute simple brand and category pricing ranges
-- [ ] Compare listing price to observed market ranges
-- [ ] Show simple under-market signals
-- [ ] Keep disclaimers clear
-- [ ] Avoid unsupported predictions
+- [x] Collect price snapshots
+- [x] Compute simple brand and category pricing ranges
+- [x] Compare listing price to observed market ranges
+- [x] Show simple under-market signals
+- [x] Keep disclaimers clear
+- [x] Avoid unsupported predictions
 
 Exit criteria:
 
@@ -248,33 +248,69 @@ Exit criteria:
 
 ## Milestone 19: Alerts + Watchlists
 
-- [ ] Add watched brands
-- [ ] Add watched searches
-- [ ] Add watched price ranges
-- [ ] Add an alert-ready data model
-- [ ] Add notification preference shell
-- [ ] Leave email/push integration for a later dedicated pass
+- [x] Add watched brands
+- [x] Add watched searches
+- [x] Add watched price ranges
+- [x] Add an alert-ready data model
+- [x] Add notification preference shell
+- [x] Leave email/push integration for a later dedicated pass
 
 Exit criteria:
 
-- Users can save intent, even if delivery channels remain basic at first.
+- Users can save alert intent and notification preferences shell data while email, push, SMS, and active monitoring remain intentionally inactive.
 - The data model supports future notifications cleanly.
 
 ## Milestone 20: Beta Launch Readiness
 
-- [ ] Create a deployment checklist
-- [ ] Document environment variables
-- [ ] Improve logging and error handling
-- [ ] Add privacy and data-use copy
-- [ ] Define seed/demo data strategy
-- [ ] Create a manual QA checklist
-- [ ] Document known limitations
-- [ ] Define a beta feedback plan
+- [x] Create a deployment checklist
+- [x] Document environment variables
+- [x] Improve logging and error handling
+- [x] Add privacy and data-use copy
+- [x] Define seed/demo data strategy
+- [x] Create a manual QA checklist
+- [x] Document known limitations
+- [x] Define a beta feedback plan
 
 Exit criteria:
 
 - The app is honest about its limits.
 - The repo is ready for a constrained beta, not full production scale.
+
+## Milestone 21: Beta Feedback Triage + Stability Hardening
+
+- [x] Create beta issue/feedback templates
+- [x] Add feedback triage rubric
+- [x] Fix launch-blocking UX and error-state issues
+- [x] Harden provider failure and empty-state behavior
+- [x] Harden auth/session recovery behavior
+- [x] Review analytics/watchlist wording for beta honesty
+- [x] Add beta smoke-test script or checklist runner if practical
+- [x] Document post-beta priorities
+
+Exit criteria:
+
+- Beta feedback can be captured and prioritized consistently.
+- Common beta failure states are handled gracefully.
+- The app feels stable enough for a small tester group.
+
+## Milestone 22: Launch Candidate Hardening + Release Cut
+
+- [x] Freeze launch-candidate scope
+- [x] Review and resolve launch-blocking beta issues
+- [x] Add release-candidate checklist
+- [x] Add smoke-test coverage for core launch flows
+- [x] Verify provider fallback behavior
+- [x] Verify auth/session/saved-user flows
+- [x] Verify analytics/watchlist limitation copy
+- [x] Prepare release notes template
+- [x] Prepare rollback plan
+- [x] Document launch go/no-go criteria
+
+Exit criteria:
+
+- The repo can produce a clean release candidate.
+- Launch blockers are fixed or explicitly deferred.
+- Release, rollback, and go/no-go steps are documented.
 
 ## Rules for Development Passes
 

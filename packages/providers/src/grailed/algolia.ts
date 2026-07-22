@@ -5,9 +5,9 @@ import type {
   ListingSeller,
   SellerTrustTier,
 } from "@closetsearch/shared";
-import type { ProviderSearchQuery } from "../types";
-import type { GrailedAlgoliaCredentials } from "./credentials";
-import type { GrailedJsonClientResponse } from "./http-client";
+import type { ProviderSearchQuery } from "../types.js";
+import type { GrailedAlgoliaCredentials } from "./credentials.js";
+import type { GrailedJsonClientResponse } from "./http-client.js";
 
 const activeListingsIndex = "Listing_production";
 const soldListingsIndex = "Listing_sold_production";
@@ -199,6 +199,26 @@ export function getGrailedIndexName(
   return marketScope === "sold" ? soldListingsIndex : activeListingsIndex;
 }
 
+function createGrailedAlgoliaRequestUrl(
+  credentials: GrailedAlgoliaCredentials,
+  indexName: string,
+) {
+  return `https://${credentials.appId}-dsn.algolia.net/1/indexes/${indexName}/query`;
+}
+
+function createGrailedAlgoliaRequestHeaders(
+  baseUrl: string,
+  credentials: GrailedAlgoliaCredentials,
+) {
+  return {
+    origin: baseUrl,
+    referer: `${baseUrl}/`,
+    "x-algolia-agent": "ClosetSearch Grailed Provider",
+    "x-algolia-api-key": credentials.apiKey,
+    "x-algolia-application-id": credentials.appId,
+  };
+}
+
 export function createGrailedAlgoliaQueryPayload(
   query: ProviderSearchQuery,
   page: number,
@@ -215,6 +235,18 @@ export function createGrailedAlgoliaQueryPayload(
 
   return {
     params: params.toString(),
+  };
+}
+
+export function createGrailedAlgoliaCredentialValidationPayload(
+  queryText = "",
+) {
+  return {
+    params: new URLSearchParams({
+      hitsPerPage: "1",
+      page: "0",
+      query: queryText,
+    }).toString(),
   };
 }
 
@@ -235,18 +267,32 @@ export async function queryGrailedAlgolia(
   },
 ) {
   const indexName = getGrailedIndexName(options.marketScope);
-  const url = `https://${options.credentials.appId}-dsn.algolia.net/1/indexes/${indexName}/query`;
 
   return client.postJson<GrailedAlgoliaResponse>(
-    url,
+    createGrailedAlgoliaRequestUrl(options.credentials, indexName),
     createGrailedAlgoliaQueryPayload(options.query, options.page),
-    {
-      origin: options.baseUrl,
-      referer: `${options.baseUrl}/`,
-      "x-algolia-agent": "ClosetSearch Grailed Provider",
-      "x-algolia-api-key": options.credentials.apiKey,
-      "x-algolia-application-id": options.credentials.appId,
-    },
+    createGrailedAlgoliaRequestHeaders(options.baseUrl, options.credentials),
+  );
+}
+
+export async function validateGrailedAlgoliaCredentials(
+  client: {
+    postJson<T>(
+      url: string,
+      body: unknown,
+      headers?: Record<string, string>,
+    ): Promise<GrailedJsonClientResponse<T>>;
+  },
+  options: {
+    baseUrl: string;
+    credentials: GrailedAlgoliaCredentials;
+    queryText?: string;
+  },
+) {
+  return client.postJson<GrailedAlgoliaResponse>(
+    createGrailedAlgoliaRequestUrl(options.credentials, activeListingsIndex),
+    createGrailedAlgoliaCredentialValidationPayload(options.queryText ?? ""),
+    createGrailedAlgoliaRequestHeaders(options.baseUrl, options.credentials),
   );
 }
 

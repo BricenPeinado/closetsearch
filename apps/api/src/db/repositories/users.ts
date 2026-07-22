@@ -123,6 +123,18 @@ export function updateUserPreferences(
   return findUserById(userId);
 }
 
+export function updateUserPasswordHash(userId: string, passwordHash: string) {
+  getDatabase()
+    .prepare(
+      `UPDATE users
+      SET password_hash = ?
+      WHERE id = ?`,
+    )
+    .run(passwordHash, userId);
+
+  return findUserById(userId);
+}
+
 export function clearUsers() {
   getDatabase().prepare("DELETE FROM users").run();
 }

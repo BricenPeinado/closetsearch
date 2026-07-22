@@ -122,8 +122,19 @@ export function createSearchParams(values: SearchFormValues): URLSearchParams {
   return params;
 }
 
+export function hasActiveSearchValues(values: SearchFormValues): boolean {
+  return (
+    values.query.trim().length > 0 ||
+    values.sort !== "relevance" ||
+    values.source.trim().length > 0 ||
+    values.listingType.trim().length > 0 ||
+    normalizePriceValue(values.minPrice).length > 0 ||
+    normalizePriceValue(values.maxPrice).length > 0
+  );
+}
+
 export function buildSearchPath(values: SearchFormValues): string {
-  if (values.query.trim().length === 0) {
+  if (!hasActiveSearchValues(values)) {
     return "/search";
   }
 

@@ -1,6 +1,6 @@
 import type { Brand, Listing, ListingCondition, ListingType } from "@closetsearch/shared";
-import type { RawGrailedFixtureListing } from "./fixtures";
-import type { ParsedGrailedListingCard } from "./parser";
+import type { RawGrailedFixtureListing } from "./fixtures.js";
+import type { ParsedGrailedListingCard } from "./parser.js";
 
 export interface GrailedListingInput {
   brandName?: string | null;

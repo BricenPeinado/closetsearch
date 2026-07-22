@@ -5,15 +5,21 @@ export {
   RISK_SIGNAL_INPUT_FAMILIES,
   RISK_SIGNAL_LABEL,
   RISK_SIGNAL_PRODUCT_LANGUAGE,
-} from "./risk";
+} from "./risk.js";
 export type {
+  AnalyticsDataQuality,
+  AnalyticsDisclaimer,
   AnalyticsOverview,
-  MarketInsight,
+  BrandMarketSummary,
+  CategoryMarketSummary,
+  ListingPriceComparison,
+  ObservedMarketRange,
   PremiumAccess,
+  PriceSnapshot,
   UnderpricedListingSignal,
-} from "./analytics";
-export type { Brand } from "./brand";
-export type { FeedQuery, FeedResponse } from "./feed";
+} from "./analytics.js";
+export type { Brand } from "./brand.js";
+export type { FeedQuery, FeedResponse } from "./feed.js";
 export type {
   Listing,
   ListingCondition,
@@ -24,9 +30,15 @@ export type {
   ListingType,
   Money,
   SellerTrustTier,
-} from "./listing";
-export type { PaginationInfo } from "./pagination";
-export type { RiskLevel, RiskSignal, RiskSignalCategory } from "./risk";
+} from "./listing.js";
+export type { PaginationInfo } from "./pagination.js";
+export type {
+  FeedPersonalizationDebug,
+  PersonalizationSummary,
+  RecommendationReason,
+  RecommendationScoreBreakdown,
+} from "./recommendation.js";
+export type { RiskLevel, RiskSignal, RiskSignalCategory } from "./risk.js";
 export type {
   DeleteSavedSearchInput,
   PersistSearchHistoryInput,
@@ -34,13 +46,38 @@ export type {
   RecentSearch,
   SavedSearch,
   SearchHistoryEntry,
-} from "./search-history";
+} from "./search-history.js";
 export type {
   PriceRange,
   SearchProviderSummary,
   SearchQuery,
   SearchResponse,
   SearchSortMode,
-} from "./search";
-export type { Heart, Like } from "./like";
-export type { AuthResponse, OnboardingPreferences, StoredUser, User } from "./user";
+} from "./search.js";
+export type { Heart, Like } from "./like.js";
+export type {
+  AlertDeliveryChannel,
+  AlertFrequency,
+  AlertMatch,
+  AlertMatchReason,
+  AlertMatchResult,
+  AlertMatchStatus,
+  DeleteLikeInput,
+  DeleteSavedFilterInput,
+  DeleteWatchlistInput,
+  LikedListing,
+  NotificationPreferences,
+  PersistAlertMatchInput,
+  PersistLikeInput,
+  PersistSavedFilterInput,
+  PersistWatchlistInput,
+  SavedFilter,
+  SavedFilterListingType,
+  UpdateNotificationPreferencesInput,
+  UpdateUserSettingsInput,
+  UpdateWatchlistInput,
+  UserSettings,
+  Watchlist,
+  WatchlistInput,
+} from "./saved-user.js";
+export type { AuthResponse, OnboardingPreferences, StoredUser, User } from "./user.js";

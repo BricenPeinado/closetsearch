@@ -5,7 +5,7 @@ import type {
   ListingType,
   SearchSortMode,
 } from "@closetsearch/shared";
-import type { Provider, ProviderSearchQuery, ProviderSearchRequest } from "../types";
+import type { Provider, ProviderSearchQuery, ProviderSearchRequest } from "../types.js";
 
 const MOCK_PROVIDER_ID = "mock";
 const MOCK_PROVIDER_NAME = "Mock Closet";
