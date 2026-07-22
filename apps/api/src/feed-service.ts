@@ -8,6 +8,7 @@ import { getSavedSearchesByUserId } from "./saved-search-service.js";
 import { getUserById } from "./user-service.js";
 import { getSettingsByUserId } from "./user-settings-service.js";
 import { getWatchlistsByUserId } from "./watchlist-service.js";
+import { logWarn } from "./logger.js";
 import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
 import { buildPersonalizationProfile } from "./services/personalizationSignalsService.js";
@@ -36,7 +37,7 @@ function rememberAnalyticsListings(listings: Listing[]) {
   try {
     recordObservedListings(listings);
   } catch (error) {
-    console.error("Analytics snapshot recording failed", {
+    logWarn("Analytics snapshot recording failed", {
       message: error instanceof Error ? error.message : "Unknown analytics snapshot error",
       route: "feed",
     });
@@ -95,6 +96,7 @@ export async function getFeed(
         signalCount: 0,
         signalLabels: [],
       },
+      providers: execution.providers,
       debugPersonalization: query.debugPersonalization
         ? {
             scoreBreakdowns: [],
@@ -124,6 +126,7 @@ export async function getFeed(
     isPersonalized: recommendation.isPersonalized,
     pagination: execution.pagination,
     personalizationSummary: recommendation.personalizationSummary,
+    providers: execution.providers,
     debugPersonalization: recommendation.debugPersonalization,
   };
 }

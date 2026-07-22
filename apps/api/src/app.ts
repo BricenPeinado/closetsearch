@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import type {
   FeedQuery,
   Listing,
+  ListingCondition,
   ListingMarketStatus,
   ListingType,
   OnboardingPreferences,
@@ -21,6 +22,7 @@ import {
 } from "./auth/session-service.js";
 import { getFeed } from "./feed-service.js";
 import { addLike, getLikedListingsByUserId, getLikesByUserId, removeLike } from "./like-service.js";
+import { createRequestId, logError, logWarn } from "./logger.js";
 import {
   addRecentSearch,
   getRecentSearchesByUserId,
@@ -47,7 +49,21 @@ import {
   getPremiumPreviewUsername,
 } from "./services/premiumAccessService.js";
 import { createUser, loginUser, saveOnboardingPreferences } from "./user-service.js";
-import { addWatchlist, getWatchlistsByUserId, removeWatchlist } from "./watchlist-service.js";
+import {
+  getAlertMatchesByUserId,
+} from "./services/alertMatchService.js";
+import {
+  getAlertPreferencesByUserId,
+  updateAlertPreferences,
+} from "./services/alertPreferenceService.js";
+import {
+  createWatchlist,
+  getWatchlistsByUserId,
+  removeWatchlist,
+  updateWatchlist,
+} from "./services/watchlistService.js";
+
+const requestIdHeaderName = "x-request-id";
 
 function buildCorsHeaders(request: IncomingMessage) {
   const origin =
@@ -67,6 +83,21 @@ function buildCorsHeaders(request: IncomingMessage) {
   return headers;
 }
 
+function getRequestId(request: IncomingMessage) {
+  return (request as IncomingMessage & { __requestId?: string }).__requestId ?? "unknown";
+}
+
+function buildResponseHeaders(
+  request: IncomingMessage,
+  extraHeaders?: Record<string, string>,
+) {
+  return {
+    ...buildCorsHeaders(request),
+    [requestIdHeaderName]: getRequestId(request),
+    ...extraHeaders,
+  };
+}
+
 function sendJson(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
@@ -75,9 +106,8 @@ function sendJson(
   extraHeaders?: Record<string, string>,
 ) {
   response.writeHead(statusCode, {
-    ...buildCorsHeaders(request),
+    ...buildResponseHeaders(request, extraHeaders),
     "content-type": "application/json; charset=utf-8",
-    ...extraHeaders,
   });
   response.end(JSON.stringify(body));
 }
@@ -89,8 +119,7 @@ function sendEmpty(
   extraHeaders?: Record<string, string>,
 ) {
   response.writeHead(statusCode, {
-    ...buildCorsHeaders(request),
-    ...extraHeaders,
+    ...buildResponseHeaders(request, extraHeaders),
   });
   response.end();
 }
@@ -309,7 +338,7 @@ function toOptionalSearchSortMode(value: unknown) {
   return undefined;
 }
 
-function toOptionalSavedFilterListingType(value: unknown) {
+function toOptionalSavedFilterListingType(value: unknown): "auction" | "buy_now" | undefined {
   if (value === "auction" || value === "buy_now") {
     return value;
   }
@@ -319,6 +348,57 @@ function toOptionalSavedFilterListingType(value: unknown) {
   }
 
   return undefined;
+}
+
+function toOptionalBoolean(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalizedValue = value.trim().toLowerCase();
+
+    if (normalizedValue === "true") {
+      return true;
+    }
+
+    if (normalizedValue === "false") {
+      return false;
+    }
+  }
+
+  return undefined;
+}
+
+function toOptionalListingCondition(value: unknown): ListingCondition | undefined {
+  switch (value) {
+    case "new_with_tags":
+    case "new_without_tags":
+    case "excellent":
+    case "good":
+    case "fair":
+    case "unknown":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function toOptionalAlertFrequency(value: unknown) {
+  if (value === "instant" || value === "daily" || value === "weekly") {
+    return value;
+  }
+
+  return undefined;
+}
+
+function getPathId(pathname: string, basePath: string) {
+  if (!pathname.startsWith(basePath + "/")) {
+    return undefined;
+  }
+
+  const rawValue = decodeURIComponent(pathname.slice(basePath.length + 1)).trim();
+  return rawValue || undefined;
 }
 
 function toOptionalListingSnapshot(value: unknown) {
@@ -781,26 +861,33 @@ async function handleDeleteSavedFilter(
   });
 }
 
+function buildWatchlistInput(body: Record<string, unknown> | null) {
+  return {
+    label: toTrimmedString(body?.label) || undefined,
+    queryText: toTrimmedString(body?.queryText) || undefined,
+    brand: toTrimmedString(body?.brand) || undefined,
+    category: toTrimmedString(body?.category) || undefined,
+    source: toTrimmedString(body?.source) || undefined,
+    listingType: toOptionalSavedFilterListingType(body?.listingType),
+    minPriceAmount: toOptionalNumber(body?.minPriceAmount ?? body?.minPrice),
+    maxPriceAmount: toOptionalNumber(body?.maxPriceAmount ?? body?.maxPrice),
+    priceCurrency: toTrimmedString(body?.priceCurrency) || undefined,
+    condition: toOptionalListingCondition(body?.condition),
+    size: toTrimmedString(body?.size) || undefined,
+    enabled: toOptionalBoolean(body?.enabled),
+  };
+}
+
 async function handleCreateWatchlist(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
   const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const label = toTrimmedString(body?.label);
 
-  if (!label) {
-    sendValidationError(request, response, "label is required.");
-    return;
-  }
-
-  const watchlist = addWatchlist({
+  const watchlist = createWatchlist({
     userId: user.id,
-    label,
-    queryText: toTrimmedString(body?.queryText) || undefined,
-    brand: toTrimmedString(body?.brand) || undefined,
-    maxPrice: toOptionalNumber(body?.maxPrice),
-    source: toTrimmedString(body?.source) || undefined,
+    ...buildWatchlistInput(body),
   });
 
   sendJson(request, response, 201, {
@@ -822,13 +909,35 @@ function handleGetWatchlists(
   });
 }
 
-async function handleDeleteWatchlist(
+async function handlePatchWatchlist(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
+  watchlistId: string,
 ) {
   const user = requireAuth(request);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
-  const id = toTrimmedString(body?.id);
+
+  const watchlist = updateWatchlist({
+    id: watchlistId,
+    userId: user.id,
+    ...buildWatchlistInput(body),
+  });
+
+  sendJson(request, response, 200, {
+    watchlist,
+    watchlists: getWatchlistsByUserId(user.id),
+    userId: user.id,
+  });
+}
+
+async function handleDeleteWatchlist(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+  watchlistId?: string,
+) {
+  const user = requireAuth(request);
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+  const id = watchlistId ?? toTrimmedString(body?.id);
 
   if (!id) {
     sendValidationError(request, response, "id is required.");
@@ -840,6 +949,58 @@ async function handleDeleteWatchlist(
       userId: user.id,
       id,
     }),
+    userId: user.id,
+  });
+}
+
+function handleGetNotificationPreferences(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+
+  sendJson(request, response, 200, {
+    notificationPreferences: getAlertPreferencesByUserId(user.id),
+    userId: user.id,
+  });
+}
+
+async function handlePatchNotificationPreferences(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+  const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
+
+  const notificationPreferences = updateAlertPreferences({
+    userId: user.id,
+    emailEnabled: toOptionalBoolean(body?.emailEnabled),
+    pushEnabled: toOptionalBoolean(body?.pushEnabled),
+    smsEnabled: toOptionalBoolean(body?.smsEnabled),
+    inAppEnabled: toOptionalBoolean(body?.inAppEnabled),
+    frequency: toOptionalAlertFrequency(body?.frequency),
+    quietHoursStart:
+      body?.quietHoursStart === null ? null : toTrimmedString(body?.quietHoursStart) || undefined,
+    quietHoursEnd:
+      body?.quietHoursEnd === null ? null : toTrimmedString(body?.quietHoursEnd) || undefined,
+  });
+
+  sendJson(request, response, 200, {
+    notificationPreferences,
+    userId: user.id,
+  });
+}
+
+function handleGetAlertMatches(
+  request: IncomingMessage,
+  response: ServerResponse<IncomingMessage>,
+) {
+  const user = requireAuth(request);
+
+  sendJson(request, response, 200, {
+    alertMatches: getAlertMatchesByUserId(user.id),
+    deliveryActive: false,
+    message: "Alert delivery is not active yet. Stored matches are foundation data only.",
     userId: user.id,
   });
 }
@@ -1255,16 +1416,35 @@ export async function handleRequest(
     return;
   }
 
-  if (
-    method === "GET" &&
-    (requestUrl.pathname === "/me/watchlists" || requestUrl.pathname.startsWith("/me/watchlists/"))
-  ) {
+  if (method === "GET" && requestUrl.pathname === "/me/watchlists") {
     handleGetWatchlists(request, response);
     return;
   }
 
-  if (method === "DELETE" && requestUrl.pathname === "/me/watchlists") {
-    await handleDeleteWatchlist(request, response);
+  const watchlistId = getPathId(requestUrl.pathname, "/me/watchlists");
+
+  if (method === "PATCH" && watchlistId) {
+    await handlePatchWatchlist(request, response, watchlistId);
+    return;
+  }
+
+  if (method === "DELETE" && (requestUrl.pathname === "/me/watchlists" || watchlistId)) {
+    await handleDeleteWatchlist(request, response, watchlistId);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/me/notification-preferences") {
+    handleGetNotificationPreferences(request, response);
+    return;
+  }
+
+  if (method === "PATCH" && requestUrl.pathname === "/me/notification-preferences") {
+    await handlePatchNotificationPreferences(request, response);
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/me/alert-matches") {
+    handleGetAlertMatches(request, response);
     return;
   }
 
@@ -1286,13 +1466,28 @@ export async function handleRequest(
 
 export function createApp() {
   return createServer((request, response) => {
+    const requestWithContext = request as IncomingMessage & { __requestId?: string };
+    requestWithContext.__requestId = createRequestId();
+
     void handleRequest(request, response).catch((error: unknown) => {
+      const requestContext = {
+        method: request.method ?? "GET",
+        path: request.url ?? "/",
+        requestId: getRequestId(request),
+      };
+
       if (error instanceof Error && error.message === "invalid_json") {
+        logWarn("Rejected invalid JSON request body", requestContext);
         sendValidationError(request, response, "The request body must be valid JSON.", 400, "invalid_json");
         return;
       }
 
       if (isApiError(error)) {
+        logWarn("Handled API error", {
+          ...requestContext,
+          errorCode: error.code,
+          statusCode: error.statusCode,
+        });
         sendJson(
           request,
           response,
@@ -1306,7 +1501,11 @@ export function createApp() {
         return;
       }
 
-      console.error("Unhandled API error", error);
+      logError("Unhandled API error", {
+        ...requestContext,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
 
       sendJson(request, response, 500, {
         error: "internal_error",

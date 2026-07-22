@@ -1,7 +1,7 @@
-import type { ProviderFailureCode } from "../types";
-import { validateGrailedAlgoliaCredentials } from "./algolia";
-import type { GrailedHttpClient } from "./http-client";
-import { buildGrailedSearchUrl } from "./search-url";
+import type { ProviderFailureCode } from "../types.js";
+import { validateGrailedAlgoliaCredentials } from "./algolia.js";
+import type { GrailedHttpClient } from "./http-client.js";
+import { buildGrailedSearchUrl } from "./search-url.js";
 
 export interface GrailedAlgoliaCredentials {
   apiKey: string;

@@ -35,6 +35,7 @@ import {
   recordObservedListings,
   resetPriceSnapshotStore,
 } from "./services/priceSnapshotService.js";
+import { getAlertPreferencesByUserId } from "./services/alertPreferenceService.js";
 import {
   createUser,
   getUserById,
@@ -111,6 +112,49 @@ describe("database persistence services", () => {
 
     expect(login.userId).toBe(signup.userId);
     expect(login.user.username).toBe("archivekid");
+  });
+
+  it("seeds demo data idempotently without duplicating beta fixtures", () => {
+    seedDatabase();
+    seedDatabase();
+
+    closeDatabaseConnection();
+
+    const demoLogin = loginUser("closetdemo", "closetdemo");
+    const savedSearches = getSavedSearchesByUserId(demoLogin.userId);
+    const savedFilters = getSavedFiltersByUserId(demoLogin.userId);
+    const watchlists = getWatchlistsByUserId(demoLogin.userId);
+    const recentSearches = getRecentSearchesByUserId(demoLogin.userId);
+    const settings = getSettingsByUserId(demoLogin.userId);
+    const notificationPreferences = getAlertPreferencesByUserId(demoLogin.userId);
+    const observedSnapshots = getObservedPriceSnapshots();
+
+    expect(recentSearches).toHaveLength(1);
+    expect(savedSearches).toHaveLength(1);
+    expect(savedFilters).toHaveLength(1);
+    expect(watchlists).toHaveLength(1);
+    expect(watchlists[0]).toMatchObject({
+      brand: "Kapital",
+      category: "jackets",
+      enabled: true,
+      label: "Kapital under $300",
+    });
+    expect(settings).toMatchObject({
+      displayName: "Closet Demo",
+      preferredCurrency: "USD",
+      preferredSources: ["grailed", "mock"],
+    });
+    expect(notificationPreferences).toMatchObject({
+      emailEnabled: false,
+      frequency: "daily",
+      inAppEnabled: true,
+      pushEnabled: false,
+      quietHoursEnd: "08:00",
+      quietHoursStart: "22:00",
+      smsEnabled: false,
+      userId: demoLogin.userId,
+    });
+    expect(observedSnapshots).toHaveLength(6);
   });
 
   it("persists onboarding preferences across database reinitialization", () => {
@@ -289,7 +333,7 @@ describe("database persistence services", () => {
       label: "Kapital under $250",
       queryText: "kapital",
       brand: "Kapital",
-      maxPrice: 250,
+      maxPriceAmount: 250,
       source: "grailed",
     });
 

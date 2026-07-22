@@ -1,5 +1,6 @@
 import type { Listing, SearchQuery, SearchResponse } from "@closetsearch/shared";
 import { ApiError } from "./api-error.js";
+import { logWarn } from "./logger.js";
 import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
 import { recordListingImpressions } from "./services/engagementService.js";
@@ -41,7 +42,7 @@ function rememberAnalyticsListings(listings: Listing[]) {
   try {
     recordObservedListings(listings);
   } catch (error) {
-    console.error("Analytics snapshot recording failed", {
+    logWarn("Analytics snapshot recording failed", {
       message: error instanceof Error ? error.message : "Unknown analytics snapshot error",
       route: "search",
     });

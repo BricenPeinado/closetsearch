@@ -1,5 +1,6 @@
 import { getDatabase } from "./db/database.js";
 import { createApp } from "./app.js";
+import { logInfo } from "./logger.js";
 
 getDatabase();
 
@@ -11,5 +12,9 @@ const host = process.env.HOST ?? "127.0.0.1";
 const server = createApp();
 
 server.listen(port, host, () => {
-  console.log(`ClosetSearch API listening at http://${host}:${port}`);
+  logInfo("ClosetSearch API listening", {
+    host,
+    port,
+    url: `http://${host}:${port}`,
+  });
 });

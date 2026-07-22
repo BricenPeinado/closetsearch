@@ -10,28 +10,28 @@ import type {
   ProviderSearchResponse,
   ProviderSearchResult,
   ProviderWarning,
-} from "../types";
+} from "../types.js";
 import {
   createGrailedPagination,
   GRAILED_ALGOLIA_HITS_PER_PAGE,
   normalizeGrailedAlgoliaHit,
   queryGrailedAlgolia,
-} from "./algolia";
+} from "./algolia.js";
 import {
   createGrailedCredentialCache,
   GrailedCredentialResolutionError,
   resolveGrailedAlgoliaCredentials,
   type GrailedCredentialCache,
-} from "./credentials";
+} from "./credentials.js";
 import {
   grailedFixtureListings,
   type RawGrailedFixtureListing,
-} from "./fixtures";
-import { createGrailedHttpClient, type GrailedFetch } from "./http-client";
+} from "./fixtures.js";
+import { createGrailedHttpClient, type GrailedFetch } from "./http-client.js";
 import {
   createGrailedListingInputFromFixture,
   normalizeGrailedListing,
-} from "./normalizer";
+} from "./normalizer.js";
 
 const GRAILED_PROVIDER_ID = "grailed";
 const GRAILED_PROVIDER_NAME = "Grailed";

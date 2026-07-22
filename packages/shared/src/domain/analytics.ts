@@ -2,7 +2,7 @@ import type {
   ListingCondition,
   ListingMarketStatus,
   ListingType,
-} from "./listing";
+} from "./listing.js";
 
 export interface PriceSnapshot {
   id: string;

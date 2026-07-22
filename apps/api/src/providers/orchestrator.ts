@@ -8,6 +8,7 @@ import type {
   ProviderSearchResult,
 } from "@closetsearch/providers";
 import type { Listing, PaginationInfo, SearchProviderSummary, SearchQuery } from "@closetsearch/shared";
+import { logWarn } from "../logger.js";
 import { sanitizeProviderListing } from "./listing-sanitizer.js";
 import {
   createProviderRuntime,
@@ -267,9 +268,20 @@ function createListingDedupeKey(listing: Listing) {
 }
 
 function sanitizeProviderResult(result: ProviderSearchResult): ProviderSearchResult {
+  const sanitizedListings = result.listings
+    .map((listing) => sanitizeProviderListing(listing))
+    .filter((listing): listing is Listing => listing !== null);
+
+  if (sanitizedListings.length !== result.listings.length) {
+    logWarn("Dropped malformed provider listings", {
+      droppedCount: result.listings.length - sanitizedListings.length,
+      providerId: result.providerId,
+    });
+  }
+
   return {
     ...result,
-    listings: result.listings.map(sanitizeProviderListing),
+    listings: sanitizedListings,
     metadata: result.metadata
       ? {
           ...result.metadata,
@@ -682,7 +694,7 @@ export async function runProviderSearch(
     }
 
     if (result.failure) {
-      console.error("Provider failure", {
+      logWarn("Provider failure", {
         providerId: result.failure.providerId,
         code: result.failure.code,
         message: result.failure.message,

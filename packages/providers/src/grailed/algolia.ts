@@ -5,9 +5,9 @@ import type {
   ListingSeller,
   SellerTrustTier,
 } from "@closetsearch/shared";
-import type { ProviderSearchQuery } from "../types";
-import type { GrailedAlgoliaCredentials } from "./credentials";
-import type { GrailedJsonClientResponse } from "./http-client";
+import type { ProviderSearchQuery } from "../types.js";
+import type { GrailedAlgoliaCredentials } from "./credentials.js";
+import type { GrailedJsonClientResponse } from "./http-client.js";
 
 const activeListingsIndex = "Listing_production";
 const soldListingsIndex = "Listing_sold_production";

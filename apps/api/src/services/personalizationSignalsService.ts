@@ -358,16 +358,30 @@ function addSavedFilterSignals(
 
 function addWatchlistSignals(
   brandAffinities: Map<string, number>,
+  categoryAffinities: Map<string, number>,
+  conditionAffinities: Map<string, number>,
+  listingTypeAffinities: Map<string, number>,
   pricePreferences: PricePreferenceRange[],
   queryTermAffinities: Map<string, number>,
+  sizeAffinities: Map<string, number>,
   sourceAffinities: Map<string, number>,
   watchlists: Watchlist[],
 ) {
   for (const watchlist of watchlists) {
     addWeightedSignal(brandAffinities, watchlist.brand, 1.1);
+    addWeightedSignal(categoryAffinities, watchlist.category, 0.85);
+    addWeightedSignal(conditionAffinities, watchlist.condition, 0.45);
+    addWeightedSignal(listingTypeAffinities, watchlist.listingType, 0.55);
     addQueryTerms(queryTermAffinities, watchlist.queryText, 0.75);
+    addWeightedSignal(sizeAffinities, watchlist.size, 0.4);
     addWeightedSignal(sourceAffinities, watchlist.source, 0.55);
-    addPricePreference(pricePreferences, "watchlist", 0.55, undefined, watchlist.maxPrice);
+    addPricePreference(
+      pricePreferences,
+      "watchlist",
+      0.55,
+      watchlist.minPriceAmount,
+      watchlist.maxPriceAmount,
+    );
   }
 }
 
@@ -425,8 +439,12 @@ export function buildPersonalizationProfile(
   );
   addWatchlistSignals(
     brandAffinities,
+    categoryAffinities,
+    conditionAffinities,
+    listingTypeAffinities,
     pricePreferences,
     queryTermAffinities,
+    sizeAffinities,
     sourceAffinities,
     input.watchlists,
   );

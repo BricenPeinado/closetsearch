@@ -1,5 +1,5 @@
-import type { Brand } from "./brand";
-import type { RiskSignal } from "./risk";
+import type { Brand } from "./brand.js";
+import type { RiskSignal } from "./risk.js";
 
 export type ListingType = "auction" | "buy_now" | "unknown";
 export type ListingMarketStatus = "active" | "sold";

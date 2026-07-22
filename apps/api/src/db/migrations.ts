@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { logInfo } from "../logger.js";
 
 interface MigrationDefinition {
   id: string;
@@ -33,6 +34,13 @@ const migrationDefinitions: MigrationDefinition[] = [
     id: "004_price_snapshots",
     sql: readFileSync(
       new URL("./schema/004_price_snapshots.sql", import.meta.url),
+      "utf-8",
+    ),
+  },
+  {
+    id: "005_alert_watchlists",
+    sql: readFileSync(
+      new URL("./schema/005_alert_watchlists.sql", import.meta.url),
       "utf-8",
     ),
   },
@@ -91,11 +99,11 @@ async function runMigrationsCli() {
   const database = getDatabase();
   const appliedMigrations = runMigrations(database);
 
-  console.log(
-    appliedMigrations.length > 0
-      ? `Applied migrations to ${getDatabasePath()}: ${appliedMigrations.join(", ")}`
-      : `No pending migrations for ${getDatabasePath()}.`,
-  );
+  logInfo("Migration command completed", {
+    appliedMigrations,
+    databasePath: getDatabasePath(),
+    status: appliedMigrations.length > 0 ? "applied" : "no_pending_migrations",
+  });
 
   closeDatabaseConnection();
 }

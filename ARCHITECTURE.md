@@ -275,17 +275,22 @@ Avoid building forecasting or advanced price prediction systems before observed-
 
 ## Watchlists and Alerts
 
-Watchlists and alerts should build on normalized search and user-engagement models.
+Watchlists and alerts build on normalized search, listing, and signed-in account models, but the current milestone stops at saved intent and alert-ready data.
 
-Likely architecture pieces:
+Current architecture pieces:
 
-- saved brands
-- saved searches
-- watched price ranges
-- notification preference storage
-- future delivery workers or integrations
+- authenticated `/me/watchlists` routes that always scope CRUD to the active session user
+- a `watchlists` table that stores watched brand, query, category, source, listing type, price range, size, condition, label, and enabled state
+- a `notification_preferences` table that stores a delivery-preference shell without activating outbound delivery
+- an `alert_matches` foundation table for deduped candidate matches and future review state
+- a pure watchlist-to-listing matching function that returns explainable match reasons instead of only true or false
 
-The first pass can build the data model and UI shell before adding outbound delivery channels.
+Important boundary rules:
+
+- watchlists save what a user wants to track now
+- email, push, SMS, and background monitoring are intentionally inactive in this pass
+- notification preferences are honest shell data only until a later delivery milestone
+- future workers or integrations should consume the saved foundation instead of changing the watchlist contract again
 
 ## Safe Trust / Risk Signals
 
@@ -322,3 +327,18 @@ Real providers should be added one at a time. The mock provider remains the safe
 - Real provider work should arrive incrementally, not as a giant rewrite.
 - Analytics should start with observed data before predictions.
 - Fake-risk should remain probabilistic, assistive, and non-blocking.
+
+## Beta Operations
+
+ClosetSearch is now documented for constrained beta operation, but not full public production scale.
+
+Operational expectations for this stage:
+
+- deployment remains simple and docs-first
+- environment configuration stays explicit and repo-visible
+- SQLite is still the operational persistence layer
+- structured request and provider-error logging should stay secret-safe and lightweight
+- seed/demo data should help QA and demos without overwriting unrelated user data
+- privacy, data-use, limitation, and feedback guidance should stay visible and honest
+
+Heavy observability, full production incident response, distributed session infrastructure, and deeper deployment automation remain later work.

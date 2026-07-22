@@ -16,11 +16,13 @@ import type {
   LikedListing,
   Like,
   Listing,
+  NotificationPreferences,
   PaginationInfo,
   PersonalizationSummary,
   PremiumAccess,
   SavedFilter,
   SavedSearch,
+  SearchProviderSummary,
   SearchResponse,
   SearchSortMode,
   UnderpricedListingSignal,
@@ -68,6 +70,7 @@ const primaryNavigationItems = [
   { label: "Analytics", path: "/analytics" },
   { label: "Profile", path: "/profile" },
 ] as const;
+const betaFeedbackUrl = "https://github.com/BricenPeinado/closetsearch/issues/new/choose";
 
 const homeFeedPageSize = 12;
 const searchResultsPageSize = 24;
@@ -101,6 +104,7 @@ interface FeedRequestState {
   loadMoreErrorMessage?: string;
   pagination?: PaginationInfo;
   personalizationSummary?: PersonalizationSummary;
+  providers?: SearchProviderSummary[];
   status: "loading" | "success" | "error";
 }
 
@@ -146,6 +150,11 @@ interface WatchlistsResponse {
   userId: string;
 }
 
+interface NotificationPreferencesResponse {
+  notificationPreferences: NotificationPreferences;
+  userId: string;
+}
+
 interface SettingsResponse {
   settings: UserSettings;
   userId: string;
@@ -153,11 +162,27 @@ interface SettingsResponse {
 
 interface ProfileCollectionsState {
   errorMessage?: string;
+  notificationPreferences?: NotificationPreferences;
   savedFilters: SavedFilter[];
   savedSearches: SavedSearch[];
   settings?: UserSettings;
   status: "loading" | "success" | "error";
   watchlists: Watchlist[];
+}
+
+interface WatchlistFormState {
+  brand: string;
+  category: string;
+  condition: string;
+  enabled: boolean;
+  label: string;
+  listingType: SearchFormValues["listingType"];
+  maxPriceAmount: string;
+  minPriceAmount: string;
+  priceCurrency: string;
+  queryText: string;
+  size: string;
+  source: string;
 }
 
 interface BrandListResponse {
@@ -286,6 +311,44 @@ function formatObservedRange(minPrice: number, maxPrice: number, currency: strin
   return `${formatCurrencyAmount(minPrice, currency)} to ${formatCurrencyAmount(maxPrice, currency)}`;
 }
 
+export function getProviderAvailabilityMessage(
+  providers: SearchProviderSummary[] | undefined,
+  surface: "feed" | "search",
+) {
+  if (!providers?.length) {
+    return undefined;
+  }
+
+  const failedProviders = providers.filter((provider) => provider.status === "failure");
+  const actionLabel =
+    surface === "feed" ? "while loading the feed" : "during this search";
+
+  if (failedProviders.length === 0) {
+    return undefined;
+  }
+
+  if (failedProviders.length === 1) {
+    return `Results may be limited right now because ${failedProviders[0]?.providerName} was unavailable ${actionLabel}.`;
+  }
+
+  return `Results may be limited right now because ${failedProviders.length} marketplaces were unavailable ${actionLabel}.`;
+}
+
+function getSearchEmptyStateMessage(
+  query: string,
+  providers: SearchProviderSummary[] | undefined,
+) {
+  const providerAvailabilityMessage = getProviderAvailabilityMessage(providers, "search");
+  const baseMessage =
+    query.trim().length > 0
+      ? `No results found for "${query}". Try broadening your search or clearing a filter.`
+      : "No results found for these filters. Try broadening your search or clearing a filter.";
+
+  return providerAvailabilityMessage
+    ? `${baseMessage} ${providerAvailabilityMessage}`
+    : baseMessage;
+}
+
 
 function formatCurrencyAmount(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -331,6 +394,95 @@ export function getHomeFeedPresentation(
     chipLabel: "Fresh Picks",
     introCopy: summary?.message ?? "Like listings or save a search to personalize this feed.",
   };
+}
+
+function createEmptyWatchlistForm(currency = "USD"): WatchlistFormState {
+  return {
+    brand: "",
+    category: "",
+    condition: "",
+    enabled: true,
+    label: "",
+    listingType: "",
+    maxPriceAmount: "",
+    minPriceAmount: "",
+    priceCurrency: currency,
+    queryText: "",
+    size: "",
+    source: "",
+  };
+}
+
+function createWatchlistFormFromWatchlist(
+  watchlist: Watchlist,
+  fallbackCurrency = "USD",
+): WatchlistFormState {
+  return {
+    brand: watchlist.brand ?? "",
+    category: watchlist.category ?? "",
+    condition: watchlist.condition ?? "",
+    enabled: watchlist.enabled,
+    label: watchlist.label,
+    listingType: watchlist.listingType ?? "",
+    maxPriceAmount:
+      watchlist.maxPriceAmount !== undefined ? String(watchlist.maxPriceAmount) : "",
+    minPriceAmount:
+      watchlist.minPriceAmount !== undefined ? String(watchlist.minPriceAmount) : "",
+    priceCurrency: watchlist.priceCurrency ?? fallbackCurrency,
+    queryText: watchlist.queryText ?? "",
+    size: watchlist.size ?? "",
+    source: watchlist.source ?? "",
+  };
+}
+
+export function createWatchlistDraftFromSearch(
+  values: SearchFormValues,
+  currency = "USD",
+): WatchlistFormState {
+  return {
+    ...createEmptyWatchlistForm(currency),
+    listingType: values.listingType,
+    maxPriceAmount: values.maxPrice,
+    minPriceAmount: values.minPrice,
+    queryText: values.query.trim(),
+    source: values.source.trim(),
+  };
+}
+
+function buildWatchlistPayload(form: WatchlistFormState) {
+  return {
+    brand: form.brand.trim() || undefined,
+    category: form.category.trim() || undefined,
+    condition: form.condition || undefined,
+    enabled: form.enabled,
+    label: form.label.trim() || undefined,
+    listingType: form.listingType || undefined,
+    maxPriceAmount: form.maxPriceAmount ? Number(form.maxPriceAmount) : undefined,
+    minPriceAmount: form.minPriceAmount ? Number(form.minPriceAmount) : undefined,
+    priceCurrency: form.priceCurrency.trim() || undefined,
+    queryText: form.queryText.trim() || undefined,
+    size: form.size.trim() || undefined,
+    source: form.source.trim() || undefined,
+  };
+}
+
+export function buildWatchlistPayloadFromSearch(
+  values: SearchFormValues,
+  currency = "USD",
+) {
+  return buildWatchlistPayload(createWatchlistDraftFromSearch(values, currency));
+}
+
+function formatConditionLabel(condition?: string) {
+  if (!condition) {
+    return undefined;
+  }
+
+  return condition
+    .split("_")
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
 }
 
 function buildSavedSearchLabel(values: SearchFormValues) {
@@ -389,12 +541,30 @@ function formatFilterSummary(savedFilter: SavedFilter, currency: string) {
 }
 
 function formatWatchlistSummary(watchlist: Watchlist, currency: string) {
-  const details = [watchlist.queryText, watchlist.brand, watchlist.source].filter(
-    (value): value is string => Boolean(value && value.trim().length > 0),
-  );
+  const details = [
+    watchlist.queryText,
+    watchlist.brand,
+    watchlist.category,
+    watchlist.source,
+    watchlist.listingType === "auction"
+      ? "Auction"
+      : watchlist.listingType === "buy_now"
+        ? "Fixed price"
+        : undefined,
+    watchlist.size ? `Size ${watchlist.size}` : undefined,
+    formatConditionLabel(watchlist.condition),
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0));
 
-  if (watchlist.maxPrice !== undefined) {
-    details.push(`Up to ${formatCurrencyAmount(watchlist.maxPrice, currency)}`);
+  if (watchlist.minPriceAmount !== undefined) {
+    details.push(`From ${formatCurrencyAmount(watchlist.minPriceAmount, watchlist.priceCurrency ?? currency)}`);
+  }
+
+  if (watchlist.maxPriceAmount !== undefined) {
+    details.push(`Up to ${formatCurrencyAmount(watchlist.maxPriceAmount, watchlist.priceCurrency ?? currency)}`);
+  }
+
+  if (!watchlist.enabled) {
+    details.push("Paused");
   }
 
   return details.join(" • ") || "Watching for future matches.";
@@ -686,6 +856,7 @@ function HomePage({
           listings: response.listings,
           pagination: response.pagination,
           personalizationSummary: response.personalizationSummary,
+          providers: response.providers,
           status: "success",
         });
       })
@@ -747,6 +918,7 @@ function HomePage({
           pagination: response.pagination,
           personalizationSummary:
             response.personalizationSummary ?? currentState.personalizationSummary,
+          providers: response.providers,
           status: "success",
         }));
       })
@@ -779,6 +951,7 @@ function HomePage({
   const listingCount = state.pagination?.totalCount ?? state.listings.length;
   const showLowSignalPrompt =
     Boolean(session) && state.status === "success" && !state.isPersonalized && !needsPreferenceReminder;
+  const providerAvailabilityMessage = getProviderAvailabilityMessage(state.providers, "feed");
 
   return (
     <section className="page-shell page-shell--home">
@@ -812,6 +985,12 @@ function HomePage({
         </section>
       ) : null}
 
+      {providerAvailabilityMessage ? (
+        <section className="inline-banner">
+          <p>{providerAvailabilityMessage}</p>
+        </section>
+      ) : null}
+
       {state.status === "loading" ? <LoadingListings count={homeFeedPageSize} /> : null}
 
       {state.status === "error" ? (
@@ -830,8 +1009,12 @@ function HomePage({
         <StateCard
           body={
             session
-              ? "There is nothing to show right now. Save a few likes or come back when new listings arrive."
-              : "There are no listings to show right now. Check back soon for fresh finds."
+              ? providerAvailabilityMessage
+                ? `There is nothing to show right now. ${providerAvailabilityMessage}`
+                : "There is nothing to show right now. Save a few likes or come back when new listings arrive."
+              : providerAvailabilityMessage
+                ? `There are no listings to show right now. ${providerAvailabilityMessage}`
+                : "There are no listings to show right now. Check back soon for fresh finds."
           }
           title="Nothing here yet"
         />
@@ -898,7 +1081,7 @@ function AnalyticsPage({ children }: { children?: ReactNode }) {
   return (
     <PageTemplate
       title="Premium Analytics"
-      description="Preview sample pricing context, brand movement, and under-market signals."
+      description="Observed-data pricing context only. No predictions, profit claims, or guaranteed underpriced calls."
     >
       {children}
     </PageTemplate>
@@ -908,6 +1091,17 @@ function AnalyticsPage({ children }: { children?: ReactNode }) {
 function ProfilePage({ children }: { children?: ReactNode }) {
   return (
     <PageTemplate title="Profile" description="Your account, preferences, and saved pieces.">
+      {children}
+    </PageTemplate>
+  );
+}
+
+function BetaInfoPage({ children }: { children?: ReactNode }) {
+  return (
+    <PageTemplate
+      title="Beta Information"
+      description="Privacy, data use, limits, and feedback guidance for the constrained ClosetSearch beta."
+    >
       {children}
     </PageTemplate>
   );
@@ -1168,15 +1362,12 @@ function SearchResults({
   }
 
   const response = state.response;
+  const providerAvailabilityMessage = getProviderAvailabilityMessage(response?.providers, "search");
 
   if (!response || response.listings.length === 0) {
     return (
       <StateCard
-        body={
-          query.trim().length > 0
-            ? 'No results found for "' + query + '". Try broadening your search or clearing a filter.'
-            : "No results found for these filters. Try broadening your search or clearing a filter."
-        }
+        body={getSearchEmptyStateMessage(query, response?.providers)}
         title="No results found"
       />
     );
@@ -1201,6 +1392,12 @@ function SearchResults({
           </span>
         </div>
       </div>
+
+      {providerAvailabilityMessage ? (
+        <section className="inline-banner">
+          <p>{providerAvailabilityMessage}</p>
+        </section>
+      ) : null}
 
       <ListingGrid
         likedListingIds={likedListingIds}
@@ -1255,7 +1452,7 @@ function SearchRoutePage({
   const [reloadCount, setReloadCount] = useState(0);
   const [saveFeedback, setSaveFeedback] = useState<string | undefined>();
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | undefined>();
-  const [savingAction, setSavingAction] = useState<"search" | "filters" | null>(null);
+  const [savingAction, setSavingAction] = useState<"search" | "filters" | "watchlist" | null>(null);
   const [state, setState] = useState<SearchRequestState>({
     isLoadingMore: false,
     status: hasActiveSearch ? "loading" : "idle",
@@ -1486,6 +1683,40 @@ function SearchRoutePage({
     }
   }
 
+
+  async function handleCreateWatchlistFromSearch() {
+    if (!hasActiveSearch) {
+      return;
+    }
+
+    if (!session) {
+      setSaveFeedback("Log in to save searches, filters, and watchlists.");
+      setSaveErrorMessage(undefined);
+      return;
+    }
+
+    setSavingAction("watchlist");
+    setSaveFeedback(undefined);
+    setSaveErrorMessage(undefined);
+
+    try {
+      await sendJson<WatchlistsResponse>("/me/watchlists", "POST", buildWatchlistPayloadFromSearch(
+        values,
+        session.user.currencyPreference,
+      ));
+      setSaveFeedback("Saved this search as a watchlist. Alert delivery will come later.");
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+      }
+      setSaveErrorMessage(
+        error instanceof Error ? error.message : "The watchlist could not be saved.",
+      );
+    } finally {
+      setSavingAction(null);
+    }
+  }
+
   const saveActions = hasActiveSearch ? (
     <div>
       <div className="inline-actions">
@@ -1507,16 +1738,29 @@ function SearchRoutePage({
             >
               {savingAction === "filters" ? "Saving filters..." : "Save filters"}
             </button>
+            <button
+              className="secondary-button"
+              disabled={savingAction !== null}
+              onClick={handleCreateWatchlistFromSearch}
+              type="button"
+            >
+              {savingAction === "watchlist"
+                ? "Saving watchlist..."
+                : "Create watchlist from this search"}
+            </button>
           </>
         ) : (
           <>
-            <p className="page-description">Log in to save searches and filter presets.</p>
+            <p className="page-description">Log in to save searches, filters, and watchlists.</p>
             <Link className="secondary-button link-button" to="/login">
               Log in to save
             </Link>
           </>
         )}
       </div>
+      <p className="page-description">
+        Watchlists save what you want to track. Alert delivery will come in a later milestone.
+      </p>
       {saveFeedback ? <p className="page-description">{saveFeedback}</p> : null}
       {saveErrorMessage ? <p className="form-error">{saveErrorMessage}</p> : null}
     </div>
@@ -1535,7 +1779,7 @@ function SearchRoutePage({
           onLoadMore={handleLoadMore}
           onRetry={handleRetry}
           onToggleLike={handleToggleLike}
-          query={query || "this search"}
+          query={query}
           state={state}
           summary={describeSearch(values)}
         />
@@ -1702,6 +1946,7 @@ function RecentSearchesRoutePage({
 }
 
 function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
+  const [reloadCount, setReloadCount] = useState(0);
   const [state, setState] = useState<AnalyticsRequestState>({
     brandSummaries: [],
     categorySummaries: [],
@@ -1789,7 +2034,13 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
     return () => {
       controller.abort();
     };
-  }, [session?.userId]);
+  }, [reloadCount, session?.userId]);
+
+  function handleRetry() {
+    startTransition(() => {
+      setReloadCount((currentValue) => currentValue + 1);
+    });
+  }
 
   if (state.status === "loading") {
     return (
@@ -1803,7 +2054,15 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
     return (
       <AnalyticsPage>
         <StateCard
-          body={state.errorMessage ?? "The analytics view could not be loaded."}
+          action={
+            <button className="secondary-button" onClick={handleRetry} type="button">
+              Try again
+            </button>
+          }
+          body={
+            state.errorMessage ??
+            "The analytics view could not be loaded. Observed-data analytics are optional, so core browsing can still continue."
+          }
           title="Analytics unavailable"
         />
       </AnalyticsPage>
@@ -2034,6 +2293,74 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
   );
 }
 
+function BetaInfoRoutePage() {
+  return (
+    <BetaInfoPage>
+      <section className="recent-searches">
+        <div className="section-heading section-heading--split">
+          <div>
+            <h2>Beta privacy and data use</h2>
+            <p>
+              ClosetSearch stores account data such as usernames, onboarding preferences, likes,
+              saved searches, saved filters, watchlists, notification preference shell data, and
+              basic settings. Observed listing snapshots are also stored to support cautious
+              analytics.
+            </p>
+          </div>
+        </div>
+
+        <div className="recent-search-grid">
+          <article className="recent-search-card">
+            <h2>Account and saved data</h2>
+            <p>
+              Your saved likes, searches, filters, watchlists, and settings persist in the beta
+              database so your signed-in experience survives refreshes and restarts.
+            </p>
+          </article>
+          <article className="recent-search-card">
+            <h2>Observed analytics only</h2>
+            <p>
+              Pricing context is based on listings ClosetSearch has observed. It is not financial
+              advice, not a prediction, and not a guarantee that a listing is underpriced.
+            </p>
+          </article>
+          <article className="recent-search-card">
+            <h2>Watchlist delivery is inactive</h2>
+            <p>
+              Watchlists save what you want to track, but email, push, and SMS delivery are not
+              active in this beta yet.
+            </p>
+          </article>
+        </div>
+
+        <div className="section-heading section-heading--split">
+          <div>
+            <h2>Beta feedback</h2>
+            <p>
+              Testers should try feed, search, auth, saved features, personalization, analytics,
+              and watchlists, then share bugs, confusing moments, and missing beta-blocking flows.
+            </p>
+          </div>
+        </div>
+
+        <div className="inline-actions">
+          <a className="secondary-button link-button" href={betaFeedbackUrl} rel="noreferrer" target="_blank">
+            Beta feedback
+          </a>
+          <Link className="secondary-button link-button" to="/profile">
+            Back to profile
+          </Link>
+        </div>
+
+        <p className="page-description">
+          Provider data can be incomplete or delayed, trust signals stay assistive only, and this
+          repo is prepared for a constrained beta rather than a full public production launch.
+        </p>
+      </section>
+    </BetaInfoPage>
+  );
+}
+
 function ProfileRoutePage({
   onAuthFailure,
   session,
@@ -2045,6 +2372,7 @@ function ProfileRoutePage({
   const { likes, likedListingIds, likedListings, toggleLike } = useLikes(session, onAuthFailure);
   const [reloadCount, setReloadCount] = useState(0);
   const [collectionsState, setCollectionsState] = useState<ProfileCollectionsState>({
+    notificationPreferences: undefined,
     savedFilters: [],
     savedSearches: [],
     status: session ? "loading" : "success",
@@ -2056,28 +2384,41 @@ function ProfileRoutePage({
     preferredCurrency: "USD",
     preferredSources: [] as string[],
   });
-  const [watchlistForm, setWatchlistForm] = useState({
-    brand: "",
-    label: "",
-    maxPrice: "",
-    queryText: "",
-    source: "",
+  const [collectionsFeedback, setCollectionsFeedback] = useState<string | undefined>();
+  const [watchlistForm, setWatchlistForm] = useState<WatchlistFormState>(() =>
+    createEmptyWatchlistForm(),
+  );
+  const [editingWatchlistId, setEditingWatchlistId] = useState<string | undefined>();
+  const [notificationPreferencesForm, setNotificationPreferencesForm] = useState({
+    emailEnabled: false,
+    frequency: "daily" as NotificationPreferences["frequency"],
+    inAppEnabled: true,
+    pushEnabled: false,
+    quietHoursEnd: "",
+    quietHoursStart: "",
+    smsEnabled: false,
   });
   const [settingsErrorMessage, setSettingsErrorMessage] = useState<string | undefined>();
   const [settingsFeedback, setSettingsFeedback] = useState<string | undefined>();
   const [watchlistErrorMessage, setWatchlistErrorMessage] = useState<string | undefined>();
   const [watchlistFeedback, setWatchlistFeedback] = useState<string | undefined>();
+  const [notificationPreferencesErrorMessage, setNotificationPreferencesErrorMessage] = useState<string | undefined>();
+  const [notificationPreferencesFeedback, setNotificationPreferencesFeedback] = useState<string | undefined>();
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingWatchlist, setIsSavingWatchlist] = useState(false);
+  const [isSavingNotificationPreferences, setIsSavingNotificationPreferences] = useState(false);
 
   useEffect(() => {
     if (!session) {
       setCollectionsState({
+        notificationPreferences: undefined,
         savedFilters: [],
         savedSearches: [],
         status: "success",
         watchlists: [],
       });
+      setCollectionsFeedback(undefined);
+      setEditingWatchlistId(undefined);
       return;
     }
 
@@ -2088,15 +2429,24 @@ function ProfileRoutePage({
       errorMessage: undefined,
       status: "loading",
     }));
+    setCollectionsFeedback(undefined);
 
     void Promise.all([
       fetchJson<SavedSearchesResponse>("/me/saved-searches", controller.signal),
       fetchJson<SavedFiltersResponse>("/me/saved-filters", controller.signal),
       fetchJson<WatchlistsResponse>("/me/watchlists", controller.signal),
       fetchJson<SettingsResponse>("/me/settings", controller.signal),
+      fetchJson<NotificationPreferencesResponse>("/me/notification-preferences", controller.signal),
     ])
-      .then(([savedSearchResponse, savedFilterResponse, watchlistResponse, settingsResponse]) => {
+      .then(([
+        savedSearchResponse,
+        savedFilterResponse,
+        watchlistResponse,
+        settingsResponse,
+        notificationPreferencesResponse,
+      ]) => {
         setCollectionsState({
+          notificationPreferences: notificationPreferencesResponse.notificationPreferences,
           savedFilters: savedFilterResponse.savedFilters,
           savedSearches: savedSearchResponse.savedSearches,
           settings: settingsResponse.settings,
@@ -2108,6 +2458,33 @@ function ProfileRoutePage({
           displayName: settingsResponse.settings.displayName ?? "",
           preferredCurrency: settingsResponse.settings.preferredCurrency,
           preferredSources: settingsResponse.settings.preferredSources,
+        });
+        setNotificationPreferencesForm({
+          emailEnabled: notificationPreferencesResponse.notificationPreferences.emailEnabled,
+          frequency: notificationPreferencesResponse.notificationPreferences.frequency,
+          inAppEnabled: notificationPreferencesResponse.notificationPreferences.inAppEnabled,
+          pushEnabled: notificationPreferencesResponse.notificationPreferences.pushEnabled,
+          quietHoursEnd:
+            notificationPreferencesResponse.notificationPreferences.quietHoursEnd ?? "",
+          quietHoursStart:
+            notificationPreferencesResponse.notificationPreferences.quietHoursStart ?? "",
+          smsEnabled: notificationPreferencesResponse.notificationPreferences.smsEnabled,
+        });
+        setWatchlistForm((currentState) => {
+          const hasUserDraft =
+            currentState.label.trim().length > 0 ||
+            currentState.queryText.trim().length > 0 ||
+            currentState.brand.trim().length > 0 ||
+            currentState.category.trim().length > 0 ||
+            currentState.source.trim().length > 0 ||
+            currentState.minPriceAmount.trim().length > 0 ||
+            currentState.maxPriceAmount.trim().length > 0 ||
+            currentState.size.trim().length > 0 ||
+            currentState.condition.trim().length > 0;
+
+          return hasUserDraft
+            ? currentState
+            : createEmptyWatchlistForm(settingsResponse.settings.preferredCurrency);
         });
       })
       .catch((error: unknown) => {
@@ -2123,6 +2500,7 @@ function ProfileRoutePage({
         setCollectionsState({
           errorMessage:
             error instanceof Error ? error.message : "Your saved account data could not be loaded.",
+          notificationPreferences: undefined,
           savedFilters: [],
           savedSearches: [],
           status: "error",
@@ -2161,6 +2539,7 @@ function ProfileRoutePage({
     collectionsState.settings?.preferredCurrency ?? session.user.currencyPreference;
   const displayName = collectionsState.settings?.displayName?.trim() || session.user.username;
 
+
   function handleReload() {
     startTransition(() => {
       setReloadCount((currentValue) => currentValue + 1);
@@ -2169,7 +2548,7 @@ function ProfileRoutePage({
 
   function handleRunSavedSearch(params: string) {
     startTransition(() => {
-      navigate(params ? `/search?${params}` : "/search");
+      navigate(params ? "/search?" + params : "/search");
     });
   }
 
@@ -2177,6 +2556,11 @@ function ProfileRoutePage({
     startTransition(() => {
       navigate(buildSearchPath(createSavedFilterValues(savedFilter)));
     });
+  }
+
+  function resetWatchlistComposer() {
+    setEditingWatchlistId(undefined);
+    setWatchlistForm(createEmptyWatchlistForm(preferredCurrency));
   }
 
   async function handleToggleLikeFromProfile(listing: Listing, nextLiked: boolean) {
@@ -2192,6 +2576,7 @@ function ProfileRoutePage({
         ...currentState,
         savedSearches: currentState.savedSearches.filter((entry) => entry.id !== savedSearch.id),
       }));
+      setCollectionsFeedback(`Deleted saved search "${savedSearch.label}".`);
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
         onAuthFailure();
@@ -2215,6 +2600,7 @@ function ProfileRoutePage({
         ...currentState,
         savedFilters: currentState.savedFilters.filter((entry) => entry.id !== savedFilter.id),
       }));
+      setCollectionsFeedback(`Deleted saved filter "${savedFilter.label}".`);
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
         onAuthFailure();
@@ -2229,15 +2615,56 @@ function ProfileRoutePage({
     }
   }
 
+  function handleEditWatchlist(watchlist: Watchlist) {
+    setEditingWatchlistId(watchlist.id);
+    setWatchlistErrorMessage(undefined);
+    setWatchlistFeedback(undefined);
+    setWatchlistForm(createWatchlistFormFromWatchlist(watchlist, preferredCurrency));
+  }
+
+  async function handleToggleWatchlistEnabled(watchlist: Watchlist) {
+    try {
+      const response = await sendJson<WatchlistsResponse>(
+        "/me/watchlists/" + watchlist.id,
+        "PATCH",
+        {
+          enabled: !watchlist.enabled,
+        },
+      );
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        watchlists: response.watchlists,
+      }));
+      setWatchlistFeedback((watchlist.enabled ? "Paused " : "Resumed ") + watchlist.label + ".");
+      if (editingWatchlistId === watchlist.id) {
+        setWatchlistForm((currentState) => ({
+          ...currentState,
+          enabled: !watchlist.enabled,
+        }));
+      }
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setWatchlistErrorMessage(
+        error instanceof Error ? error.message : "The watchlist could not be updated.",
+      );
+    }
+  }
+
   async function handleDeleteWatchlist(watchlist: Watchlist) {
     try {
-      await sendJson<{ removed: boolean }>("/me/watchlists", "DELETE", {
-        id: watchlist.id,
-      });
+      await sendJson<{ removed: boolean }>("/me/watchlists/" + watchlist.id, "DELETE", {});
       setCollectionsState((currentState) => ({
         ...currentState,
         watchlists: currentState.watchlists.filter((entry) => entry.id !== watchlist.id),
       }));
+      setCollectionsFeedback(`Deleted watchlist "${watchlist.label}".`);
+      if (editingWatchlistId === watchlist.id) {
+        resetWatchlistComposer();
+      }
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
         onAuthFailure();
@@ -2291,33 +2718,41 @@ function ProfileRoutePage({
     }
   }
 
-  async function handleCreateWatchlist(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveWatchlist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSavingWatchlist(true);
     setWatchlistErrorMessage(undefined);
     setWatchlistFeedback(undefined);
 
     try {
-      const response = await sendJson<WatchlistsResponse>("/me/watchlists", "POST", {
-        brand: watchlistForm.brand.trim() || undefined,
-        label: watchlistForm.label.trim() || watchlistForm.queryText.trim() || watchlistForm.brand.trim() || "Watchlist",
-        maxPrice: watchlistForm.maxPrice ? Number(watchlistForm.maxPrice) : undefined,
-        queryText: watchlistForm.queryText.trim() || undefined,
-        source: watchlistForm.source.trim() || undefined,
-      });
+      const response = editingWatchlistId
+        ? await sendJson<WatchlistsResponse>(
+            "/me/watchlists/" + editingWatchlistId,
+            "PATCH",
+            buildWatchlistPayload({
+              ...watchlistForm,
+              priceCurrency: watchlistForm.priceCurrency || preferredCurrency,
+            }),
+          )
+        : await sendJson<WatchlistsResponse>(
+            "/me/watchlists",
+            "POST",
+            buildWatchlistPayload({
+              ...watchlistForm,
+              priceCurrency: watchlistForm.priceCurrency || preferredCurrency,
+            }),
+          );
 
       setCollectionsState((currentState) => ({
         ...currentState,
         watchlists: response.watchlists,
       }));
-      setWatchlistForm({
-        brand: "",
-        label: "",
-        maxPrice: "",
-        queryText: "",
-        source: "",
-      });
-      setWatchlistFeedback("Saved the watchlist shell. Alert delivery comes later.");
+      setWatchlistFeedback(
+        editingWatchlistId
+          ? "Updated your watchlist. Alert delivery is still not active yet."
+          : "Saved your watchlist. Alert delivery will come in a later milestone.",
+      );
+      resetWatchlistComposer();
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
         onAuthFailure();
@@ -2329,6 +2764,57 @@ function ProfileRoutePage({
       );
     } finally {
       setIsSavingWatchlist(false);
+    }
+  }
+
+  async function handleSaveNotificationPreferences(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingNotificationPreferences(true);
+    setNotificationPreferencesErrorMessage(undefined);
+    setNotificationPreferencesFeedback(undefined);
+
+    try {
+      const response = await sendJson<NotificationPreferencesResponse>(
+        "/me/notification-preferences",
+        "PATCH",
+        {
+          emailEnabled: notificationPreferencesForm.emailEnabled,
+          frequency: notificationPreferencesForm.frequency,
+          inAppEnabled: notificationPreferencesForm.inAppEnabled,
+          pushEnabled: notificationPreferencesForm.pushEnabled,
+          quietHoursEnd: notificationPreferencesForm.quietHoursEnd || null,
+          quietHoursStart: notificationPreferencesForm.quietHoursStart || null,
+          smsEnabled: notificationPreferencesForm.smsEnabled,
+        },
+      );
+
+      setCollectionsState((currentState) => ({
+        ...currentState,
+        notificationPreferences: response.notificationPreferences,
+      }));
+      setNotificationPreferencesForm({
+        emailEnabled: response.notificationPreferences.emailEnabled,
+        frequency: response.notificationPreferences.frequency,
+        inAppEnabled: response.notificationPreferences.inAppEnabled,
+        pushEnabled: response.notificationPreferences.pushEnabled,
+        quietHoursEnd: response.notificationPreferences.quietHoursEnd ?? "",
+        quietHoursStart: response.notificationPreferences.quietHoursStart ?? "",
+        smsEnabled: response.notificationPreferences.smsEnabled,
+      });
+      setNotificationPreferencesFeedback(
+        "Saved your notification preference shell. Email, push, and SMS delivery are still inactive.",
+      );
+    } catch (error: unknown) {
+      if (isAuthRequiredError(error)) {
+        onAuthFailure();
+        return;
+      }
+
+      setNotificationPreferencesErrorMessage(
+        error instanceof Error ? error.message : "Notification preferences could not be saved.",
+      );
+    } finally {
+      setIsSavingNotificationPreferences(false);
     }
   }
 
@@ -2391,6 +2877,7 @@ function ProfileRoutePage({
 
       {collectionsState.status === "success" ? (
         <section className="recent-searches">
+          {collectionsFeedback ? <p className="page-description">{collectionsFeedback}</p> : null}
           <div className="section-heading section-heading--split">
             <div>
               <h2>Liked items</h2>
@@ -2494,17 +2981,23 @@ function ProfileRoutePage({
           <div className="section-heading section-heading--split">
             <div>
               <h2>Watchlists</h2>
-              <p>Watchlists are saved here now; alert delivery will come later.</p>
+              <p>Watchlists save what you want to track. Alert delivery will come in a later milestone.</p>
+              <p>No email or push notifications are sent yet.</p>
             </div>
           </div>
 
-          <form className="account-form" onSubmit={handleCreateWatchlist}>
+          <form className="account-form" onSubmit={handleSaveWatchlist}>
             <label className="field-group" htmlFor="watchlist-label">
               <span>Label</span>
               <input
                 id="watchlist-label"
-                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, label: event.target.value }))}
-                placeholder="Kapital under $250"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    label: event.target.value,
+                  }))
+                }
+                placeholder="Optional label"
                 value={watchlistForm.label}
               />
             </label>
@@ -2513,7 +3006,12 @@ function ProfileRoutePage({
               <span>Query text</span>
               <input
                 id="watchlist-query"
-                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, queryText: event.target.value }))}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    queryText: event.target.value,
+                  }))
+                }
                 placeholder="kapital"
                 value={watchlistForm.queryText}
               />
@@ -2523,9 +3021,29 @@ function ProfileRoutePage({
               <span>Brand</span>
               <input
                 id="watchlist-brand"
-                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, brand: event.target.value }))}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    brand: event.target.value,
+                  }))
+                }
                 placeholder="Kapital"
                 value={watchlistForm.brand}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-category">
+              <span>Category</span>
+              <input
+                id="watchlist-category"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    category: event.target.value,
+                  }))
+                }
+                placeholder="jacket"
+                value={watchlistForm.category}
               />
             </label>
 
@@ -2533,7 +3051,12 @@ function ProfileRoutePage({
               <span>Marketplace</span>
               <select
                 id="watchlist-source"
-                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, source: event.target.value }))}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    source: event.target.value,
+                  }))
+                }
                 value={watchlistForm.source}
               >
                 {sourceOptions.map((option) => (
@@ -2544,16 +3067,124 @@ function ProfileRoutePage({
               </select>
             </label>
 
+            <label className="field-group" htmlFor="watchlist-listing-type">
+              <span>Listing type</span>
+              <select
+                id="watchlist-listing-type"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    listingType: event.target.value as WatchlistFormState["listingType"],
+                  }))
+                }
+                value={watchlistForm.listingType}
+              >
+                {listingTypeOptions.map((option) => (
+                  <option key={option.value || "all"} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-min-price">
+              <span>Min price</span>
+              <input
+                id="watchlist-min-price"
+                min="0"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    minPriceAmount: event.target.value,
+                  }))
+                }
+                placeholder="100"
+                type="number"
+                value={watchlistForm.minPriceAmount}
+              />
+            </label>
+
             <label className="field-group" htmlFor="watchlist-max-price">
               <span>Max price</span>
               <input
                 id="watchlist-max-price"
                 min="0"
-                onChange={(event) => setWatchlistForm((currentState) => ({ ...currentState, maxPrice: event.target.value }))}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    maxPriceAmount: event.target.value,
+                  }))
+                }
                 placeholder="250"
                 type="number"
-                value={watchlistForm.maxPrice}
+                value={watchlistForm.maxPriceAmount}
               />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-currency">
+              <span>Currency</span>
+              <input
+                id="watchlist-currency"
+                maxLength={3}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    priceCurrency: event.target.value.toUpperCase(),
+                  }))
+                }
+                placeholder="USD"
+                value={watchlistForm.priceCurrency}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-size">
+              <span>Size</span>
+              <input
+                id="watchlist-size"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    size: event.target.value,
+                  }))
+                }
+                placeholder="M"
+                value={watchlistForm.size}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="watchlist-condition">
+              <span>Condition</span>
+              <select
+                id="watchlist-condition"
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    condition: event.target.value,
+                  }))
+                }
+                value={watchlistForm.condition}
+              >
+                <option value="">Any condition</option>
+                <option value="new_with_tags">New with tags</option>
+                <option value="new_without_tags">New without tags</option>
+                <option value="excellent">Excellent</option>
+                <option value="good">Good</option>
+                <option value="fair">Fair</option>
+              </select>
+            </label>
+
+            <label className="info-chip">
+              <input
+                checked={watchlistForm.enabled}
+                onChange={(event) =>
+                  setWatchlistForm((currentState) => ({
+                    ...currentState,
+                    enabled: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+              Watchlist enabled
             </label>
 
             {watchlistFeedback ? <p className="page-description">{watchlistFeedback}</p> : null}
@@ -2561,8 +3192,17 @@ function ProfileRoutePage({
 
             <div className="search-panel__actions">
               <button className="search-form__button" disabled={isSavingWatchlist} type="submit">
-                {isSavingWatchlist ? "Saving watchlist..." : "Save watchlist"}
+                {isSavingWatchlist
+                  ? "Saving watchlist..."
+                  : editingWatchlistId
+                    ? "Update watchlist"
+                    : "Save watchlist"}
               </button>
+              {editingWatchlistId ? (
+                <button className="secondary-button" onClick={resetWatchlistComposer} type="button">
+                  Cancel edit
+                </button>
+              ) : null}
             </div>
           </form>
 
@@ -2576,6 +3216,20 @@ function ProfileRoutePage({
                   <div className="inline-actions">
                     <button
                       className="secondary-button"
+                      onClick={() => handleEditWatchlist(watchlist)}
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => handleToggleWatchlistEnabled(watchlist)}
+                      type="button"
+                    >
+                      {watchlist.enabled ? "Pause" : "Resume"}
+                    </button>
+                    <button
+                      className="secondary-button"
                       onClick={() => handleDeleteWatchlist(watchlist)}
                       type="button"
                     >
@@ -2587,10 +3241,113 @@ function ProfileRoutePage({
             </div>
           ) : (
             <StateCard
-              body="Add a watched search or brand now; alerts and notifications are intentionally deferred."
+              body="Add a watched search, brand, or price range now. Alert delivery is intentionally deferred."
               title="No watchlists yet"
             />
           )}
+
+          <div className="section-heading section-heading--split">
+            <div>
+              <h2>Notification preferences</h2>
+              <p>These settings are saved as a shell for a later milestone. Email, push, and SMS delivery are not active yet.</p>
+            </div>
+          </div>
+
+          <form className="account-form" onSubmit={handleSaveNotificationPreferences}>
+            <label className="info-chip">
+              <input
+                checked={notificationPreferencesForm.inAppEnabled}
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    inAppEnabled: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+              In-app enabled
+            </label>
+
+            <label className="info-chip">
+              <input checked={notificationPreferencesForm.emailEnabled} disabled type="checkbox" />
+              Email (coming later)
+            </label>
+
+            <label className="info-chip">
+              <input checked={notificationPreferencesForm.pushEnabled} disabled type="checkbox" />
+              Push (coming later)
+            </label>
+
+            <label className="info-chip">
+              <input checked={notificationPreferencesForm.smsEnabled} disabled type="checkbox" />
+              SMS (coming later)
+            </label>
+
+            <label className="field-group" htmlFor="notification-frequency">
+              <span>Frequency</span>
+              <select
+                id="notification-frequency"
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    frequency: event.target.value as NotificationPreferences["frequency"],
+                  }))
+                }
+                value={notificationPreferencesForm.frequency}
+              >
+                <option value="instant">Instant</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </label>
+
+            <label className="field-group" htmlFor="notification-quiet-start">
+              <span>Quiet hours start</span>
+              <input
+                id="notification-quiet-start"
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    quietHoursStart: event.target.value,
+                  }))
+                }
+                type="time"
+                value={notificationPreferencesForm.quietHoursStart}
+              />
+            </label>
+
+            <label className="field-group" htmlFor="notification-quiet-end">
+              <span>Quiet hours end</span>
+              <input
+                id="notification-quiet-end"
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    quietHoursEnd: event.target.value,
+                  }))
+                }
+                type="time"
+                value={notificationPreferencesForm.quietHoursEnd}
+              />
+            </label>
+
+            {notificationPreferencesFeedback ? (
+              <p className="page-description">{notificationPreferencesFeedback}</p>
+            ) : null}
+            {notificationPreferencesErrorMessage ? (
+              <p className="form-error">{notificationPreferencesErrorMessage}</p>
+            ) : null}
+
+            <div className="search-panel__actions">
+              <button
+                className="search-form__button"
+                disabled={isSavingNotificationPreferences}
+                type="submit"
+              >
+                {isSavingNotificationPreferences ? "Saving preferences..." : "Save notification preferences"}
+              </button>
+            </div>
+          </form>
 
           <div className="section-heading section-heading--split">
             <div>
@@ -3241,6 +3998,7 @@ export function AppLayout() {
   const [isSessionLoading, setIsSessionLoading] = useState(
     () => typeof window !== "undefined",
   );
+  const [sessionNotice, setSessionNotice] = useState<string | undefined>();
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3269,11 +4027,15 @@ export function AppLayout() {
   function handleSessionChange(nextSession: AuthResponse) {
     setSession(nextSession);
     setIsSessionLoading(false);
+    setSessionNotice(undefined);
   }
 
   function handleSessionExpired() {
     setSession(null);
     setIsSessionLoading(false);
+    setSessionNotice(
+      "Your session expired or you were signed out. Log in again to keep saving likes, searches, and watchlists.",
+    );
   }
 
   function handleLogout() {
@@ -3282,6 +4044,7 @@ export function AppLayout() {
       .finally(() => {
         setSession(null);
         setIsSessionLoading(false);
+        setSessionNotice("You have been logged out.");
 
         startTransition(() => {
           navigate("/");
@@ -3343,6 +4106,25 @@ export function AppLayout() {
       </nav>
 
       <main className="page-main">
+        {sessionNotice ? (
+          <section className="inline-banner">
+            <p>{sessionNotice}</p>
+            {!session ? (
+              <div className="inline-actions">
+                <Link className="secondary-button link-button" to="/login">
+                  Log in again
+                </Link>
+                <button
+                  className="secondary-button"
+                  onClick={() => setSessionNotice(undefined)}
+                  type="button"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
         <Routes>
           <Route
             element={<HomePage onAuthFailure={handleSessionExpired} session={session} />}
@@ -3366,6 +4148,7 @@ export function AppLayout() {
             element={<ProfileRoutePage onAuthFailure={handleSessionExpired} session={session} />}
             path="/profile"
           />
+          <Route element={<BetaInfoRoutePage />} path="/beta" />
           <Route
             element={<SignupRoutePage onAuthSuccess={handleSessionChange} session={session} />}
             path="/signup"
@@ -3389,6 +4172,24 @@ export function AppLayout() {
           <Route element={<NotFoundPage />} path="*" />
         </Routes>
       </main>
+
+      <footer className="page-shell">
+        <section className="state-card">
+          <h2>Constrained beta</h2>
+          <p>
+            Observed-data analytics only. Watchlist delivery is not active yet. Privacy, data use,
+            known limits, and beta feedback guidance are available in the beta information page.
+          </p>
+          <div className="inline-actions">
+            <Link className="secondary-button link-button" to="/beta">
+              Beta information
+            </Link>
+            <a className="secondary-button link-button" href={betaFeedbackUrl} rel="noreferrer" target="_blank">
+              Share feedback
+            </a>
+          </div>
+        </section>
+      </footer>
 
       <nav aria-label="Bottom navigation" className="bottom-nav">
         <div className="bottom-nav__bar">

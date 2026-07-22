@@ -5,8 +5,14 @@ export {
   RISK_SIGNAL_INPUT_FAMILIES,
   RISK_SIGNAL_LABEL,
   RISK_SIGNAL_PRODUCT_LANGUAGE,
-} from "./domain";
+} from "./domain/index.js";
 export type {
+  AlertDeliveryChannel,
+  AlertFrequency,
+  AlertMatch,
+  AlertMatchReason,
+  AlertMatchResult,
+  AlertMatchStatus,
   AnalyticsDataQuality,
   AnalyticsDisclaimer,
   AnalyticsOverview,
@@ -29,9 +35,11 @@ export type {
   ListingSource,
   ListingType,
   Money,
+  NotificationPreferences,
   ObservedMarketRange,
   OnboardingPreferences,
   PaginationInfo,
+  PersistAlertMatchInput,
   PersistLikeInput,
   PersistSavedFilterInput,
   PersistSearchHistoryInput,
@@ -58,14 +66,17 @@ export type {
   SellerTrustTier,
   StoredUser,
   UnderpricedListingSignal,
+  UpdateNotificationPreferencesInput,
   UpdateUserSettingsInput,
+  UpdateWatchlistInput,
   User,
   UserSettings,
   Watchlist,
-} from "./domain";
+  WatchlistInput,
+} from "./domain/index.js";
 export type {
   FeedPersonalizationDebug,
   PersonalizationSummary,
   RecommendationReason,
   RecommendationScoreBreakdown,
-} from "./domain/recommendation";
+} from "./domain/recommendation.js";

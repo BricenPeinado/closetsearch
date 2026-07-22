@@ -1,7 +1,13 @@
 import { renderToString } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import { AppLayout, getHomeFeedPresentation } from "./app";
+import {
+  AppLayout,
+  buildWatchlistPayloadFromSearch,
+  createWatchlistDraftFromSearch,
+  getProviderAvailabilityMessage,
+  getHomeFeedPresentation,
+} from "./app";
 
 describe("AppLayout", () => {
   it.each([
@@ -9,6 +15,7 @@ describe("AppLayout", () => {
     { path: "/search", title: "Search" },
     { path: "/recent-searches", title: "Recent Searches" },
     { path: "/analytics", title: "Premium Analytics" },
+    { path: "/beta", title: "Beta Information" },
     { path: "/profile", title: "Profile" },
     { path: "/signup", title: "Create Your Account" },
     { path: "/login", title: "Log In" },
@@ -27,6 +34,146 @@ describe("AppLayout", () => {
     expect(html).toContain("Home");
     expect(html).toContain("Search");
     expect(html).toContain("Profile");
+  });
+
+  it("shows a signed-out watchlist prompt on active search routes", () => {
+    const html = renderToString(
+      <MemoryRouter initialEntries={["/search?q=kapital&source=grailed&maxPrice=250"]}>
+        <AppLayout />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("Log in to save searches, filters, and watchlists.");
+    expect(html).toContain(
+      "Watchlists save what you want to track. Alert delivery will come in a later milestone.",
+    );
+  });
+
+  it("shows the signed-out profile prompt with watchlists in the account copy", () => {
+    const html = renderToString(
+      <MemoryRouter initialEntries={["/profile"]}>
+        <AppLayout />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("Profile needs an account");
+    expect(html).toContain(
+      "Log in or create an account to save likes, searches, filters, watchlists, and settings.",
+    );
+  });
+
+  it("renders beta privacy, data-use, and feedback copy", () => {
+    const html = renderToString(
+      <MemoryRouter initialEntries={["/beta"]}>
+        <AppLayout />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("Beta privacy and data use");
+    expect(html).toContain("Observed analytics only");
+    expect(html).toContain("Watchlist delivery is inactive");
+    expect(html).toContain("Beta feedback");
+    expect(html).toContain("Constrained beta");
+  });
+});
+
+describe("watchlist helpers", () => {
+  it("creates a watchlist draft from active search filters", () => {
+    expect(
+      createWatchlistDraftFromSearch(
+        {
+          query: "  kapital  ",
+          source: "grailed",
+          listingType: "auction",
+          minPrice: "150",
+          maxPrice: "350",
+          sort: "newest",
+        },
+        "EUR",
+      ),
+    ).toEqual({
+      brand: "",
+      category: "",
+      condition: "",
+      enabled: true,
+      label: "",
+      listingType: "auction",
+      maxPriceAmount: "350",
+      minPriceAmount: "150",
+      priceCurrency: "EUR",
+      queryText: "kapital",
+      size: "",
+      source: "grailed",
+    });
+  });
+
+  it("builds a watchlist payload from search filters with parsed prices", () => {
+    expect(
+      buildWatchlistPayloadFromSearch(
+        {
+          query: " leather jacket ",
+          source: "grailed",
+          listingType: "buy_now",
+          minPrice: "100",
+          maxPrice: "250",
+          sort: "relevance",
+        },
+        "USD",
+      ),
+    ).toEqual({
+      brand: undefined,
+      category: undefined,
+      condition: undefined,
+      enabled: true,
+      label: undefined,
+      listingType: "buy_now",
+      maxPriceAmount: 250,
+      minPriceAmount: 100,
+      priceCurrency: "USD",
+      queryText: "leather jacket",
+      size: undefined,
+      source: "grailed",
+    });
+  });
+});
+
+describe("provider availability messaging", () => {
+  it("returns undefined when every provider succeeds", () => {
+    expect(
+      getProviderAvailabilityMessage(
+        [
+          {
+            providerId: "mock",
+            providerName: "Mock Closet",
+            resultCount: 4,
+            status: "success",
+          },
+        ],
+        "search",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("explains when a marketplace failure limits beta results", () => {
+    expect(
+      getProviderAvailabilityMessage(
+        [
+          {
+            providerId: "mock",
+            providerName: "Mock Closet",
+            resultCount: 4,
+            status: "success",
+          },
+          {
+            providerId: "grailed",
+            providerName: "Grailed",
+            resultCount: 0,
+            status: "failure",
+          },
+        ],
+        "search",
+      ),
+    ).toContain("Grailed was unavailable");
   });
 });
 

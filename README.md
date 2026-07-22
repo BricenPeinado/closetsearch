@@ -6,7 +6,7 @@ The repo is documentation-led and milestone-based. Foundation work is already in
 
 ## Current Status
 
-ClosetSearch has completed its initial foundation milestones, auth hardening, a focused saved-user-features pass, a rules-based Personalization V2 feed pass, and a first observed-data analytics pass. The repo is now moving into broader beta-readiness work.
+ClosetSearch has completed its initial foundation milestones, auth hardening, a focused saved-user-features pass, a rules-based Personalization V2 feed pass, a first observed-data analytics pass, an alert-ready watchlist foundation, a constrained beta-readiness pass, a beta stability hardening pass, and a launch-candidate hardening pass. The repo can now produce a constrained preview release candidate, not a full public production launch.
 
 Completed foundation milestones:
 
@@ -30,11 +30,15 @@ What is implemented now:
 - search with filters, sorting, and recent searches
 - brand directory and brand detail shell
 - signup, login, onboarding, and cookie-backed auth/session foundations
-- a useful signed-in profile with persistent likes, saved searches, saved filters, watchlist shell entries, and basic user settings
+- a useful signed-in profile with persistent likes, saved searches, saved filters, alert-ready watchlists, notification preference shell controls, and basic user settings
+- watchlists for watched brands, searches, price ranges, optional marketplace/listing-type criteria, and enable or pause state
+- an alert matching foundation with stored candidate-match data and a pure watchlist-to-listing matcher for future delivery work
 - local SQLite-backed persistence for users, onboarding preferences, likes, saved-user data, recent searches, saved searches, and listing cache
 - explainable rules-based signed-in personalization using likes, onboarding preferences, saved searches, saved filters, watchlists, preferred sources, freshness, and diversity balancing
 - observed-data premium analytics with price snapshots, brand/category pricing ranges, and cautious under-market signals
 - trust / fake-risk placeholder signals with careful assistive wording
+- deployment, environment, seed/demo, QA, limitation, privacy/data-use, feedback, and triage docs for constrained beta operation
+- safer network/provider error states, explicit session-expiry recovery copy, and more honest provider-limited UI messaging for real beta testers
 
 What is still placeholder, mock, or intentionally lightweight:
 
@@ -45,6 +49,8 @@ What is still placeholder, mock, or intentionally lightweight:
 - analytics are now simple observed pricing context, not forecasting or full resale intelligence
 - fake-risk is a trust placeholder, not real authenticity detection
 - there is no production-ready billing, subscriptions, watchlist alert delivery, machine-learning recommendations, or deployment hardening yet
+- email, push, and SMS alert delivery are intentionally inactive; notification preferences are a saved shell only for now
+- operational logging and launch docs are intentionally lightweight and repo-centric rather than full production observability
 
 ## Roadmap Direction
 
@@ -61,7 +67,7 @@ Near-term roadmap direction:
 - watchlist alerts and notifications beyond the current saved shell/data foundation
 - beta launch readiness and deployment hardening
 
-ClosetSearch is not production-ready today. The current repo is best described as a solid foundation project that is ready for functional buildout.
+ClosetSearch is not production-ready today. The current repo is best described as a constrained preview launch candidate with honest docs, repeatable smoke checks, and explicit release/rollback guidance for a small tester-facing deployment.
 
 ## Product Summary
 
@@ -127,7 +133,41 @@ corepack pnpm build
 corepack pnpm lint
 corepack pnpm test
 corepack pnpm db:migrate
+corepack pnpm db:seed
 ```
+
+## Beta Readiness Docs
+
+- [Docs index](docs/README.md)
+- [Deployment checklist](docs/runbooks/deployment-checklist.md)
+- [Environment reference](docs/runbooks/environment.md)
+- [Seed and demo data](docs/runbooks/seed-demo-data.md)
+- [Manual beta QA checklist](docs/qa/manual-beta-checklist.md)
+- [Known limitations](docs/known-limitations.md)
+- [Beta feedback plan](docs/beta-feedback-plan.md)
+- [Beta privacy copy](docs/legal/privacy-beta.md)
+- [Beta data-use copy](docs/legal/data-use.md)
+
+## Beta Testing
+
+- [Manual beta QA checklist](docs/qa/manual-beta-checklist.md)
+- [Known limitations](docs/known-limitations.md)
+- [Beta triage rubric](docs/beta-triage-rubric.md)
+- [Beta bug report template](docs/templates/beta-bug-report.md)
+- [Beta feature request template](docs/templates/beta-feature-request.md)
+- [Beta usability feedback template](docs/templates/beta-usability-feedback.md)
+- [Post-beta priorities](docs/post-beta-priorities.md)
+
+## Release Candidate Docs
+
+- [Launch candidate scope freeze](docs/release/scope-freeze.md)
+- [Release candidate checklist](docs/release/release-candidate-checklist.md)
+- [Launch go / no-go criteria](docs/release/go-no-go.md)
+- [Rollback plan](docs/release/rollback-plan.md)
+- [Launch blockers](docs/release/launch-blockers.md)
+- [Post-launch monitoring](docs/release/post-launch-monitoring.md)
+- [Release notes template](docs/release/release-notes-template.md)
+- Smoke test command: `corepack pnpm smoke:test`
 
 ## Local Development
 
@@ -158,8 +198,9 @@ Be careful not to overstate the current product state:
 - auth now has a production-auth foundation, but OAuth, email verification, password reset, and advanced account recovery are still not implemented
 - analytics are observed-data only and intentionally avoid forecasting, investment language, or guaranteed underpriced claims
 - fake-risk remains a foundation-only trust system
-- watchlists are now saved account data, but alert delivery and notifications are still deferred
-- deployment hardening and operational readiness still need dedicated work
+- watchlists are now alert-ready saved intent, but no email, push, SMS, or background monitoring is active yet
+- this repo is ready for a constrained preview release candidate, not a full public production launch
+- deployment, rollback, and smoke-test guidance now exist, but production-scale operations still need dedicated work
 
 ## Next Planned Buildout
 

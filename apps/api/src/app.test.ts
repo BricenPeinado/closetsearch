@@ -81,6 +81,24 @@ function createJsonRequest(
   return stream;
 }
 
+function createInvalidJsonRequest(
+  method: string,
+  url: string,
+  body: string,
+  headers?: Record<string, string>,
+) {
+  const stream = Readable.from([body]) as IncomingMessage;
+
+  stream.headers = {
+    ...(headers ?? {}),
+    "content-type": "application/json",
+  };
+  stream.method = method;
+  stream.url = url;
+
+  return stream;
+}
+
 async function runRequest(request: IncomingMessage) {
   const recorder = createResponseRecorder();
   const app = createApp();
@@ -215,10 +233,31 @@ describe("handleRequest", () => {
       },
       statusCode: 200,
     });
+    expect(snapshot.headers["x-request-id"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
 
     expect(JSON.parse(snapshot.body)).toMatchObject({
       service: "closetsearch-api",
       status: "ok",
+    });
+  });
+
+  it("returns a structured invalid_json error without echoing request secrets", async () => {
+    const snapshot = await runRequest(
+      createInvalidJsonRequest(
+        "POST",
+        "/auth/login",
+        '{"username":"archivekid","password":"supersecret"',
+      ),
+    );
+
+    expect(snapshot.statusCode).toBe(400);
+    expect(snapshot.headers["x-request-id"]).toBeTruthy();
+    expect(snapshot.body).not.toContain("supersecret");
+    expect(JSON.parse(snapshot.body)).toEqual({
+      error: "invalid_json",
+      message: "The request body must be valid JSON.",
     });
   });
 
@@ -227,11 +266,13 @@ describe("handleRequest", () => {
     const previousEnabled = process.env.GRAILED_PROVIDER_ENABLED;
     const previousScrapingAllowed = process.env.GRAILED_SCRAPING_ALLOWED;
     const previousUserAgent = process.env.GRAILED_USER_AGENT;
+    const previousBaseUrl = process.env.GRAILED_BASE_URL;
 
     process.env.PROVIDER_RUNTIME_MODE = "hybrid";
     process.env.GRAILED_PROVIDER_ENABLED = "true";
     process.env.GRAILED_SCRAPING_ALLOWED = "true";
     process.env.GRAILED_USER_AGENT = "ClosetSearchBot/0.1 contact:team.com";
+    process.env.GRAILED_BASE_URL = "https://secret-grailed.example/private";
 
     try {
       const snapshot = await runRequest(createRequest("GET", "/providers/health"));
@@ -274,6 +315,8 @@ describe("handleRequest", () => {
         ]),
       );
       expect(snapshot.body).not.toContain("super-secret-key");
+      expect(snapshot.body).not.toContain("ClosetSearchBot/0.1 contact:team.com");
+      expect(snapshot.body).not.toContain("https://secret-grailed.example/private");
     } finally {
       if (previousMode === undefined) delete process.env.PROVIDER_RUNTIME_MODE;
       else process.env.PROVIDER_RUNTIME_MODE = previousMode;
@@ -283,6 +326,8 @@ describe("handleRequest", () => {
       else process.env.GRAILED_SCRAPING_ALLOWED = previousScrapingAllowed;
       if (previousUserAgent === undefined) delete process.env.GRAILED_USER_AGENT;
       else process.env.GRAILED_USER_AGENT = previousUserAgent;
+      if (previousBaseUrl === undefined) delete process.env.GRAILED_BASE_URL;
+      else process.env.GRAILED_BASE_URL = previousBaseUrl;
     }
   });
 
@@ -1049,6 +1094,252 @@ describe("handleRequest", () => {
     });
   });
 
+  it("updates watchlists, validates criteria, and keeps them scoped to the authenticated user", async () => {
+    const primary = await signupAndGetSession("watchupdate", "mohaircoat");
+    const secondary = await signupAndGetSession("watchother", "mohaircoat");
+
+    const createSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/me/watchlists",
+        {
+          userId: secondary.body.userId,
+          brand: "Rick Owens",
+          maxPriceAmount: 300,
+          priceCurrency: "USD",
+          source: "grailed",
+        },
+        {
+          cookie: primary.cookie,
+        },
+      ),
+    );
+
+    expect(createSnapshot.statusCode).toBe(201);
+    const createBody = JSON.parse(createSnapshot.body) as {
+      watchlist: {
+        brand: string;
+        enabled: boolean;
+        id: string;
+        label: string;
+        userId: string;
+      };
+      userId: string;
+    };
+
+    expect(createBody.watchlist).toMatchObject({
+      brand: "Rick Owens",
+      enabled: true,
+      label: "Rick Owens under $300",
+      userId: primary.body.userId,
+    });
+    expect(createBody.userId).toBe(primary.body.userId);
+
+    const updateSnapshot = await runRequest(
+      createJsonRequest(
+        "PATCH",
+        "/me/watchlists/" + createBody.watchlist.id,
+        {
+          category: "jackets",
+          enabled: false,
+        },
+        {
+          cookie: primary.cookie,
+        },
+      ),
+    );
+
+    expect(updateSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(updateSnapshot.body)).toMatchObject({
+      watchlist: {
+        brand: "Rick Owens",
+        category: "jackets",
+        enabled: false,
+      },
+      userId: primary.body.userId,
+    });
+
+    const secondaryListSnapshot = await runRequest(
+      createRequest("GET", "/me/watchlists", {
+        cookie: secondary.cookie,
+      }),
+    );
+
+    expect(JSON.parse(secondaryListSnapshot.body)).toMatchObject({
+      watchlists: [],
+      userId: secondary.body.userId,
+    });
+
+    const spoofedPatchSnapshot = await runRequest(
+      createJsonRequest(
+        "PATCH",
+        "/me/watchlists/" + createBody.watchlist.id,
+        {
+          label: "Spoofed update",
+        },
+        {
+          cookie: secondary.cookie,
+        },
+      ),
+    );
+
+    expect(spoofedPatchSnapshot.statusCode).toBe(404);
+    expect(JSON.parse(spoofedPatchSnapshot.body)).toMatchObject({
+      error: "watchlist_not_found",
+      message: "Watchlist not found.",
+    });
+
+    const invalidCriteriaSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/me/watchlists",
+        {
+          label: "Empty watchlist",
+        },
+        {
+          cookie: primary.cookie,
+        },
+      ),
+    );
+
+    expect(invalidCriteriaSnapshot.statusCode).toBe(400);
+    expect(JSON.parse(invalidCriteriaSnapshot.body)).toMatchObject({
+      error: "invalid_request",
+      message:
+        "Add at least one watch criterion like a brand, query, category, source, size, condition, or price range.",
+    });
+
+    const invalidPriceSnapshot = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/me/watchlists",
+        {
+          brand: "Kapital",
+          minPriceAmount: 500,
+          maxPriceAmount: 250,
+        },
+        {
+          cookie: primary.cookie,
+        },
+      ),
+    );
+
+    expect(invalidPriceSnapshot.statusCode).toBe(400);
+    expect(JSON.parse(invalidPriceSnapshot.body)).toMatchObject({
+      error: "invalid_request",
+      message: "Max price cannot be lower than min price.",
+    });
+  });
+
+  it("returns default notification preferences, persists updates, and exposes empty alert matches honestly", async () => {
+    const signup = await signupAndGetSession("watchprefs", "mohaircoat");
+
+    const defaultSnapshot = await runRequest(
+      createRequest("GET", "/me/notification-preferences", {
+        cookie: signup.cookie,
+      }),
+    );
+
+    expect(defaultSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(defaultSnapshot.body)).toMatchObject({
+      notificationPreferences: {
+        emailEnabled: false,
+        frequency: "daily",
+        inAppEnabled: true,
+        pushEnabled: false,
+        smsEnabled: false,
+        userId: signup.body.userId,
+      },
+      userId: signup.body.userId,
+    });
+
+    const patchSnapshot = await runRequest(
+      createJsonRequest(
+        "PATCH",
+        "/me/notification-preferences",
+        {
+          userId: "spoofed",
+          emailEnabled: true,
+          pushEnabled: true,
+          smsEnabled: true,
+          inAppEnabled: false,
+          frequency: "weekly",
+          quietHoursStart: "22:00",
+          quietHoursEnd: "08:00",
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(patchSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(patchSnapshot.body)).toMatchObject({
+      notificationPreferences: {
+        emailEnabled: true,
+        frequency: "weekly",
+        inAppEnabled: false,
+        pushEnabled: true,
+        quietHoursEnd: "08:00",
+        quietHoursStart: "22:00",
+        smsEnabled: true,
+        userId: signup.body.userId,
+      },
+      userId: signup.body.userId,
+    });
+
+    const persistedSnapshot = await runRequest(
+      createRequest("GET", "/me/notification-preferences", {
+        cookie: signup.cookie,
+      }),
+    );
+
+    expect(JSON.parse(persistedSnapshot.body)).toMatchObject({
+      notificationPreferences: {
+        emailEnabled: true,
+        frequency: "weekly",
+        inAppEnabled: false,
+        pushEnabled: true,
+        quietHoursEnd: "08:00",
+        quietHoursStart: "22:00",
+        smsEnabled: true,
+      },
+    });
+
+    const alertMatchesSnapshot = await runRequest(
+      createRequest("GET", "/me/alert-matches", {
+        cookie: signup.cookie,
+      }),
+    );
+
+    expect(alertMatchesSnapshot.statusCode).toBe(200);
+    expect(JSON.parse(alertMatchesSnapshot.body)).toMatchObject({
+      alertMatches: [],
+      deliveryActive: false,
+      message: "Alert delivery is not active yet. Stored matches are foundation data only.",
+      userId: signup.body.userId,
+    });
+
+    const invalidQuietHoursSnapshot = await runRequest(
+      createJsonRequest(
+        "PATCH",
+        "/me/notification-preferences",
+        {
+          quietHoursStart: "25:99",
+        },
+        {
+          cookie: signup.cookie,
+        },
+      ),
+    );
+
+    expect(invalidQuietHoursSnapshot.statusCode).toBe(400);
+    expect(JSON.parse(invalidQuietHoursSnapshot.body)).toMatchObject({
+      error: "invalid_request",
+      message: "quietHoursStart must use HH:MM 24-hour time.",
+    });
+  });
+
   it("gets and patches authenticated user settings", async () => {
     const signup = await signupAndGetSession("settingsuser", "mohaircoat");
 
@@ -1101,7 +1392,12 @@ describe("handleRequest", () => {
       createRequest("GET", "/me/saved-searches"),
       createRequest("GET", "/me/saved-filters"),
       createRequest("GET", "/me/watchlists"),
+      createRequest("GET", "/me/notification-preferences"),
+      createRequest("GET", "/me/alert-matches"),
       createRequest("GET", "/me/settings"),
+      createJsonRequest("POST", "/me/watchlists", {
+        brand: "Kapital",
+      }),
     ];
 
     for (const request of routes) {
