@@ -1,4 +1,4 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 interface ParsedError {
   code: string;
@@ -43,9 +43,10 @@ function getSafeErrorMessage(status: number, code: string, message?: string) {
 }
 
 async function parseError(response: Response): Promise<ParsedError> {
-  const errorBody = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string }
-    | null;
+  const errorBody = (await response.json().catch(() => null)) as {
+    error?: string;
+    message?: string;
+  } | null;
   const code = errorBody?.error ?? "request_failed";
 
   return {
@@ -70,11 +71,7 @@ async function requestJson<T>(
       throw error;
     }
 
-    throw new ApiClientError(
-      0,
-      "network_error",
-      getSafeErrorMessage(0, "network_error"),
-    );
+    throw new ApiClientError(0, "network_error", getSafeErrorMessage(0, "network_error"));
   }
 
   if (!response.ok) {
@@ -85,10 +82,7 @@ async function requestJson<T>(
   return (await response.json()) as T;
 }
 
-export async function fetchJson<T>(
-  path: string,
-  signal?: AbortSignal,
-): Promise<T> {
+export async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return requestJson<T>(path, { signal });
 }
 

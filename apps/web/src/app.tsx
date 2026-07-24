@@ -42,9 +42,14 @@ import {
 } from "react-router-dom";
 import { fetchJson, sendJson } from "./api-client";
 import { mergeUniqueListings } from "./listing-pagination";
-import { ListingCard } from "./components/listing-card";
+import { ListingCard, type ListingCardEngagementContext } from "./components/listing-card";
 import { InfiniteScrollSentinel } from "./components/infinite-scroll-sentinel";
 import { ScrollPositionRestoration } from "./components/scroll-position-restoration";
+import {
+  createEngagementId,
+  isListingEngagementEligible,
+  recordEngagementEvent,
+} from "./engagement-client";
 import {
   buildSearchPath,
   clearRecentSearches,
@@ -59,11 +64,7 @@ import {
   type RecentSearchEntry,
   type SearchFormValues,
 } from "./search-utils";
-import {
-  getAuthErrorMessage,
-  isAuthRequiredError,
-  loadUserSession,
-} from "./user-session";
+import { getAuthErrorMessage, isAuthRequiredError, loadUserSession } from "./user-session";
 
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
@@ -112,6 +113,7 @@ interface PageTemplateProps {
 }
 
 interface FeedRequestState {
+  engagementRequestId?: string;
   errorMessage?: string;
   isLoadingMore: boolean;
   isPersonalized: boolean;
@@ -133,23 +135,15 @@ interface ProviderHealthResponse {
 }
 
 function useMarketplaceOptions() {
-  const [marketplaceOptions, setMarketplaceOptions] = useState([
-    allMarketplaceOption,
-  ]);
+  const [marketplaceOptions, setMarketplaceOptions] = useState([allMarketplaceOption]);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    void fetchJson<ProviderHealthResponse>(
-      "/providers/health",
-      controller.signal,
-    )
+    void fetchJson<ProviderHealthResponse>("/providers/health", controller.signal)
       .then((response) => {
         const availableOptions = response.providers
-          .filter(
-            (provider) =>
-              provider.active && provider.implementationStatus === "available",
-          )
+          .filter((provider) => provider.active && provider.implementationStatus === "available")
           .map((provider) => ({
             label: provider.displayName,
             value: provider.id,
@@ -310,11 +304,7 @@ interface AnalyticsRequestState {
   status: "loading" | "success" | "error";
 }
 
-function PageTemplate({
-  title,
-  description,
-  children,
-}: PageTemplateProps) {
+function PageTemplate({ title, description, children }: PageTemplateProps) {
   return (
     <section className="page-shell">
       {title || description ? (
@@ -328,15 +318,7 @@ function PageTemplate({
   );
 }
 
-function StateCard({
-  action,
-  body,
-  title,
-}: {
-  action?: ReactNode;
-  body: string;
-  title: string;
-}) {
+function StateCard({ action, body, title }: { action?: ReactNode; body: string; title: string }) {
   return (
     <section className="state-card">
       <h2>{title}</h2>
@@ -388,16 +370,13 @@ export function getProviderAvailabilityMessage(
   const degradedProviders = providers.filter(
     (provider) => provider.status === "success" && provider.degraded,
   );
-  const actionLabel =
-    surface === "feed" ? "while loading the feed" : "during this search";
+  const actionLabel = surface === "feed" ? "while loading the feed" : "during this search";
 
   if (failedProviders.length > 0) {
     if (failedProviders.length === 1) {
       const failedProvider = failedProviders[0];
       const reason =
-        failedProvider?.failure?.code === "rate_limited"
-          ? "was rate limited"
-          : "was unavailable";
+        failedProvider?.failure?.code === "rate_limited" ? "was rate limited" : "was unavailable";
 
       return `Partial results: ${failedProvider?.providerName} ${reason} ${actionLabel}. You can retry without losing successful results.`;
     }
@@ -416,10 +395,7 @@ export function getProviderAvailabilityMessage(
   return undefined;
 }
 
-function getSearchEmptyStateMessage(
-  query: string,
-  providers: SearchProviderSummary[] | undefined,
-) {
+function getSearchEmptyStateMessage(query: string, providers: SearchProviderSummary[] | undefined) {
   const providerAvailabilityMessage = getProviderAvailabilityMessage(providers, "search");
   const baseMessage =
     query.trim().length > 0
@@ -430,7 +406,6 @@ function getSearchEmptyStateMessage(
     ? `${baseMessage} ${providerAvailabilityMessage}`
     : baseMessage;
 }
-
 
 function formatCurrencyAmount(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -506,10 +481,8 @@ function createWatchlistFormFromWatchlist(
     enabled: watchlist.enabled,
     label: watchlist.label,
     listingType: watchlist.listingType ?? "",
-    maxPriceAmount:
-      watchlist.maxPriceAmount !== undefined ? String(watchlist.maxPriceAmount) : "",
-    minPriceAmount:
-      watchlist.minPriceAmount !== undefined ? String(watchlist.minPriceAmount) : "",
+    maxPriceAmount: watchlist.maxPriceAmount !== undefined ? String(watchlist.maxPriceAmount) : "",
+    minPriceAmount: watchlist.minPriceAmount !== undefined ? String(watchlist.minPriceAmount) : "",
     priceCurrency: watchlist.priceCurrency ?? fallbackCurrency,
     queryText: watchlist.queryText ?? "",
     size: watchlist.size ?? "",
@@ -553,10 +526,7 @@ function buildWatchlistPayload(form: WatchlistFormState) {
   };
 }
 
-export function buildWatchlistPayloadFromSearch(
-  values: SearchFormValues,
-  currency = "USD",
-) {
+export function buildWatchlistPayloadFromSearch(values: SearchFormValues, currency = "USD") {
   return buildWatchlistPayload(createWatchlistDraftFromSearch(values, currency));
 }
 
@@ -623,8 +593,10 @@ function summarizeOnboardingPreferences(session: AuthResponse) {
 }
 
 function formatFilterSummary(savedFilter: SavedFilter, currency: string) {
-  return describeSearch(createSavedFilterValues(savedFilter)) +
-    (currency ? ` • Prefers ${currency}` : "");
+  return (
+    describeSearch(createSavedFilterValues(savedFilter)) +
+    (currency ? ` • Prefers ${currency}` : "")
+  );
 }
 
 function formatWatchlistSummary(watchlist: Watchlist, currency: string) {
@@ -643,11 +615,15 @@ function formatWatchlistSummary(watchlist: Watchlist, currency: string) {
   ].filter((value): value is string => Boolean(value && value.trim().length > 0));
 
   if (watchlist.minPriceAmount !== undefined) {
-    details.push(`From ${formatCurrencyAmount(watchlist.minPriceAmount, watchlist.priceCurrency ?? currency)}`);
+    details.push(
+      `From ${formatCurrencyAmount(watchlist.minPriceAmount, watchlist.priceCurrency ?? currency)}`,
+    );
   }
 
   if (watchlist.maxPriceAmount !== undefined) {
-    details.push(`Up to ${formatCurrencyAmount(watchlist.maxPriceAmount, watchlist.priceCurrency ?? currency)}`);
+    details.push(
+      `Up to ${formatCurrencyAmount(watchlist.maxPriceAmount, watchlist.priceCurrency ?? currency)}`,
+    );
   }
 
   if (!watchlist.enabled) {
@@ -657,10 +633,61 @@ function formatWatchlistSummary(watchlist: Watchlist, currency: string) {
   return details.join(" • ") || "Watching for future matches.";
 }
 
-function useLikes(
-  session: AuthResponse | null,
-  onAuthFailure: () => void,
+type SearchInteractionSurface =
+  "global_search" | "profile_saved_filter" | "profile_saved_search" | "search_page";
+
+function getActiveSearchFilterNames(values: SearchFormValues) {
+  const activeFilters: string[] = [];
+
+  if (values.brand?.trim()) activeFilters.push("brand");
+  if (values.category?.trim()) activeFilters.push("category");
+  if (values.condition) activeFilters.push("condition");
+  if (values.currency?.trim()) activeFilters.push("currency");
+  if (values.listingType) activeFilters.push("listingType");
+  if (values.marketStatus) activeFilters.push("marketStatus");
+  if (values.maxPrice.trim()) activeFilters.push("maxPrice");
+  if (values.minPrice.trim()) activeFilters.push("minPrice");
+  if (values.size?.trim()) activeFilters.push("size");
+  if (values.sort !== "relevance") activeFilters.push("sort");
+  if (values.source.trim()) activeFilters.push("source");
+
+  return activeFilters;
+}
+
+function recordSearchInteraction(
+  values: SearchFormValues,
+  surface: SearchInteractionSurface,
+  intent: "clear" | "submit" = "submit",
+  clearedValues?: SearchFormValues,
 ) {
+  const valuesForFilters = clearedValues ?? values;
+  const activeFilters = getActiveSearchFilterNames(valuesForFilters);
+
+  if (intent === "submit") {
+    void recordEngagementEvent({
+      eventType: "search_submit",
+      properties: {
+        filterCount: activeFilters.length,
+        surface,
+      },
+      searchQuery: values.query.trim() || undefined,
+    });
+  }
+
+  if (activeFilters.length > 0 || intent === "clear") {
+    void recordEngagementEvent({
+      eventType: "filter_apply",
+      properties: {
+        action: intent,
+        activeFilters,
+        filterCount: activeFilters.length,
+        surface,
+      },
+    });
+  }
+}
+
+function useLikes(session: AuthResponse | null, onAuthFailure: () => void) {
   const userId = session?.userId;
   const [likes, setLikes] = useState<Like[]>([]);
   const [likedListings, setLikedListings] = useState<LikedListing[]>([]);
@@ -694,7 +721,11 @@ function useLikes(
     };
   }, [onAuthFailure, userId]);
 
-  async function toggleLike(listing: Listing, nextLiked: boolean) {
+  async function toggleLike(
+    listing: Listing,
+    nextLiked: boolean,
+    surface: ListingCardEngagementContext["surface"] | "unknown" = "unknown",
+  ) {
     if (!userId) {
       return;
     }
@@ -749,13 +780,22 @@ function useLikes(
 
           return [response.likedListing, ...remainingLikedListings];
         });
+
+        if (isListingEngagementEligible(listing)) {
+          void recordEngagementEvent({
+            eventType: "like",
+            listingId: listing.id,
+            properties: {
+              providerId: listing.providerId,
+              surface,
+            },
+          });
+        }
       } catch (error) {
         if (isAuthRequiredError(error)) {
           onAuthFailure();
         }
-        setLikes((currentLikes) =>
-          currentLikes.filter((like) => like.listingId !== listing.id),
-        );
+        setLikes((currentLikes) => currentLikes.filter((like) => like.listingId !== listing.id));
         setLikedListings((currentLikedListings) =>
           currentLikedListings.filter((entry) => entry.like.listingId !== listing.id),
         );
@@ -766,13 +806,9 @@ function useLikes(
     }
 
     const existingLike = likes.find((like) => like.listingId === listing.id);
-    const existingLikedListing = likedListings.find(
-      (entry) => entry.like.listingId === listing.id,
-    );
+    const existingLikedListing = likedListings.find((entry) => entry.like.listingId === listing.id);
 
-    setLikes((currentLikes) =>
-      currentLikes.filter((like) => like.listingId !== listing.id),
-    );
+    setLikes((currentLikes) => currentLikes.filter((like) => like.listingId !== listing.id));
     setLikedListings((currentLikedListings) =>
       currentLikedListings.filter((entry) => entry.like.listingId !== listing.id),
     );
@@ -781,6 +817,17 @@ function useLikes(
       await sendJson<{ removed: boolean }>("/me/likes", "DELETE", {
         listingId: listing.id,
       });
+
+      if (isListingEngagementEligible(listing)) {
+        void recordEngagementEvent({
+          eventType: "unlike",
+          listingId: listing.id,
+          properties: {
+            providerId: listing.providerId,
+            surface,
+          },
+        });
+      }
     } catch (error) {
       if (isAuthRequiredError(error)) {
         onAuthFailure();
@@ -798,7 +845,11 @@ function useLikes(
 
       if (existingLikedListing) {
         setLikedListings((currentLikedListings) => {
-          if (currentLikedListings.some((entry) => entry.like.listingId === existingLikedListing.like.listingId)) {
+          if (
+            currentLikedListings.some(
+              (entry) => entry.like.listingId === existingLikedListing.like.listingId,
+            )
+          ) {
             return currentLikedListings;
           }
 
@@ -819,18 +870,24 @@ function useLikes(
 }
 
 function ListingGrid({
+  engagement,
   listings,
   likedListingIds,
   onToggleLike,
 }: {
+  engagement: Omit<ListingCardEngagementContext, "rankedPosition">;
   listings: Listing[];
   likedListingIds?: Set<string>;
   onToggleLike?: (listing: Listing, nextLiked: boolean) => Promise<void>;
 }) {
   return (
     <div className="listing-grid">
-      {listings.map((listing) => (
+      {listings.map((listing, index) => (
         <ListingCard
+          engagement={{
+            ...engagement,
+            rankedPosition: index,
+          }}
           key={listing.id}
           isLiked={likedListingIds?.has(listing.id)}
           listing={listing}
@@ -853,14 +910,15 @@ function GlobalSearchBar() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const nextValues = {
+      ...createDefaultSearchFormValues(),
+      query,
+    };
+
+    recordSearchInteraction(nextValues, "global_search");
 
     startTransition(() => {
-      navigate(
-        buildSearchPath({
-          ...createDefaultSearchFormValues(),
-          query,
-        }),
-      );
+      navigate(buildSearchPath(nextValues));
     });
   }
 
@@ -927,8 +985,25 @@ function HomePage({
       page: "1",
       pageSize: String(homeFeedPageSize),
     });
+    let engagementRequestId: string | undefined;
+
+    try {
+      engagementRequestId = createEngagementId();
+      void recordEngagementEvent({
+        eventType: "recommendation_request",
+        properties: {
+          pageSize: homeFeedPageSize,
+          personalizationRequested: Boolean(session?.userId),
+          surface: "home_feed",
+        },
+        requestId: engagementRequestId,
+      });
+    } catch {
+      // Recommendation telemetry must never prevent the feed request.
+    }
 
     setState({
+      engagementRequestId,
       isLoadingMore: false,
       isPersonalized: false,
       listings: [],
@@ -938,6 +1013,7 @@ function HomePage({
     void fetchJson<FeedResponse>("/feed?" + feedParams.toString(), controller.signal)
       .then((response) => {
         setState({
+          engagementRequestId,
           isLoadingMore: false,
           isPersonalized: response.isPersonalized,
           listings: response.listings,
@@ -953,8 +1029,7 @@ function HomePage({
         }
 
         setState({
-          errorMessage:
-            error instanceof Error ? error.message : "The feed request failed.",
+          errorMessage: error instanceof Error ? error.message : "The feed request failed.",
           isLoadingMore: false,
           isPersonalized: false,
           listings: [],
@@ -1027,7 +1102,7 @@ function HomePage({
       return;
     }
 
-    await toggleLike(listing, nextLiked);
+    await toggleLike(listing, nextLiked, "home_feed");
 
     startTransition(() => {
       setReloadCount((currentValue) => currentValue + 1);
@@ -1037,7 +1112,10 @@ function HomePage({
   const presentation = getHomeFeedPresentation(session, state.personalizationSummary);
   const listingCount = state.pagination?.totalCount ?? state.listings.length;
   const showLowSignalPrompt =
-    Boolean(session) && state.status === "success" && !state.isPersonalized && !needsPreferenceReminder;
+    Boolean(session) &&
+    state.status === "success" &&
+    !state.isPersonalized &&
+    !needsPreferenceReminder;
   const providerAvailabilityMessage = getProviderAvailabilityMessage(state.providers, "feed");
 
   return (
@@ -1050,7 +1128,9 @@ function HomePage({
         <div className="chip-row chip-row--tabs">
           <span className="info-chip info-chip--accent">{presentation.chipLabel}</span>
           <span className="info-chip">New Finds</span>
-          <span className="info-chip">{listingCount > 0 ? String(listingCount) + " listings" : "Fresh updates"}</span>
+          <span className="info-chip">
+            {listingCount > 0 ? String(listingCount) + " listings" : "Fresh updates"}
+          </span>
         </div>
       </header>
 
@@ -1110,6 +1190,11 @@ function HomePage({
       {state.status === "success" && state.listings.length > 0 ? (
         <>
           <ListingGrid
+            engagement={{
+              recommendationRequestId: state.engagementRequestId,
+              surface: "home_feed",
+              viewContextId: "home_feed",
+            }}
             likedListingIds={likedListingIds}
             listings={state.listings}
             onToggleLike={handleToggleLike}
@@ -1208,13 +1293,7 @@ function BrandsPage({ children }: { children?: ReactNode }) {
   );
 }
 
-function BrandDetailPage({
-  brandName,
-  children,
-}: {
-  brandName?: string;
-  children?: ReactNode;
-}) {
+function BrandDetailPage({ brandName, children }: { brandName?: string; children?: ReactNode }) {
   return (
     <PageTemplate
       title={brandName ?? "Brand Profile"}
@@ -1269,7 +1348,11 @@ function SearchControlPanel({
 }: {
   initialValues: SearchFormValues;
   marketplaceOptions: Array<{ label: string; value: string }>;
-  onSubmit: (values: SearchFormValues) => void;
+  onSubmit: (
+    values: SearchFormValues,
+    intent: "clear" | "submit",
+    previousValues?: SearchFormValues,
+  ) => void;
   secondaryActions?: ReactNode;
 }) {
   const [values, setValues] = useState(initialValues);
@@ -1291,10 +1374,7 @@ function SearchControlPanel({
     initialValues.source,
   ]);
 
-  function updateValue<Key extends keyof SearchFormValues>(
-    key: Key,
-    value: SearchFormValues[Key],
-  ) {
+  function updateValue<Key extends keyof SearchFormValues>(key: Key, value: SearchFormValues[Key]) {
     setValues((currentValues) => ({
       ...currentValues,
       [key]: value,
@@ -1303,13 +1383,13 @@ function SearchControlPanel({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSubmit(values);
+    onSubmit(values, "submit");
   }
 
   function handleClear() {
     const nextValues = createDefaultSearchFormValues();
     setValues(nextValues);
-    onSubmit(nextValues);
+    onSubmit(nextValues, "clear", values);
   }
 
   return (
@@ -1317,7 +1397,9 @@ function SearchControlPanel({
       <div className="search-panel__header">
         <div>
           <h2>Search the marketplace</h2>
-          <p>Search brands, pieces, and styles, then narrow the results with a few quick filters.</p>
+          <p>
+            Search brands, pieces, and styles, then narrow the results with a few quick filters.
+          </p>
         </div>
         <Link className="secondary-button link-button" to="/recent-searches">
           Recent searches
@@ -1402,10 +1484,7 @@ function SearchControlPanel({
           <select
             id="search-page-condition"
             onChange={(event) =>
-              updateValue(
-                "condition",
-                event.target.value as SearchFormValues["condition"],
-              )
+              updateValue("condition", event.target.value as SearchFormValues["condition"])
             }
             value={values.condition ?? ""}
           >
@@ -1422,10 +1501,7 @@ function SearchControlPanel({
           <select
             id="search-page-status"
             onChange={(event) =>
-              updateValue(
-                "marketStatus",
-                event.target.value as SearchFormValues["marketStatus"],
-              )
+              updateValue("marketStatus", event.target.value as SearchFormValues["marketStatus"])
             }
             value={values.marketStatus ?? ""}
           >
@@ -1516,6 +1592,7 @@ function SearchResults({
   query,
   state,
   summary,
+  viewContextId,
 }: {
   likedListingIds: Set<string>;
   onLoadMore: () => void;
@@ -1524,9 +1601,12 @@ function SearchResults({
   query: string;
   state: SearchRequestState;
   summary: string;
+  viewContextId: string;
 }) {
   if (state.status === "idle") {
-    return <StateCard body="Start with a search to see listings here." title="Search the marketplace" />;
+    return (
+      <StateCard body="Start with a search to see listings here." title="Search the marketplace" />
+    );
   }
 
   if (state.status === "loading") {
@@ -1560,9 +1640,10 @@ function SearchResults({
   }
 
   const listingCount = response.pagination.totalCount ?? response.listings.length;
-  const resultsLabel = response.query.text.trim().length > 0
-    ? 'Results for "' + response.query.text + '".'
-    : "Results for your active filters.";
+  const resultsLabel =
+    response.query.text.trim().length > 0
+      ? 'Results for "' + response.query.text + '".'
+      : "Results for your active filters.";
 
   return (
     <section className="search-results">
@@ -1586,6 +1667,10 @@ function SearchResults({
       ) : null}
 
       <ListingGrid
+        engagement={{
+          surface: "search_results",
+          viewContextId,
+        }}
         likedListingIds={likedListingIds}
         listings={response.listings}
         onToggleLike={onToggleLike}
@@ -1682,8 +1767,7 @@ function SearchRoutePage({
         }
 
         setState({
-          errorMessage:
-            error instanceof Error ? error.message : "Search request failed.",
+          errorMessage: error instanceof Error ? error.message : "Search request failed.",
           isLoadingMore: false,
           status: "error",
         });
@@ -1737,7 +1821,13 @@ function SearchRoutePage({
     state.status,
   ]);
 
-  function handleSubmit(nextValues: SearchFormValues) {
+  function handleSubmit(
+    nextValues: SearchFormValues,
+    intent: "clear" | "submit",
+    previousValues?: SearchFormValues,
+  ) {
+    recordSearchInteraction(nextValues, "search_page", intent, previousValues);
+
     startTransition(() => {
       navigate(buildSearchPath(nextValues));
     });
@@ -1801,7 +1891,7 @@ function SearchRoutePage({
       return;
     }
 
-    await toggleLike(listing, nextLiked);
+    await toggleLike(listing, nextLiked, "search_results");
   }
 
   async function handleSaveSearch() {
@@ -1824,6 +1914,14 @@ function SearchRoutePage({
         label: buildSavedSearchLabel(values),
         description: describeSearch(values),
         params: createSearchParams(values).toString(),
+      });
+      void recordEngagementEvent({
+        eventType: "saved_search",
+        properties: {
+          filterCount: getActiveSearchFilterNames(values).length,
+          surface: "search_page",
+        },
+        searchQuery: values.query.trim() || undefined,
       });
       setSaveFeedback("Saved this search to your profile.");
     } catch (error: unknown) {
@@ -1863,6 +1961,13 @@ function SearchRoutePage({
         maxPrice: values.maxPrice ? Number(values.maxPrice) : undefined,
         sortMode: values.sort,
       });
+      void recordEngagementEvent({
+        eventType: "saved_filter",
+        properties: {
+          filterCount: getActiveSearchFilterNames(values).length,
+          surface: "search_page",
+        },
+      });
       setSaveFeedback("Saved this filter preset to your profile.");
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
@@ -1875,7 +1980,6 @@ function SearchRoutePage({
       setSavingAction(null);
     }
   }
-
 
   async function handleCreateWatchlistFromSearch() {
     if (!hasActiveSearch) {
@@ -1893,10 +1997,20 @@ function SearchRoutePage({
     setSaveErrorMessage(undefined);
 
     try {
-      await sendJson<WatchlistsResponse>("/me/watchlists", "POST", buildWatchlistPayloadFromSearch(
-        values,
-        session.user.currencyPreference,
-      ));
+      await sendJson<WatchlistsResponse>(
+        "/me/watchlists",
+        "POST",
+        buildWatchlistPayloadFromSearch(values, session.user.currencyPreference),
+      );
+      void recordEngagementEvent({
+        eventType: "watchlist_create",
+        properties: {
+          filterCount: getActiveSearchFilterNames(values).length,
+          hasQuery: values.query.trim().length > 0,
+          surface: "search_page",
+        },
+        searchQuery: values.query.trim() || undefined,
+      });
       setSaveFeedback("Saved this search as a watchlist. Alert delivery will come later.");
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
@@ -1976,6 +2090,7 @@ function SearchRoutePage({
           query={query}
           state={state}
           summary={describeSearch(values)}
+          viewContextId={`search:${searchKey}`}
         />
       </section>
     </SearchPage>
@@ -2016,10 +2131,7 @@ function RecentSearchesRoutePage({
     setStatus("loading");
     setErrorMessage(undefined);
 
-    void fetchJson<RecentSearchesResponse>(
-      "/recent-searches",
-      controller.signal,
-    )
+    void fetchJson<RecentSearchesResponse>("/recent-searches", controller.signal)
       .then((response) => {
         setEntries(response.recentSearches);
         setStatus("success");
@@ -2057,11 +2169,7 @@ function RecentSearchesRoutePage({
       return;
     }
 
-    void sendJson<{ cleared: boolean }>(
-      "/recent-searches",
-      "DELETE",
-      {},
-    )
+    void sendJson<{ cleared: boolean }>("/recent-searches", "DELETE", {})
       .then(() => {
         setEntries([]);
         setStatus("success");
@@ -2103,7 +2211,10 @@ function RecentSearchesRoutePage({
         ) : null}
 
         {status === "success" && entries.length === 0 ? (
-          <StateCard body="Run a few searches and they will show up here." title="No recent searches yet" />
+          <StateCard
+            body="Run a few searches and they will show up here."
+            title="No recent searches yet"
+          />
         ) : null}
 
         {status === "success" && entries.length > 0 ? (
@@ -2288,7 +2399,10 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
               "Cautious under-market signals",
               "Seen-listings summaries",
             ].map((title) => (
-              <article key={title} className="analytics-preview-card analytics-preview-card--locked">
+              <article
+                key={title}
+                className="analytics-preview-card analytics-preview-card--locked"
+              >
                 <h2>{title}</h2>
               </article>
             ))}
@@ -2365,11 +2479,24 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
                       <p className="eyebrow">{summary.brand}</p>
                       <h2>{summary.range.count} observed listings</h2>
                     </div>
-                    <span className="info-chip">Median {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}</span>
+                    <span className="info-chip">
+                      Median{" "}
+                      {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}
+                    </span>
                   </div>
-                  <p>Observed range: {formatObservedRange(summary.range.minPrice, summary.range.maxPrice, summary.range.currency)}</p>
+                  <p>
+                    Observed range:{" "}
+                    {formatObservedRange(
+                      summary.range.minPrice,
+                      summary.range.maxPrice,
+                      summary.range.currency,
+                    )}
+                  </p>
                   <div className="chip-row">
-                    <span className="info-chip">Average {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}</span>
+                    <span className="info-chip">
+                      Average{" "}
+                      {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}
+                    </span>
                     <span className="info-chip">{summary.range.currency}</span>
                   </div>
                 </article>
@@ -2396,11 +2523,24 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
                       <p className="eyebrow">{summary.category}</p>
                       <h2>{summary.range.count} observed listings</h2>
                     </div>
-                    <span className="info-chip">Median {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}</span>
+                    <span className="info-chip">
+                      Median{" "}
+                      {formatCurrencyAmount(summary.range.medianPrice, summary.range.currency)}
+                    </span>
                   </div>
-                  <p>Observed range: {formatObservedRange(summary.range.minPrice, summary.range.maxPrice, summary.range.currency)}</p>
+                  <p>
+                    Observed range:{" "}
+                    {formatObservedRange(
+                      summary.range.minPrice,
+                      summary.range.maxPrice,
+                      summary.range.currency,
+                    )}
+                  </p>
                   <div className="chip-row">
-                    <span className="info-chip">Average {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}</span>
+                    <span className="info-chip">
+                      Average{" "}
+                      {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}
+                    </span>
                     <span className="info-chip">{summary.range.currency}</span>
                   </div>
                 </article>
@@ -2423,11 +2563,18 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
               {state.signals.map((signal) => (
                 <article key={signal.id} className="analytics-data-card">
                   {signal.imageUrl ? (
-                    <img alt={signal.listingTitle} className="analytics-signal-image" src={signal.imageUrl} />
+                    <img
+                      alt={signal.listingTitle}
+                      className="analytics-signal-image"
+                      src={signal.imageUrl}
+                    />
                   ) : null}
                   <div className="analytics-data-card__header">
                     <div>
-                      <p className="eyebrow">{[signal.brand, signal.category].filter(Boolean).join(" • ") || signal.source}</p>
+                      <p className="eyebrow">
+                        {[signal.brand, signal.category].filter(Boolean).join(" • ") ||
+                          signal.source}
+                      </p>
                       <h2>{signal.listingTitle}</h2>
                     </div>
                     <span className="info-chip info-chip--accent">{signal.label}</span>
@@ -2436,21 +2583,33 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
                   <div className="analytics-pricing-row">
                     <div>
                       <span>Current</span>
-                      <strong>{formatCurrencyAmount(signal.currentPrice, signal.currentCurrency)}</strong>
+                      <strong>
+                        {formatCurrencyAmount(signal.currentPrice, signal.currentCurrency)}
+                      </strong>
                     </div>
                     <div>
                       <span>Observed median</span>
-                      <strong>{formatCurrencyAmount(signal.observedMedianPrice, signal.observedCurrency)}</strong>
+                      <strong>
+                        {formatCurrencyAmount(signal.observedMedianPrice, signal.observedCurrency)}
+                      </strong>
                     </div>
                     <div>
                       <span>Observed range</span>
-                      <strong>{formatObservedRange(signal.observedMinPrice, signal.observedMaxPrice, signal.observedCurrency)}</strong>
+                      <strong>
+                        {formatObservedRange(
+                          signal.observedMinPrice,
+                          signal.observedMaxPrice,
+                          signal.observedCurrency,
+                        )}
+                      </strong>
                     </div>
                   </div>
                   <div className="chip-row">
                     <span className="info-chip">{signal.comparableCount} comparable listings</span>
                     <span className="info-chip">{signal.comparisonScope}</span>
-                    <span className="info-chip">Seen {formatRecentSearchDate(signal.observedAt)}</span>
+                    <span className="info-chip">
+                      Seen {formatRecentSearchDate(signal.observedAt)}
+                    </span>
                   </div>
                 </article>
               ))}
@@ -2531,14 +2690,19 @@ function BetaInfoRoutePage() {
           <div>
             <h2>Beta feedback</h2>
             <p>
-              Testers should try feed, search, auth, saved features, personalization, analytics,
-              and watchlists, then share bugs, confusing moments, and missing beta-blocking flows.
+              Testers should try feed, search, auth, saved features, personalization, analytics, and
+              watchlists, then share bugs, confusing moments, and missing beta-blocking flows.
             </p>
           </div>
         </div>
 
         <div className="inline-actions">
-          <a className="secondary-button link-button" href={betaFeedbackUrl} rel="noreferrer" target="_blank">
+          <a
+            className="secondary-button link-button"
+            href={betaFeedbackUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
             Beta feedback
           </a>
           <Link className="secondary-button link-button" to="/profile">
@@ -2597,8 +2761,12 @@ function ProfileRoutePage({
   const [settingsFeedback, setSettingsFeedback] = useState<string | undefined>();
   const [watchlistErrorMessage, setWatchlistErrorMessage] = useState<string | undefined>();
   const [watchlistFeedback, setWatchlistFeedback] = useState<string | undefined>();
-  const [notificationPreferencesErrorMessage, setNotificationPreferencesErrorMessage] = useState<string | undefined>();
-  const [notificationPreferencesFeedback, setNotificationPreferencesFeedback] = useState<string | undefined>();
+  const [notificationPreferencesErrorMessage, setNotificationPreferencesErrorMessage] = useState<
+    string | undefined
+  >();
+  const [notificationPreferencesFeedback, setNotificationPreferencesFeedback] = useState<
+    string | undefined
+  >();
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingWatchlist, setIsSavingWatchlist] = useState(false);
   const [isSavingNotificationPreferences, setIsSavingNotificationPreferences] = useState(false);
@@ -2633,55 +2801,57 @@ function ProfileRoutePage({
       fetchJson<SettingsResponse>("/me/settings", controller.signal),
       fetchJson<NotificationPreferencesResponse>("/me/notification-preferences", controller.signal),
     ])
-      .then(([
-        savedSearchResponse,
-        savedFilterResponse,
-        watchlistResponse,
-        settingsResponse,
-        notificationPreferencesResponse,
-      ]) => {
-        setCollectionsState({
-          notificationPreferences: notificationPreferencesResponse.notificationPreferences,
-          savedFilters: savedFilterResponse.savedFilters,
-          savedSearches: savedSearchResponse.savedSearches,
-          settings: settingsResponse.settings,
-          status: "success",
-          watchlists: watchlistResponse.watchlists,
-        });
-        setSettingsForm({
-          defaultSortMode: settingsResponse.settings.defaultSortMode ?? "",
-          displayName: settingsResponse.settings.displayName ?? "",
-          preferredCurrency: settingsResponse.settings.preferredCurrency,
-          preferredSources: settingsResponse.settings.preferredSources,
-        });
-        setNotificationPreferencesForm({
-          emailEnabled: notificationPreferencesResponse.notificationPreferences.emailEnabled,
-          frequency: notificationPreferencesResponse.notificationPreferences.frequency,
-          inAppEnabled: notificationPreferencesResponse.notificationPreferences.inAppEnabled,
-          pushEnabled: notificationPreferencesResponse.notificationPreferences.pushEnabled,
-          quietHoursEnd:
-            notificationPreferencesResponse.notificationPreferences.quietHoursEnd ?? "",
-          quietHoursStart:
-            notificationPreferencesResponse.notificationPreferences.quietHoursStart ?? "",
-          smsEnabled: notificationPreferencesResponse.notificationPreferences.smsEnabled,
-        });
-        setWatchlistForm((currentState) => {
-          const hasUserDraft =
-            currentState.label.trim().length > 0 ||
-            currentState.queryText.trim().length > 0 ||
-            currentState.brand.trim().length > 0 ||
-            currentState.category.trim().length > 0 ||
-            currentState.source.trim().length > 0 ||
-            currentState.minPriceAmount.trim().length > 0 ||
-            currentState.maxPriceAmount.trim().length > 0 ||
-            currentState.size.trim().length > 0 ||
-            currentState.condition.trim().length > 0;
+      .then(
+        ([
+          savedSearchResponse,
+          savedFilterResponse,
+          watchlistResponse,
+          settingsResponse,
+          notificationPreferencesResponse,
+        ]) => {
+          setCollectionsState({
+            notificationPreferences: notificationPreferencesResponse.notificationPreferences,
+            savedFilters: savedFilterResponse.savedFilters,
+            savedSearches: savedSearchResponse.savedSearches,
+            settings: settingsResponse.settings,
+            status: "success",
+            watchlists: watchlistResponse.watchlists,
+          });
+          setSettingsForm({
+            defaultSortMode: settingsResponse.settings.defaultSortMode ?? "",
+            displayName: settingsResponse.settings.displayName ?? "",
+            preferredCurrency: settingsResponse.settings.preferredCurrency,
+            preferredSources: settingsResponse.settings.preferredSources,
+          });
+          setNotificationPreferencesForm({
+            emailEnabled: notificationPreferencesResponse.notificationPreferences.emailEnabled,
+            frequency: notificationPreferencesResponse.notificationPreferences.frequency,
+            inAppEnabled: notificationPreferencesResponse.notificationPreferences.inAppEnabled,
+            pushEnabled: notificationPreferencesResponse.notificationPreferences.pushEnabled,
+            quietHoursEnd:
+              notificationPreferencesResponse.notificationPreferences.quietHoursEnd ?? "",
+            quietHoursStart:
+              notificationPreferencesResponse.notificationPreferences.quietHoursStart ?? "",
+            smsEnabled: notificationPreferencesResponse.notificationPreferences.smsEnabled,
+          });
+          setWatchlistForm((currentState) => {
+            const hasUserDraft =
+              currentState.label.trim().length > 0 ||
+              currentState.queryText.trim().length > 0 ||
+              currentState.brand.trim().length > 0 ||
+              currentState.category.trim().length > 0 ||
+              currentState.source.trim().length > 0 ||
+              currentState.minPriceAmount.trim().length > 0 ||
+              currentState.maxPriceAmount.trim().length > 0 ||
+              currentState.size.trim().length > 0 ||
+              currentState.condition.trim().length > 0;
 
-          return hasUserDraft
-            ? currentState
-            : createEmptyWatchlistForm(settingsResponse.settings.preferredCurrency);
-        });
-      })
+            return hasUserDraft
+              ? currentState
+              : createEmptyWatchlistForm(settingsResponse.settings.preferredCurrency);
+          });
+        },
+      )
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
           return;
@@ -2734,7 +2904,6 @@ function ProfileRoutePage({
     collectionsState.settings?.preferredCurrency ?? session.user.currencyPreference;
   const displayName = collectionsState.settings?.displayName?.trim() || session.user.username;
 
-
   function handleReload() {
     startTransition(() => {
       setReloadCount((currentValue) => currentValue + 1);
@@ -2742,14 +2911,22 @@ function ProfileRoutePage({
   }
 
   function handleRunSavedSearch(params: string) {
+    recordSearchInteraction(
+      parseSearchFormValues(new URLSearchParams(params)),
+      "profile_saved_search",
+    );
+
     startTransition(() => {
       navigate(params ? "/search?" + params : "/search");
     });
   }
 
   function handleApplySavedFilter(savedFilter: SavedFilter) {
+    const nextValues = createSavedFilterValues(savedFilter);
+    recordSearchInteraction(nextValues, "profile_saved_filter");
+
     startTransition(() => {
-      navigate(buildSearchPath(createSavedFilterValues(savedFilter)));
+      navigate(buildSearchPath(nextValues));
     });
   }
 
@@ -2759,7 +2936,7 @@ function ProfileRoutePage({
   }
 
   async function handleToggleLikeFromProfile(listing: Listing, nextLiked: boolean) {
-    await toggleLike(listing, nextLiked);
+    await toggleLike(listing, nextLiked, "liked_items");
   }
 
   async function handleDeleteSavedSearch(savedSearch: SavedSearch) {
@@ -2915,6 +3092,7 @@ function ProfileRoutePage({
 
   async function handleSaveWatchlist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const isCreatingWatchlist = !editingWatchlistId;
     setIsSavingWatchlist(true);
     setWatchlistErrorMessage(undefined);
     setWatchlistFeedback(undefined);
@@ -2947,6 +3125,31 @@ function ProfileRoutePage({
           ? "Updated your watchlist. Alert delivery is still not active yet."
           : "Saved your watchlist. Alert delivery will come in a later milestone.",
       );
+
+      if (isCreatingWatchlist) {
+        const constraintCount = [
+          watchlistForm.brand,
+          watchlistForm.category,
+          watchlistForm.condition,
+          watchlistForm.listingType,
+          watchlistForm.maxPriceAmount,
+          watchlistForm.minPriceAmount,
+          watchlistForm.queryText,
+          watchlistForm.size,
+          watchlistForm.source,
+        ].filter((value) => value.trim().length > 0).length;
+
+        void recordEngagementEvent({
+          eventType: "watchlist_create",
+          properties: {
+            constraintCount,
+            hasQuery: watchlistForm.queryText.trim().length > 0,
+            surface: "profile",
+          },
+          searchQuery: watchlistForm.queryText.trim() || undefined,
+        });
+      }
+
       resetWatchlistComposer();
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
@@ -3025,11 +3228,17 @@ function ProfileRoutePage({
 
         <article className="profile-panel">
           <p className="eyebrow">Saved overview</p>
-          <h2>{likes.length + collectionsState.savedSearches.length + collectionsState.savedFilters.length + collectionsState.watchlists.length}</h2>
+          <h2>
+            {likes.length +
+              collectionsState.savedSearches.length +
+              collectionsState.savedFilters.length +
+              collectionsState.watchlists.length}
+          </h2>
           <p>
             {likes.length} likes • {collectionsState.savedSearches.length} saved searches
             <br />
-            {collectionsState.savedFilters.length} saved filters • {collectionsState.watchlists.length} watchlists
+            {collectionsState.savedFilters.length} saved filters •{" "}
+            {collectionsState.watchlists.length} watchlists
           </p>
         </article>
 
@@ -3049,7 +3258,8 @@ function ProfileRoutePage({
           <p>
             Default sort: {collectionsState.settings?.defaultSortMode ?? "relevance"}
             <br />
-            Preferred sources: {collectionsState.settings?.preferredSources.join(", ") || "Any marketplace"}
+            Preferred sources:{" "}
+            {collectionsState.settings?.preferredSources.join(", ") || "Any marketplace"}
           </p>
         </article>
       </section>
@@ -3082,6 +3292,10 @@ function ProfileRoutePage({
 
           {likedListings.length > 0 ? (
             <ListingGrid
+              engagement={{
+                surface: "liked_items",
+                viewContextId: "profile_liked_items",
+              }}
               likedListingIds={likedListingIds}
               listings={likedListings.map((entry) => entry.listing)}
               onToggleLike={handleToggleLikeFromProfile}
@@ -3176,7 +3390,10 @@ function ProfileRoutePage({
           <div className="section-heading section-heading--split">
             <div>
               <h2>Watchlists</h2>
-              <p>Watchlists save what you want to track. Alert delivery will come in a later milestone.</p>
+              <p>
+                Watchlists save what you want to track. Alert delivery will come in a later
+                milestone.
+              </p>
               <p>No email or push notifications are sent yet.</p>
             </div>
           </div>
@@ -3444,7 +3661,10 @@ function ProfileRoutePage({
           <div className="section-heading section-heading--split">
             <div>
               <h2>Notification preferences</h2>
-              <p>These settings are saved as a shell for a later milestone. Email, push, and SMS delivery are not active yet.</p>
+              <p>
+                These settings are saved as a shell for a later milestone. Email, push, and SMS
+                delivery are not active yet.
+              </p>
             </div>
           </div>
 
@@ -3539,7 +3759,9 @@ function ProfileRoutePage({
                 disabled={isSavingNotificationPreferences}
                 type="submit"
               >
-                {isSavingNotificationPreferences ? "Saving preferences..." : "Save notification preferences"}
+                {isSavingNotificationPreferences
+                  ? "Saving preferences..."
+                  : "Save notification preferences"}
               </button>
             </div>
           </form>
@@ -3547,7 +3769,10 @@ function ProfileRoutePage({
           <div className="section-heading section-heading--split">
             <div>
               <h2>Settings</h2>
-              <p>Currency is a display preference scaffold for now; listing prices stay marketplace-native until conversion ships.</p>
+              <p>
+                Currency is a display preference scaffold for now; listing prices stay
+                marketplace-native until conversion ships.
+              </p>
             </div>
           </div>
 
@@ -3556,7 +3781,12 @@ function ProfileRoutePage({
               <span>Display name</span>
               <input
                 id="settings-display-name"
-                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, displayName: event.target.value }))}
+                onChange={(event) =>
+                  setSettingsForm((currentState) => ({
+                    ...currentState,
+                    displayName: event.target.value,
+                  }))
+                }
                 placeholder="Archive Kid"
                 value={settingsForm.displayName}
               />
@@ -3566,7 +3796,12 @@ function ProfileRoutePage({
               <span>Preferred currency</span>
               <select
                 id="settings-currency"
-                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, preferredCurrency: event.target.value }))}
+                onChange={(event) =>
+                  setSettingsForm((currentState) => ({
+                    ...currentState,
+                    preferredCurrency: event.target.value,
+                  }))
+                }
                 value={settingsForm.preferredCurrency}
               >
                 {[
@@ -3586,7 +3821,12 @@ function ProfileRoutePage({
               <span>Default sort mode</span>
               <select
                 id="settings-sort-mode"
-                onChange={(event) => setSettingsForm((currentState) => ({ ...currentState, defaultSortMode: event.target.value }))}
+                onChange={(event) =>
+                  setSettingsForm((currentState) => ({
+                    ...currentState,
+                    defaultSortMode: event.target.value,
+                  }))
+                }
                 value={settingsForm.defaultSortMode}
               >
                 <option value="">Use search defaults</option>
@@ -3615,7 +3855,9 @@ function ProfileRoutePage({
                               ...currentState,
                               preferredSources: event.target.checked
                                 ? [...currentState.preferredSources, option.value]
-                                : currentState.preferredSources.filter((entry) => entry !== option.value),
+                                : currentState.preferredSources.filter(
+                                    (entry) => entry !== option.value,
+                                  ),
                             }));
                           }}
                           type="checkbox"
@@ -3684,8 +3926,7 @@ function BrandsRoutePage() {
 
         setState({
           brands: [],
-          errorMessage:
-            error instanceof Error ? error.message : "Brand browsing is unavailable.",
+          errorMessage: error instanceof Error ? error.message : "Brand browsing is unavailable.",
           status: "error",
           total: 0,
         });
@@ -3799,8 +4040,7 @@ function BrandDetailRoutePage() {
         }
 
         setState({
-          errorMessage:
-            error instanceof Error ? error.message : "The brand could not be loaded.",
+          errorMessage: error instanceof Error ? error.message : "The brand could not be loaded.",
           status: "error",
         });
       });
@@ -3928,7 +4168,10 @@ function SignupRoutePage({
   }
 
   return (
-    <AuthPage description="Create your account to save likes and shape your feed." title="Create Your Account">
+    <AuthPage
+      description="Create your account to save likes and shape your feed."
+      title="Create Your Account"
+    >
       {session ? (
         <StateCard
           action={
@@ -4190,9 +4433,7 @@ function OnboardingRoutePage({
 export function AppLayout() {
   const navigate = useNavigate();
   const [session, setSession] = useState<AuthResponse | null>(null);
-  const [isSessionLoading, setIsSessionLoading] = useState(
-    () => typeof window !== "undefined",
-  );
+  const [isSessionLoading, setIsSessionLoading] = useState(() => typeof window !== "undefined");
   const [sessionNotice, setSessionNotice] = useState<string | undefined>();
 
   useEffect(() => {
@@ -4267,7 +4508,11 @@ export function AppLayout() {
           ) : session ? (
             <div className="session-pill">
               <span>@{session.user.username}</span>
-              <button className="secondary-button session-pill__button" onClick={handleLogout} type="button">
+              <button
+                className="secondary-button session-pill__button"
+                onClick={handleLogout}
+                type="button"
+              >
                 Log out
               </button>
             </div>
@@ -4289,9 +4534,7 @@ export function AppLayout() {
           {primaryNavigationItems.map((item) => (
             <NavLink
               key={item.path}
-              className={({ isActive }) =>
-                isActive ? "nav-pill nav-pill--active" : "nav-pill"
-              }
+              className={({ isActive }) => (isActive ? "nav-pill nav-pill--active" : "nav-pill")}
               end={item.path === "/"}
               to={item.path}
             >
@@ -4332,10 +4575,7 @@ export function AppLayout() {
           />
           <Route
             element={
-              <RecentSearchesRoutePage
-                onAuthFailure={handleSessionExpired}
-                session={session}
-              />
+              <RecentSearchesRoutePage onAuthFailure={handleSessionExpired} session={session} />
             }
             path="/recent-searches"
           />
@@ -4380,7 +4620,12 @@ export function AppLayout() {
             <Link className="secondary-button link-button" to="/beta">
               Beta information
             </Link>
-            <a className="secondary-button link-button" href={betaFeedbackUrl} rel="noreferrer" target="_blank">
+            <a
+              className="secondary-button link-button"
+              href={betaFeedbackUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
               Share feedback
             </a>
           </div>
