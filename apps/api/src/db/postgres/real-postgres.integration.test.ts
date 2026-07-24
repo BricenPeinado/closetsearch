@@ -1,12 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-} from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hashPassword } from "../../auth/password-service.js";
 import { PostgresDataPlane } from "./data-plane.js";
 import { PostgresDatabase } from "./database.js";
@@ -17,8 +11,7 @@ import {
 } from "./migrations.js";
 import type { ListingObservationInput } from "./model.js";
 
-const integrationUrl =
-  process.env.POSTGRES_INTEGRATION_DATABASE_URL?.trim();
+const integrationUrl = process.env.POSTGRES_INTEGRATION_DATABASE_URL?.trim();
 const describeRealPostgres = integrationUrl ? describe : describe.skip;
 
 function databaseName(prefix: string) {
@@ -44,22 +37,19 @@ async function createDatabase(admin: Pool, name: string) {
 }
 
 async function dropDatabase(admin: Pool, name: string) {
-  await admin.query(
-    `DROP DATABASE IF EXISTS "${assertDatabaseName(name)}" WITH (FORCE)`,
-  );
+  await admin.query(`DROP DATABASE IF EXISTS "${assertDatabaseName(name)}"`);
 }
 
 function observation(
   sourceListingId: string,
   idempotencyKey: string,
+  observedAt = new Date("2026-07-24T12:00:00.000Z"),
 ): ListingObservationInput {
-  const observedAt = new Date("2026-07-24T12:00:00.000Z");
-
   return {
     analyticsEligible: true,
     availability: "available",
     fetchedAt: observedAt,
-    id: "d8513f84-a3eb-4e57-a1f0-b09ca927e245",
+    id: randomUUID(),
     idempotencyKey,
     images: [
       {
@@ -93,10 +83,7 @@ describeRealPostgres("real PostgreSQL reliability", () => {
     testDatabaseName = databaseName("closetsearch_real_it");
     await createDatabase(admin, testDatabaseName);
     const pool = new Pool({
-      connectionString: databaseUrl(
-        integrationUrl as string,
-        testDatabaseName,
-      ),
+      connectionString: databaseUrl(integrationUrl as string, testDatabaseName),
       max: 8,
     });
     await runPostgresMigrations(pool);
@@ -126,15 +113,10 @@ describeRealPostgres("real PostgreSQL reliability", () => {
     const migrations = loadPostgresMigrations();
 
     for (let priorVersion = 1; priorVersion < migrations.length; priorVersion += 1) {
-      const upgradeDatabaseName = databaseName(
-        `closetsearch_upgrade_${priorVersion}`,
-      );
+      const upgradeDatabaseName = databaseName(`closetsearch_upgrade_${priorVersion}`);
       await createDatabase(admin, upgradeDatabaseName);
       const pool = new Pool({
-        connectionString: databaseUrl(
-          integrationUrl as string,
-          upgradeDatabaseName,
-        ),
+        connectionString: databaseUrl(integrationUrl as string, upgradeDatabaseName),
       });
 
       try {
@@ -184,6 +166,43 @@ describeRealPostgres("real PostgreSQL reliability", () => {
     expect(Number(counts.rows[0]?.observations)).toBe(1);
   }, 30_000);
 
+  it("keeps a repeatedly seen unchanged listing fresh", async () => {
+    const sourceListingId = `refresh-${randomUUID()}`;
+    const firstSeenAt = new Date("2026-07-24T12:00:00.000Z");
+    const seenAgainAt = new Date("2026-07-24T13:00:00.000Z");
+
+    const first = await dataPlane.listings.upsertObservation(
+      observation(sourceListingId, `${sourceListingId}:first`, firstSeenAt),
+    );
+    await dataPlane.listings.upsertObservation(
+      observation(sourceListingId, `${sourceListingId}:second`, seenAgainAt),
+    );
+    await dataPlane.listings.markStale(
+      new Date("2026-07-24T12:30:00.000Z"),
+      new Date("2026-07-24T14:00:00.000Z"),
+    );
+
+    const state = await database.query<{
+      availability: string;
+      last_seen_at: Date;
+    }>(
+      `SELECT availability, last_seen_at
+       FROM listing_current_state
+       WHERE listing_id = $1`,
+      [first.listingId],
+    );
+    const history = await dataPlane.listings.latestPriceHistory(
+      "real-postgres-fixture",
+      sourceListingId,
+    );
+
+    expect(state.rows[0]).toMatchObject({
+      availability: "available",
+      last_seen_at: seenAgainAt,
+    });
+    expect(history).toHaveLength(1);
+  }, 30_000);
+
   it("rolls back multi-table request-store transactions", async () => {
     const username = `rollback-${randomUUID().slice(0, 8)}`;
 
@@ -197,9 +216,7 @@ describeRealPostgres("real PostgreSQL reliability", () => {
       }),
     ).rejects.toThrow("force rollback");
     await expect(
-      dataPlane.requestStore.findUserCredentialsByNormalizedUsername(
-        username,
-      ),
+      dataPlane.requestStore.findUserCredentialsByNormalizedUsername(username),
     ).resolves.toBeUndefined();
   });
 
@@ -241,9 +258,7 @@ describeRealPostgres("real PostgreSQL reliability", () => {
       sessionTokenHash: tokenHash,
       userId: user.id,
     });
-    expect(
-      await dataPlane.requestStore.revokeAuthSessionByTokenHash(tokenHash),
-    ).toBe(true);
+    expect(await dataPlane.requestStore.revokeAuthSessionByTokenHash(tokenHash)).toBe(true);
     const persisted = await database.query<{
       ip_hint_hash: string;
       revoked_at: Date;

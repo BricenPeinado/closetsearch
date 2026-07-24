@@ -1,9 +1,6 @@
 import type { ListingObservationInput } from "../db/postgres/model.js";
 import type { ProviderHealthState } from "../db/postgres/repositories/providers.js";
-import {
-  WorkerJobError,
-  type WorkerJobHandler,
-} from "./types.js";
+import { WorkerJobError, type WorkerJobHandler } from "./types.js";
 
 export interface ProviderIngestionRequest {
   continuationCursor?: unknown;
@@ -37,10 +34,8 @@ interface IngestionJobPayload {
 }
 
 function parsePayload(payload: Record<string, unknown>): IngestionJobPayload {
-  const providerId =
-    typeof payload.providerId === "string" ? payload.providerId.trim() : "";
-  const queryKey =
-    typeof payload.queryKey === "string" ? payload.queryKey.trim() : "";
+  const providerId = typeof payload.providerId === "string" ? payload.providerId.trim() : "";
+  const queryKey = typeof payload.queryKey === "string" ? payload.queryKey.trim() : "";
   const ingestionScope = payload.ingestionScope;
 
   if (
@@ -77,9 +72,7 @@ export function createProviderIngestionHandler(
   sources: readonly ProviderIngestionSource[],
   now: () => Date = () => new Date(),
 ): WorkerJobHandler {
-  const sourcesById = new Map(
-    sources.map((source) => [source.providerId, source]),
-  );
+  const sourcesById = new Map(sources.map((source) => [source.providerId, source]));
 
   return async ({ checkpoint, dataPlane, job, signal }) => {
     const payload = parsePayload(job.payload);
@@ -93,12 +86,11 @@ export function createProviderIngestionHandler(
       );
     }
 
-    const durableCheckpoint =
-      await dataPlane.jobs.getIngestionCheckpoint(
-        payload.providerId,
-        payload.ingestionScope,
-        payload.queryKey,
-      );
+    const durableCheckpoint = await dataPlane.jobs.getIngestionCheckpoint(
+      payload.providerId,
+      payload.ingestionScope,
+      payload.queryKey,
+    );
     const startedAt = now();
 
     try {
@@ -120,11 +112,8 @@ export function createProviderIngestionHandler(
 
         const persisted = await dataPlane.listings.upsertObservation(listing);
 
-        if (persisted.persisted && !persisted.duplicate) {
-          await dataPlane.alerts.matchListing(
-            persisted.listingId,
-            listing.observedAt,
-          );
+        if (persisted.persisted) {
+          await dataPlane.alerts.matchListing(persisted.listingId, listing.observedAt);
         }
       }
 
@@ -134,10 +123,7 @@ export function createProviderIngestionHandler(
           ? completedAt
           : new Date(
               completedAt.getTime() +
-                (payload.successIntervalSeconds ??
-                  job.scheduleIntervalSeconds ??
-                  3_600) *
-                  1_000,
+                (payload.successIntervalSeconds ?? job.scheduleIntervalSeconds ?? 3_600) * 1_000,
             );
       const savedCheckpoint = await dataPlane.jobs.saveIngestionCheckpoint({
         continuationCursor: page.continuationCursor,
@@ -159,8 +145,7 @@ export function createProviderIngestionHandler(
         checkedAt: completedAt,
         circuitOpenUntil: page.health?.circuitOpenUntil,
         latencyMs:
-          page.health?.latencyMs ??
-          Math.max(0, completedAt.getTime() - startedAt.getTime()),
+          page.health?.latencyMs ?? Math.max(0, completedAt.getTime() - startedAt.getTime()),
         metadata: page.health?.metadata,
         providerId: payload.providerId,
         rateLimitedUntil: page.health?.rateLimitedUntil,
@@ -177,15 +162,10 @@ export function createProviderIngestionHandler(
         error instanceof WorkerJobError
           ? error
           : new WorkerJobError(
-              error instanceof Error
-                ? error.message
-                : "Provider ingestion failed.",
+              error instanceof Error ? error.message : "Provider ingestion failed.",
               "provider_ingestion_failed",
             );
-      const retryDelayMs = Math.max(
-        60_000,
-        Math.min(jobError.retryAfterMs ?? 60_000, 86_400_000),
-      );
+      const retryDelayMs = Math.max(60_000, Math.min(jobError.retryAfterMs ?? 60_000, 86_400_000));
 
       await dataPlane.jobs.recordIngestionFailure({
         errorCode: jobError.code,

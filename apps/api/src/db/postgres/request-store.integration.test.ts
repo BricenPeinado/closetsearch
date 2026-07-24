@@ -5,7 +5,7 @@ import { PostgresRequestStore } from "./request-store.js";
 import { RequestStoreError } from "./request-store-types.js";
 import { createPostgresTestHarness } from "./test-harness.js";
 
-const now = new Date("2026-07-24T12:00:00.000Z");
+const now = new Date("2030-07-24T12:00:00.000Z");
 const passwordHash = `scrypt$${"p".repeat(64)}`;
 
 function hash(label: string) {

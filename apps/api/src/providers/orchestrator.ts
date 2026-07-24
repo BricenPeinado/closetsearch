@@ -17,7 +17,6 @@ import { logWarn } from "../logger.js";
 import { incrementCounter, observeHistogram } from "../metrics.js";
 import { sanitizeProviderListing } from "./listing-sanitizer.js";
 import {
-  createProviderRuntime,
   type ActiveProviderRegistration,
   type ProviderPreflightFailure,
   type ProviderRuntime,
@@ -843,17 +842,12 @@ async function collectProviderCandidates(
           summary,
         };
       }
-    } catch (error: unknown) {
-      const failure =
-        error && typeof error === "object" && "providerId" in error && "code" in error
-          ? (error as ProviderFailure)
-          : createFailure(
-              registration.provider.id,
-              "unavailable",
-              error instanceof Error
-                ? error.message
-                : `${registration.name} could not complete the request.`,
-            );
+    } catch {
+      const failure = createFailure(
+        registration.provider.id,
+        "unavailable",
+        `${registration.name} could not complete the request.`,
+      );
 
       return {
         failure,
@@ -895,7 +889,7 @@ export function resetProviderSearchCache() {
 
 export async function runProviderSearch(
   query: SearchQuery,
-  runtime: ProviderRuntime = createProviderRuntime(),
+  runtime: ProviderRuntime,
 ): Promise<ProviderSearchExecution> {
   const activeProviders = runtime.activeProviders.slice(0, runtime.config.maxProvidersPerRequest);
   const providerQuery = stripPaginationQuery(query);

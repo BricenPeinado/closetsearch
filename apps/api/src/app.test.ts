@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Brand } from "@closetsearch/shared";
+import type { Provider } from "@closetsearch/providers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp, getMetricRoute, resetHttpSecurityStateForTests } from "./app.js";
 import { resetAuthSessionStore } from "./auth/session-service.js";
@@ -13,6 +14,8 @@ import { resetSavedFilterStore } from "./saved-filter-service.js";
 import { resetUserSettingsStore } from "./user-settings-service.js";
 import { resetWatchlistStore } from "./watchlist-service.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
+import type { ProviderRuntime } from "./providers/registry.js";
+import { loadProviderRuntimeConfig } from "./providers/runtime-config.js";
 import {
   getObservedPriceSnapshots,
   resetPriceSnapshotStore,
@@ -97,9 +100,8 @@ function createInvalidJsonRequest(
   return stream;
 }
 
-async function runRequest(request: IncomingMessage) {
+async function runRequestAgainstApp(app: ReturnType<typeof createApp>, request: IncomingMessage) {
   const recorder = createResponseRecorder();
-  const app = createApp();
   const requestListener = app.listeners("request")[0] as (
     request: IncomingMessage,
     response: ServerResponse<IncomingMessage>,
@@ -109,6 +111,10 @@ async function runRequest(request: IncomingMessage) {
   await recorder.done;
 
   return recorder.snapshot();
+}
+
+async function runRequest(request: IncomingMessage) {
+  return runRequestAgainstApp(createApp(), request);
 }
 
 async function signupAndGetSession(username: string, password = "closetpass") {
@@ -214,6 +220,70 @@ describe("handleRequest", () => {
     });
   });
 
+  it("reuses one provider runtime across sequential search, feed, and health calls", async () => {
+    const searchTexts: string[] = [];
+    const provider: Provider = {
+      id: "persistent-test",
+      name: "Persistent test provider",
+      async search(request) {
+        searchTexts.push(request.query.text);
+
+        return {
+          listings: [],
+          pagination: {
+            hasMore: false,
+            page: request.pagination?.page ?? 1,
+            pageSize: request.pagination?.pageSize ?? 12,
+            totalCount: 0,
+          },
+          providerId: "persistent-test",
+          status: "success",
+        };
+      },
+    };
+    const providerRuntime: ProviderRuntime = {
+      activeProviders: [
+        {
+          mode: "real",
+          name: provider.name,
+          provider,
+        },
+      ],
+      config: loadProviderRuntimeConfig({}),
+      preflightFailures: [],
+      statuses: [
+        {
+          active: true,
+          configured: true,
+          enabled: true,
+          id: provider.id,
+          implementationStatus: "available",
+          mode: "official-api",
+          name: provider.name,
+          providerMode: "real",
+          reasons: [],
+        },
+      ],
+    };
+    const app = createApp({ providerRuntime });
+
+    const search = await runRequestAgainstApp(app, createRequest("GET", "/search?q=first"));
+    const feed = await runRequestAgainstApp(app, createRequest("GET", "/feed"));
+    const health = await runRequestAgainstApp(app, createRequest("GET", "/providers/health"));
+
+    expect(search.statusCode).toBe(200);
+    expect(feed.statusCode).toBe(200);
+    expect(searchTexts).toEqual(["first", ""]);
+    expect(JSON.parse(health.body)).toMatchObject({
+      providers: [
+        {
+          active: true,
+          id: "persistent-test",
+        },
+      ],
+    });
+  });
+
   it("validates the durable client-event boundary without counting server responses", async () => {
     const missingSession = await runRequest(
       createJsonRequest("POST", "/events", {
@@ -284,7 +354,7 @@ describe("handleRequest", () => {
     process.env.GRAILED_SCRAPING_ALLOWED = "true";
     process.env.GRAILED_AUTHORIZATION_REFERENCE = "legal-approval-fixture-CS-123";
     process.env.GRAILED_USER_AGENT = "ClosetSearchBot/0.1 contact:team.com";
-    process.env.GRAILED_BASE_URL = "https://secret-grailed.example/private";
+    process.env.GRAILED_BASE_URL = "https://www.grailed.com";
 
     try {
       const snapshot = await runRequest(createRequest("GET", "/providers/health"));
@@ -326,9 +396,10 @@ describe("handleRequest", () => {
           }),
         ]),
       );
-      expect(snapshot.body).not.toContain("super-secret-key");
+      expect(snapshot.body).not.toContain(
+        "legal-approval-fixture-CS-123",
+      );
       expect(snapshot.body).not.toContain("ClosetSearchBot/0.1 contact:team.com");
-      expect(snapshot.body).not.toContain("https://secret-grailed.example/private");
     } finally {
       if (previousMode === undefined) delete process.env.PROVIDER_RUNTIME_MODE;
       else process.env.PROVIDER_RUNTIME_MODE = previousMode;

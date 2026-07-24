@@ -1,14 +1,10 @@
 import type { Provider } from "@closetsearch/providers";
 import type { Listing } from "@closetsearch/shared";
 import { describe, expect, it, vi } from "vitest";
-import {
-  ContractProviderIngestionSource,
-  toListingObservation,
-} from "./provider-source.js";
+import { ContractProviderIngestionSource, toListingObservation } from "./provider-source.js";
 
 function listing(overrides: Partial<Listing> = {}): Listing {
-  const fetchedAt =
-    overrides.fetchedAt ?? "2026-07-24T12:00:00.000Z";
+  const fetchedAt = overrides.fetchedAt ?? "2026-07-24T12:00:00.000Z";
 
   return {
     brand: {
@@ -67,9 +63,10 @@ function listing(overrides: Partial<Listing> = {}): Listing {
 }
 
 describe("provider ingestion source", () => {
-  it("maps normalized exact money and stable observation identity", () => {
+  it("maps normalized money and scopes idempotency to one collection observation", () => {
     const first = toListingObservation(listing(), "active");
-    const replay = toListingObservation(
+    const exactReplay = toListingObservation(listing(), "active");
+    const laterObservation = toListingObservation(
       listing({ fetchedAt: "2026-07-24T12:05:00.000Z" }),
       "active",
     );
@@ -97,7 +94,8 @@ describe("provider ingestion source", () => {
     expect(first.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    expect(first.idempotencyKey).toBe(replay.idempotencyKey);
+    expect(first.idempotencyKey).toBe(exactReplay.idempotencyKey);
+    expect(first.idempotencyKey).not.toBe(laterObservation.idempotencyKey);
   });
 
   it("keeps confirmed sold price distinct from asking price", () => {
@@ -200,6 +198,62 @@ describe("provider ingestion source", () => {
         resultCount: 1,
       },
       state: "healthy",
+    });
+  });
+
+  it("drops malformed provider rows without failing the rest of an ingestion page", async () => {
+    const malformedListing = {
+      ...listing({
+        id: "fixture:malformed",
+        providerListingId: "malformed",
+      }),
+      sourceUrl: "javascript:alert('malformed')",
+    } as Listing;
+    const source = new ContractProviderIngestionSource(
+      {
+        dataOrigin: "official_api",
+        id: "fixture",
+        name: "Fixture",
+        async search() {
+          return {
+            listings: [malformedListing, listing()],
+            providerId: "fixture",
+            status: "success",
+          };
+        },
+      },
+      [
+        {
+          key: "active:default",
+          pageSize: 20,
+          query: {
+            marketScope: "active",
+            sort: "newest",
+            text: "",
+          },
+        },
+      ],
+    );
+
+    await expect(
+      source.fetchPage({
+        ingestionScope: "active",
+        queryKey: "active:default",
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({
+      health: {
+        metadata: {
+          malformedListingsDropped: 1,
+          resultCount: 1,
+        },
+        state: "degraded",
+      },
+      listings: [
+        expect.objectContaining({
+          sourceListingId: "item-1",
+        }),
+      ],
     });
   });
 

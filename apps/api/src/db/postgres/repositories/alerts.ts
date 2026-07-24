@@ -431,14 +431,14 @@ export class AlertRepository {
                last_attempt_at,
                delivered_at
              ) VALUES (
-               $1, $2, 'in_app', $3, 'delivered', 1, $4, $4, $4
+               $1, $2, 'in_app', $3, 'delivered', 1,
+               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
              )
              ON CONFLICT (idempotency_key) DO NOTHING`,
             [
               randomUUID(),
               storedMatch.id,
               `in_app:${candidate.watchlist_id}:${listingId}`,
-              matchedAt,
             ],
           );
         }

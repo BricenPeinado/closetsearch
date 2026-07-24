@@ -1,6 +1,5 @@
 import type { IncomingMessage } from "node:http";
 import type {
-  Listing,
   ListingCondition,
   SavedFilterListingType,
   SearchSortMode,
@@ -11,7 +10,6 @@ import { requireAuth } from "../auth/auth-context.js";
 import { parseJsonRequestBody } from "../http/request-body.js";
 import { AlertInboxService } from "../services/alertInboxService.js";
 import { listPostgresLikedListings } from "../services/postgresLikedListingService.js";
-import { toListingObservation } from "../worker/provider-source.js";
 import type { RouteResult } from "./route-result.js";
 import {
   getRequestDataPlane,
@@ -42,31 +40,6 @@ async function payload(request: IncomingMessage) {
   }
 
   return value;
-}
-
-function optionalListing(value: unknown): Listing | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const listing = value as Listing;
-
-  return typeof listing.id === "string" &&
-    typeof listing.providerId === "string" &&
-    typeof listing.providerListingId === "string" &&
-    typeof listing.sourceUrl === "string" &&
-    typeof listing.title === "string" &&
-    typeof listing.fetchedAt === "string" &&
-    typeof listing.imageUrl === "string" &&
-    typeof listing.price?.amount === "number" &&
-    typeof listing.price?.currency === "string" &&
-    typeof listing.source?.id === "string" &&
-    typeof listing.source?.name === "string" &&
-    typeof listing.brand?.id === "string" &&
-    typeof listing.brand?.slug === "string" &&
-    typeof listing.brand?.name === "string"
-    ? listing
-    : undefined;
 }
 
 function listingType(value: unknown): SavedFilterListingType | undefined {
@@ -129,9 +102,7 @@ function watchlistLabel(input: WatchlistInput) {
 }
 
 function notificationFrequency(value: unknown) {
-  return value === "instant" || value === "daily" || value === "weekly"
-    ? value
-    : undefined;
+  return value === "instant" || value === "daily" || value === "weekly" ? value : undefined;
 }
 
 function response(body: unknown, statusCode = 200): RouteResult {
@@ -182,43 +153,39 @@ export async function handlePostgresSavedRoute(
       if (method === "POST") {
         const listingId = trimmedString(body.listingId);
         const source = trimmedString(body.source);
-        const listing = optionalListing(body.listing);
 
-        if (!listingId || !source || !listing) {
-          throw new ApiError(
-            400,
-            "invalid_request",
-            "listingId, source, and a normalized listing snapshot are required.",
-          );
+        if (!listingId || !source) {
+          throw new ApiError(400, "invalid_request", "listingId and source are required.");
         }
 
-        if (listing.id !== listingId) {
+        if (!listingId.startsWith(`${source}:`)) {
           throw new ApiError(
             400,
             "listing_identity_mismatch",
-            "The listing snapshot does not match listingId.",
+            "The listing source does not match listingId.",
           );
         }
 
-        await dataPlane.listings.upsertObservation(
-          toListingObservation(
-            listing,
-            listing.market?.status === "sold" ? "sold" : "active",
-          ),
-        );
         const like = await dataPlane.requestStore.upsertLike({
           listingId,
           source,
           userId: user.id,
         });
+        const likedListing = (await listPostgresLikedListings(dataPlane, user.id)).find(
+          (entry) => entry.like.id === like.id,
+        );
+
+        if (!likedListing) {
+          throw new ApiError(
+            500,
+            "liked_listing_unavailable",
+            "The persisted listing could not be loaded.",
+          );
+        }
 
         return response(
           {
-            likedListing: {
-              like,
-              listing,
-              snapshotStatus: "snapshot",
-            },
+            likedListing,
             userId: user.id,
           },
           201,
@@ -230,11 +197,7 @@ export async function handlePostgresSavedRoute(
         const listingId = trimmedString(body.listingId);
 
         if (!id && !listingId) {
-          throw new ApiError(
-            400,
-            "invalid_request",
-            "Either id or listingId is required.",
-          );
+          throw new ApiError(400, "invalid_request", "Either id or listingId is required.");
         }
 
         return response({
@@ -248,17 +211,13 @@ export async function handlePostgresSavedRoute(
       }
     }
 
-    if (
-      path === "/recent-searches" ||
-      path.startsWith("/recent-searches/")
-    ) {
+    if (path === "/recent-searches" || path.startsWith("/recent-searches/")) {
       const user = requireAuth(request);
       const dataPlane = await getRequestDataPlane();
 
       if (method === "GET") {
         return response({
-          recentSearches:
-            await dataPlane.requestStore.listRecentSearchesByUserId(user.id),
+          recentSearches: await dataPlane.requestStore.listRecentSearchesByUserId(user.id),
           userId: user.id,
         });
       }
@@ -291,8 +250,7 @@ export async function handlePostgresSavedRoute(
         return response(
           {
             recentSearch,
-            recentSearches:
-              await dataPlane.requestStore.listRecentSearchesByUserId(user.id),
+            recentSearches: await dataPlane.requestStore.listRecentSearchesByUserId(user.id),
             userId: user.id,
           },
           201,
@@ -306,8 +264,7 @@ export async function handlePostgresSavedRoute(
 
       if (method === "GET") {
         return response({
-          savedSearches:
-            await dataPlane.requestStore.listSavedSearchesByUserId(user.id),
+          savedSearches: await dataPlane.requestStore.listSavedSearchesByUserId(user.id),
           userId: user.id,
         });
       }
@@ -336,8 +293,7 @@ export async function handlePostgresSavedRoute(
         return response(
           {
             savedSearch,
-            savedSearches:
-              await dataPlane.requestStore.listSavedSearchesByUserId(user.id),
+            savedSearches: await dataPlane.requestStore.listSavedSearchesByUserId(user.id),
             userId: user.id,
           },
           201,
@@ -349,11 +305,7 @@ export async function handlePostgresSavedRoute(
         const params = trimmedString(body.params);
 
         if (!id && !params) {
-          throw new ApiError(
-            400,
-            "invalid_request",
-            "Either id or params is required.",
-          );
+          throw new ApiError(400, "invalid_request", "Either id or params is required.");
         }
 
         return response({
@@ -367,17 +319,13 @@ export async function handlePostgresSavedRoute(
       }
     }
 
-    if (
-      path === "/me/saved-filters" ||
-      path.startsWith("/me/saved-filters/")
-    ) {
+    if (path === "/me/saved-filters" || path.startsWith("/me/saved-filters/")) {
       const user = requireAuth(request);
       const dataPlane = await getRequestDataPlane();
 
       if (method === "GET") {
         return response({
-          savedFilters:
-            await dataPlane.requestStore.listSavedFiltersByUserId(user.id),
+          savedFilters: await dataPlane.requestStore.listSavedFiltersByUserId(user.id),
           userId: user.id,
         });
       }
@@ -388,11 +336,7 @@ export async function handlePostgresSavedRoute(
         const label = trimmedString(body.label);
 
         if (!label) {
-          throw new ApiError(
-            400,
-            "invalid_request",
-            "label is required.",
-          );
+          throw new ApiError(400, "invalid_request", "label is required.");
         }
 
         const savedFilter = await dataPlane.requestStore.upsertSavedFilter({
@@ -408,8 +352,7 @@ export async function handlePostgresSavedRoute(
         return response(
           {
             savedFilter,
-            savedFilters:
-              await dataPlane.requestStore.listSavedFiltersByUserId(user.id),
+            savedFilters: await dataPlane.requestStore.listSavedFiltersByUserId(user.id),
             userId: user.id,
           },
           201,
@@ -437,8 +380,7 @@ export async function handlePostgresSavedRoute(
       if (method === "GET" && !watchlistId) {
         return response({
           userId: user.id,
-          watchlists:
-            await dataPlane.requestStore.listWatchlistsByUserId(user.id),
+          watchlists: await dataPlane.requestStore.listWatchlistsByUserId(user.id),
         });
       }
 
@@ -455,8 +397,7 @@ export async function handlePostgresSavedRoute(
           {
             userId: user.id,
             watchlist,
-            watchlists:
-              await dataPlane.requestStore.listWatchlistsByUserId(user.id),
+            watchlists: await dataPlane.requestStore.listWatchlistsByUserId(user.id),
           },
           201,
         );
@@ -472,18 +413,13 @@ export async function handlePostgresSavedRoute(
         });
 
         if (!watchlist) {
-          throw new ApiError(
-            404,
-            "watchlist_not_found",
-            "Watchlist was not found.",
-          );
+          throw new ApiError(404, "watchlist_not_found", "Watchlist was not found.");
         }
 
         return response({
           userId: user.id,
           watchlist,
-          watchlists:
-            await dataPlane.requestStore.listWatchlistsByUserId(user.id),
+          watchlists: await dataPlane.requestStore.listWatchlistsByUserId(user.id),
         });
       }
 
@@ -507,10 +443,9 @@ export async function handlePostgresSavedRoute(
 
       if (method === "GET") {
         return response({
-          notificationPreferences:
-            await dataPlane.requestStore.getNotificationPreferencesByUserId(
-              user.id,
-            ),
+          notificationPreferences: await dataPlane.requestStore.getNotificationPreferencesByUserId(
+            user.id,
+          ),
           userId: user.id,
         });
       }
@@ -518,11 +453,7 @@ export async function handlePostgresSavedRoute(
       if (method === "PATCH") {
         const body = await payload(request);
 
-        if (
-          body.emailEnabled === true ||
-          body.pushEnabled === true ||
-          body.smsEnabled === true
-        ) {
+        if (body.emailEnabled === true || body.pushEnabled === true || body.smsEnabled === true) {
           throw new ApiError(
             409,
             "delivery_channel_unavailable",
@@ -530,23 +461,18 @@ export async function handlePostgresSavedRoute(
           );
         }
 
-        const notificationPreferences =
-          await dataPlane.requestStore.updateNotificationPreferences({
-            emailEnabled: optionalBoolean(body.emailEnabled),
-            frequency: notificationFrequency(body.frequency),
-            inAppEnabled: optionalBoolean(body.inAppEnabled),
-            pushEnabled: optionalBoolean(body.pushEnabled),
-            quietHoursEnd:
-              body.quietHoursEnd === null
-                ? null
-                : trimmedString(body.quietHoursEnd) || undefined,
-            quietHoursStart:
-              body.quietHoursStart === null
-                ? null
-                : trimmedString(body.quietHoursStart) || undefined,
-            smsEnabled: optionalBoolean(body.smsEnabled),
-            userId: user.id,
-          });
+        const notificationPreferences = await dataPlane.requestStore.updateNotificationPreferences({
+          emailEnabled: optionalBoolean(body.emailEnabled),
+          frequency: notificationFrequency(body.frequency),
+          inAppEnabled: optionalBoolean(body.inAppEnabled),
+          pushEnabled: optionalBoolean(body.pushEnabled),
+          quietHoursEnd:
+            body.quietHoursEnd === null ? null : trimmedString(body.quietHoursEnd) || undefined,
+          quietHoursStart:
+            body.quietHoursStart === null ? null : trimmedString(body.quietHoursStart) || undefined,
+          smsEnabled: optionalBoolean(body.smsEnabled),
+          userId: user.id,
+        });
         return response({ notificationPreferences, userId: user.id });
       }
     }
@@ -565,10 +491,7 @@ export async function handlePostgresSavedRoute(
       if (method === "PATCH") {
         const body = await payload(request);
         const settings = await dataPlane.requestStore.updateUserSettings({
-          defaultSortMode: Object.prototype.hasOwnProperty.call(
-            body,
-            "defaultSortMode",
-          )
+          defaultSortMode: Object.prototype.hasOwnProperty.call(body, "defaultSortMode")
             ? body.defaultSortMode === null
               ? null
               : sortMode(body.defaultSortMode)
@@ -578,12 +501,8 @@ export async function handlePostgresSavedRoute(
               ? null
               : trimmedString(body.displayName) || null
             : undefined,
-          preferredCurrency:
-            trimmedString(body.preferredCurrency) || undefined,
-          preferredSources: Object.prototype.hasOwnProperty.call(
-            body,
-            "preferredSources",
-          )
+          preferredCurrency: trimmedString(body.preferredCurrency) || undefined,
+          preferredSources: Object.prototype.hasOwnProperty.call(body, "preferredSources")
             ? stringArray(body.preferredSources)
             : undefined,
           userId: user.id,
@@ -614,10 +533,7 @@ export async function handlePostgresSavedRoute(
       }
     }
 
-    if (
-      method === "POST" &&
-      (path === "/me/alerts/seen" || path === "/me/alerts/dismiss")
-    ) {
+    if (method === "POST" && (path === "/me/alerts/seen" || path === "/me/alerts/dismiss")) {
       const user = requireAuth(request);
       const dataPlane = await getRequestDataPlane();
       const body = await payload(request);

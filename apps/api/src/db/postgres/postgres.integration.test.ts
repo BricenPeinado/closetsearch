@@ -212,6 +212,59 @@ describe("PostgreSQL production data plane", () => {
     }
   });
 
+  it("refreshes an unchanged listing without duplicating its price history", async () => {
+    const harness = await createPostgresTestHarness();
+    const firstSeenAt = new Date("2026-07-24T12:00:00.000Z");
+    const seenAgainAt = new Date("2026-07-24T13:00:00.000Z");
+
+    try {
+      const first = await harness.dataPlane.listings.upsertObservation(
+        listingInput({
+          amountMinor: 10_000n,
+          fetchedAt: firstSeenAt,
+          idempotencyKey: "unchanged-listing:first-scan",
+          observedAt: firstSeenAt,
+          sourceListingId: "unchanged-listing",
+        }),
+      );
+      const refreshed = await harness.dataPlane.listings.upsertObservation(
+        listingInput({
+          amountMinor: 10_000n,
+          fetchedAt: seenAgainAt,
+          idempotencyKey: "unchanged-listing:second-scan",
+          observedAt: seenAgainAt,
+          sourceListingId: "unchanged-listing",
+        }),
+      );
+      const state = await harness.database.query<{
+        availability: string;
+        last_seen_at: Date;
+      }>(
+        `SELECT availability, last_seen_at
+         FROM listing_current_state
+         WHERE listing_id = $1`,
+        [first.listingId],
+      );
+      const history = await harness.dataPlane.listings.latestPriceHistory(
+        "fixture-provider",
+        "unchanged-listing",
+      );
+
+      expect(refreshed).toMatchObject({
+        duplicate: false,
+        listingId: first.listingId,
+        result: "updated",
+      });
+      expect(state.rows[0]).toMatchObject({
+        availability: "available",
+        last_seen_at: seenAgainAt,
+      });
+      expect(history).toHaveLength(1);
+    } finally {
+      await harness.database.close();
+    }
+  });
+
   it("persists across pool restarts and supports an engine backup restore", async () => {
     const harness = await createPostgresTestHarness();
     const userId = await insertUser(harness.database);

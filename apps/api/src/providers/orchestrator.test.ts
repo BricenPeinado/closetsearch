@@ -76,7 +76,7 @@ describe("runProviderSearch", () => {
       id: "throwing",
       name: "Throwing Provider",
       async search() {
-        throw new Error("Provider request failed.");
+        throw new Error("secret upstream URL and credential detail");
       },
     };
 
@@ -112,8 +112,10 @@ describe("runProviderSearch", () => {
       expect.objectContaining({
         providerId: "throwing",
         code: "unavailable",
+        message: "Throwing Provider could not complete the request.",
       }),
     ]);
+    expect(JSON.stringify(result)).not.toContain("secret upstream URL and credential detail");
     expect(renderMetrics()).toContain(
       'closetsearch_provider_requests_total{outcome="failure",provider="throwing"} 1',
     );

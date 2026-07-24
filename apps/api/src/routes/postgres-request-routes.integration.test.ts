@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prepareRequestAuthContext } from "../auth/postgres-session-service.js";
 import type { PostgresDataPlane } from "../db/postgres/data-plane.js";
 import { createPostgresTestHarness } from "../db/postgres/test-harness.js";
+import { toListingObservation } from "../worker/provider-source.js";
 import { handlePostgresAuthRoute } from "./postgres-auth-routes.js";
 import { handlePostgresSavedRoute } from "./postgres-saved-routes.js";
 
@@ -13,8 +14,7 @@ const runtime = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/persistence-runtime.js", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("../db/persistence-runtime.js")>();
+  const original = await importOriginal<typeof import("../db/persistence-runtime.js")>();
 
   return {
     ...original,
@@ -82,8 +82,7 @@ describe("PostgreSQL HTTP request cutover", () => {
     originalDriver = process.env.PERSISTENCE_DRIVER;
     originalPepper = process.env.AUTH_SESSION_PEPPER;
     process.env.PERSISTENCE_DRIVER = "postgres";
-    process.env.AUTH_SESSION_PEPPER =
-      "postgres-route-test-session-pepper-value";
+    process.env.AUTH_SESSION_PEPPER = "postgres-route-test-session-pepper-value";
     harness = await createPostgresTestHarness();
     runtime.dataPlane = harness.dataPlane;
   });
@@ -143,10 +142,7 @@ describe("PostgreSQL HTTP request cutover", () => {
     });
 
     await prepareRequestAuthContext(meRequest);
-    const result = await handlePostgresAuthRoute(
-      meRequest,
-      new URL("http://localhost/auth/me"),
-    );
+    const result = await handlePostgresAuthRoute(meRequest, new URL("http://localhost/auth/me"));
 
     expect(result).toMatchObject({
       body: {
@@ -154,9 +150,7 @@ describe("PostgreSQL HTTP request cutover", () => {
       },
       statusCode: 200,
     });
-    await expect(
-      harness.dataPlane.requestStore.findUserById(user.id),
-    ).resolves.toMatchObject({
+    await expect(harness.dataPlane.requestStore.findUserById(user.id)).resolves.toMatchObject({
       username: "routefan",
     });
   });
@@ -205,23 +199,40 @@ describe("PostgreSQL HTTP request cutover", () => {
     await prepareRequestAuthContext(spoofedRequest);
 
     await expect(
-      handlePostgresSavedRoute(
-        spoofedRequest,
-        new URL("http://localhost/me/saved-searches"),
-      ),
+      handlePostgresSavedRoute(spoofedRequest, new URL("http://localhost/me/saved-searches")),
     ).rejects.toMatchObject({
       code: "spoofed_user_id",
       statusCode: 400,
     });
   });
 
-  it("upserts a normalized listing before a like and reconstructs it after the request", async () => {
+  it("likes only a server-persisted listing and ignores a forged client snapshot", async () => {
     const { cookie } = await signup();
+    await harness.dataPlane.listings.upsertObservation(toListingObservation(listing, "active"));
     const likeRequest = request(
       "POST",
       "/me/likes",
       {
-        listing,
+        listing: {
+          ...listing,
+          analyticsEligibility: { eligible: true },
+          market: {
+            soldPrice: {
+              amount: 1,
+              amountMinor: 100,
+              currency: "USD",
+              fractionDigits: 2,
+            },
+            status: "sold",
+          },
+          price: {
+            amount: 1,
+            amountMinor: 100,
+            currency: "USD",
+            fractionDigits: 2,
+          },
+          title: "Forged sold comparable",
+        },
         listingId: listing.id,
         source: listing.source.id,
       },
@@ -248,10 +259,7 @@ describe("PostgreSQL HTTP request cutover", () => {
       cookie,
     });
     await prepareRequestAuthContext(getRequest);
-    const result = await handlePostgresSavedRoute(
-      getRequest,
-      new URL("http://localhost/me/likes"),
-    );
+    const result = await handlePostgresSavedRoute(getRequest, new URL("http://localhost/me/likes"));
 
     expect(result).toMatchObject({
       body: {
@@ -259,10 +267,14 @@ describe("PostgreSQL HTTP request cutover", () => {
           {
             listing: {
               id: listing.id,
+              market: {
+                status: "active",
+              },
               price: {
                 amountMinor: 12_500,
                 currency: "USD",
               },
+              title: "Acme jacket",
             },
           },
         ],
@@ -274,5 +286,47 @@ describe("PostgreSQL HTTP request cutover", () => {
       },
       statusCode: 200,
     });
+    await expect(
+      harness.dataPlane.listings.latestPriceHistory(listing.providerId, listing.providerListingId),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        originalPriceMinor: 12_500n,
+        soldPriceMinor: undefined,
+      }),
+    ]);
+  });
+
+  it("rejects a client listing snapshot that was never returned by the server", async () => {
+    const { cookie } = await signup();
+    const forgedListing = {
+      ...listing,
+      id: "ebay:forged-listing",
+      providerListingId: "forged-listing",
+      title: "Forged catalog row",
+    };
+    const likeRequest = request(
+      "POST",
+      "/me/likes",
+      {
+        listing: forgedListing,
+        listingId: forgedListing.id,
+        source: forgedListing.source.id,
+      },
+      { cookie },
+    );
+    await prepareRequestAuthContext(likeRequest);
+
+    await expect(
+      handlePostgresSavedRoute(likeRequest, new URL("http://localhost/me/likes")),
+    ).rejects.toMatchObject({
+      code: "listing_not_persisted",
+      statusCode: 409,
+    });
+    await expect(
+      harness.dataPlane.listings.resolveInternalId(
+        forgedListing.providerId,
+        forgedListing.providerListingId,
+      ),
+    ).resolves.toBeUndefined();
   });
 });

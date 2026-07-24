@@ -1,15 +1,22 @@
+import { createHash } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { ApiError } from "../api-error.js";
 import { getOptionalAuthContext } from "../auth/auth-context.js";
 import { resolvePersistenceDriver } from "../db/persistence-driver.js";
-import {
-  getPostgresDataPlane,
-  PersistenceNotReadyError,
-} from "../db/persistence-runtime.js";
+import { getPostgresDataPlane, PersistenceNotReadyError } from "../db/persistence-runtime.js";
 import { parseJsonRequestBody } from "../http/request-body.js";
+import { FixedWindowRateLimiter, getRequestIpHint } from "../http/rate-limit.js";
 import { DurableEngagementService } from "../services/durableEngagementService.js";
 
 const privacySessionHeader = "x-privacy-session-id";
+const engagementSessionRateLimiter = new FixedWindowRateLimiter({
+  limit: 120,
+  windowMs: 60_000,
+});
+const engagementIpRateLimiter = new FixedWindowRateLimiter({
+  limit: 600,
+  windowMs: 60_000,
+});
 
 export interface EngagementRouteResult {
   body: unknown;
@@ -20,11 +27,7 @@ function getPrivacySessionId(request: IncomingMessage) {
   const rawValue = request.headers?.[privacySessionHeader];
   const value = Array.isArray(rawValue) ? rawValue[0] : rawValue;
 
-  if (
-    typeof value !== "string" ||
-    value.trim().length < 16 ||
-    value.trim().length > 128
-  ) {
+  if (typeof value !== "string" || value.trim().length < 16 || value.trim().length > 128) {
     throw new ApiError(
       400,
       "invalid_privacy_session",
@@ -33,6 +36,20 @@ function getPrivacySessionId(request: IncomingMessage) {
   }
 
   return value.trim();
+}
+
+function privacySessionRateLimitKey(value: string) {
+  return createHash("sha256").update("engagement-rate-limit-v1:").update(value).digest("hex");
+}
+
+export function resetEngagementRateLimitsForTests() {
+  engagementIpRateLimiter.reset();
+  engagementSessionRateLimiter.reset();
+}
+
+export function enforceEngagementRateLimit(request: IncomingMessage, privacySessionId: string) {
+  engagementSessionRateLimiter.consume(`session:${privacySessionRateLimitKey(privacySessionId)}`);
+  engagementIpRateLimiter.consume(`ip:${getRequestIpHint(request)}`);
 }
 
 async function createDurableEngagementService() {
@@ -63,14 +80,12 @@ export async function handleEngagementRoute(
   request: IncomingMessage,
   requestUrl: URL,
 ): Promise<EngagementRouteResult | undefined> {
-  if (
-    (request.method ?? "GET") !== "POST" ||
-    requestUrl.pathname !== "/events"
-  ) {
+  if ((request.method ?? "GET") !== "POST" || requestUrl.pathname !== "/events") {
     return undefined;
   }
 
   const privacySessionId = getPrivacySessionId(request);
+  enforceEngagementRateLimit(request, privacySessionId);
   const rawPayload = await parseJsonRequestBody(request);
   const service = await createDurableEngagementService();
   const result = await service.recordClientEvent(

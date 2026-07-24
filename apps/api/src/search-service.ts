@@ -2,9 +2,10 @@ import type { Listing, SearchQuery, SearchResponse } from "@closetsearch/shared"
 import { ApiError } from "./api-error.js";
 import { resolvePersistenceDriver } from "./db/persistence-driver.js";
 import { logWarn } from "./logger.js";
-import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
+import type { ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
 import { rememberListings } from "./services/listingCatalogService.js";
+import { persistProviderListings } from "./services/providerListingPersistenceService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { generateRiskSignal } from "./services/riskService.js";
 import { applyDisplayCurrency } from "./services/exchangeRateService.js";
@@ -93,7 +94,7 @@ function shouldThrowProviderUnavailable(
 
 export async function searchListings(
   query: SearchQuery,
-  runtime: ProviderRuntime = createProviderRuntime(),
+  runtime: ProviderRuntime,
 ): Promise<SearchResponse> {
   const execution = await runProviderSearch(query, runtime);
 
@@ -113,6 +114,8 @@ export async function searchListings(
 
   if (resolvePersistenceDriver() !== "postgres") {
     rememberListings(providerListings);
+  } else {
+    await persistProviderListings(providerListings);
   }
   rememberAnalyticsListings(providerListings);
 

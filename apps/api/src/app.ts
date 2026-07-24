@@ -36,6 +36,7 @@ import {
   getRecentSearchesByUserId,
   removeRecentSearchesByUserId,
 } from "./recent-search-service.js";
+import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
 import {
   addSavedSearch,
   getSavedSearchesByUserId,
@@ -60,7 +61,10 @@ import {
   removeWatchlist,
   updateWatchlist,
 } from "./services/watchlistService.js";
-import { handleEngagementRoute } from "./routes/engagement-routes.js";
+import {
+  handleEngagementRoute,
+  resetEngagementRateLimitsForTests,
+} from "./routes/engagement-routes.js";
 import { handleOperationsRoute } from "./routes/operations-routes.js";
 import { handleBrandRoute } from "./routes/brand-routes.js";
 import { handleAnalyticsRoute } from "./routes/analytics-routes.js";
@@ -77,6 +81,7 @@ const authRateLimiter = new FixedWindowRateLimiter({
 
 export function resetHttpSecurityStateForTests() {
   authRateLimiter.reset();
+  resetEngagementRateLimitsForTests();
 }
 
 const exactMetricRoutes = new Set([
@@ -1122,6 +1127,7 @@ function getErrorHeaders(error: { code?: string }) {
 export async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
+  providerRuntime: ProviderRuntime,
 ) {
   const method = request.method ?? "GET";
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
@@ -1194,7 +1200,7 @@ export async function handleRequest(
     return;
   }
 
-  const operationsRoute = await handleOperationsRoute(request, requestUrl);
+  const operationsRoute = await handleOperationsRoute(request, requestUrl, providerRuntime);
 
   if (operationsRoute) {
     if (operationsRoute.kind === "json") {
@@ -1256,17 +1262,20 @@ export async function handleRequest(
       return;
     }
 
-    const result = await searchListings(query);
+    const result = await searchListings(query, providerRuntime);
 
     sendJson(request, response, 200, result);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/feed") {
-    const result = await getFeed({
-      ...parseFeedQuery(requestUrl),
-      userId: getOptionalAuthContext(request)?.user.id,
-    });
+    const result = await getFeed(
+      {
+        ...parseFeedQuery(requestUrl),
+        userId: getOptionalAuthContext(request)?.user.id,
+      },
+      providerRuntime,
+    );
 
     sendJson(request, response, 200, result);
     return;
@@ -1441,7 +1450,13 @@ export async function handleRequest(
   });
 }
 
-export function createApp() {
+export interface CreateAppOptions {
+  providerRuntime?: ProviderRuntime;
+}
+
+export function createApp(options: CreateAppOptions = {}) {
+  const providerRuntime = options.providerRuntime ?? createProviderRuntime();
+
   return createServer((request, response) => {
     const startedAt = performance.now();
     const requestWithContext = request as IncomingMessage & { __requestId?: string };
@@ -1468,7 +1483,7 @@ export function createApp() {
       response.once("finish", recordCompletion);
     }
 
-    void handleRequest(request, response)
+    void handleRequest(request, response, providerRuntime)
       .catch((error: unknown) => {
         const requestContext = {
           method: request.method ?? "GET",

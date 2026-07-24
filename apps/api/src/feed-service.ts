@@ -1,7 +1,7 @@
 import type { FeedQuery, FeedResponse, Listing, SearchQuery } from "@closetsearch/shared";
 import { ApiError } from "./api-error.js";
 import { getLikedListingsByUserId } from "./like-service.js";
-import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
+import type { ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
 import { getSavedFiltersByUserId } from "./saved-filter-service.js";
 import { getSavedSearchesByUserId } from "./saved-search-service.js";
@@ -15,6 +15,7 @@ import { rememberListings } from "./services/listingCatalogService.js";
 import { getMlRecommendationRuntime } from "./services/mlRecommendationRuntimeService.js";
 import { buildPersonalizationProfile } from "./services/personalizationSignalsService.js";
 import { listPostgresLikedListings } from "./services/postgresLikedListingService.js";
+import { persistProviderListings } from "./services/providerListingPersistenceService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { generateRiskSignal } from "./services/riskService.js";
 import { applyDisplayCurrency } from "./services/exchangeRateService.js";
@@ -102,10 +103,7 @@ function shouldThrowProviderUnavailable(
   );
 }
 
-export async function getFeed(
-  query: FeedQuery,
-  runtime: ProviderRuntime = createProviderRuntime(),
-): Promise<FeedResponse> {
+export async function getFeed(query: FeedQuery, runtime: ProviderRuntime): Promise<FeedResponse> {
   const execution = await runProviderSearch(
     {
       text: "",
@@ -126,6 +124,8 @@ export async function getFeed(
 
   if (resolvePersistenceDriver() !== "postgres") {
     rememberListings(providerListings);
+  } else {
+    await persistProviderListings(providerListings);
   }
   rememberAnalyticsListings(providerListings);
 

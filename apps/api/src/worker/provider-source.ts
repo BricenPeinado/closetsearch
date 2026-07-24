@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
-import type {
-  Provider,
-  ProviderFailure,
-  ProviderSearchQuery,
-} from "@closetsearch/providers";
+import type { Provider, ProviderFailure, ProviderSearchQuery } from "@closetsearch/providers";
 import type {
   ConvertedMoney,
   Listing,
@@ -21,6 +17,7 @@ import type {
   ProviderIngestionRequest,
   ProviderIngestionSource,
 } from "./ingestion.js";
+import { sanitizeProviderListing } from "../providers/listing-sanitizer.js";
 import { WorkerJobError } from "./types.js";
 
 export interface ProviderIngestionQuery {
@@ -35,14 +32,7 @@ interface ProviderContinuation {
 }
 
 const zeroFractionCurrencies = new Set(["CLP", "JPY", "KRW", "VND"]);
-const threeFractionCurrencies = new Set([
-  "BHD",
-  "IQD",
-  "JOD",
-  "KWD",
-  "OMR",
-  "TND",
-]);
+const threeFractionCurrencies = new Set(["BHD", "IQD", "JOD", "KWD", "OMR", "TND"]);
 
 function fractionDigits(currency: string) {
   const normalizedCurrency = currency.trim().toUpperCase();
@@ -65,15 +55,9 @@ function exactMoney(money: Money | undefined): ExactMoneyInput | undefined {
 
   const currency = money.currency.trim().toUpperCase();
   const digits = money.fractionDigits ?? fractionDigits(currency);
-  const amountMinor =
-    money.amountMinor ??
-    Math.round(money.amount * 10 ** digits);
+  const amountMinor = money.amountMinor ?? Math.round(money.amount * 10 ** digits);
 
-  if (
-    !/^[A-Z]{3}$/.test(currency) ||
-    !Number.isSafeInteger(amountMinor) ||
-    amountMinor < 0
-  ) {
+  if (!/^[A-Z]{3}$/.test(currency) || !Number.isSafeInteger(amountMinor) || amountMinor < 0) {
     return undefined;
   }
 
@@ -178,10 +162,7 @@ function stableSerialize(value: unknown): string {
     return `{${Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(
-        ([key, entry]) =>
-          `${JSON.stringify(key)}:${stableSerialize(entry)}`,
-      )
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableSerialize(entry)}`)
       .join(",")}}`;
   }
 
@@ -211,11 +192,7 @@ function canonicalFingerprint(listing: Listing) {
     .trim();
   const normalizedBrand = listing.brand.slug.trim().toLowerCase();
 
-  if (
-    normalizedTitle.length < 8 ||
-    !normalizedBrand ||
-    normalizedBrand === "unknown-brand"
-  ) {
+  if (normalizedTitle.length < 8 || !normalizedBrand || normalizedBrand === "unknown-brand") {
     return undefined;
   }
 
@@ -234,6 +211,8 @@ function canonicalFingerprint(listing: Listing) {
 function idempotencyKey(
   listing: Listing,
   normalizedMarketStatus: MarketStatus,
+  fetchedAt: Date,
+  observedAt: Date,
 ) {
   const observationIdentity = stableSerialize({
     analyticsEligibility: listing.analyticsEligibility,
@@ -249,6 +228,10 @@ function idempotencyKey(
     },
     listingType: listing.listingType,
     marketStatus: normalizedMarketStatus,
+    observation: {
+      fetchedAt: fetchedAt.toISOString(),
+      observedAt: observedAt.toISOString(),
+    },
     pricing: listing.pricing ?? { original: listing.price },
     providerId: listing.providerId,
     providerListingId: listing.providerListingId,
@@ -264,13 +247,13 @@ function idempotencyKey(
 
 function sellerMetadata(listing: Listing) {
   return listing.seller
-    ? JSON.parse(JSON.stringify(listing.seller)) as Record<string, unknown>
+    ? (JSON.parse(JSON.stringify(listing.seller)) as Record<string, unknown>)
     : undefined;
 }
 
 function shippingMetadata(listing: Listing) {
   return listing.shipping
-    ? JSON.parse(JSON.stringify(listing.shipping)) as Record<string, unknown>
+    ? (JSON.parse(JSON.stringify(listing.shipping)) as Record<string, unknown>)
     : undefined;
 }
 
@@ -278,9 +261,7 @@ export function toListingObservation(
   listing: Listing,
   scope: ProviderIngestionRequest["ingestionScope"],
 ): ListingObservationInput {
-  const originalPrice = exactMoney(
-    listing.pricing?.original ?? listing.price,
-  );
+  const originalPrice = exactMoney(listing.pricing?.original ?? listing.price);
 
   if (!originalPrice) {
     throw new WorkerJobError(
@@ -292,13 +273,14 @@ export function toListingObservation(
 
   const normalizedMarketStatus = marketStatus(listing, scope);
   const fetchedAt = requiredDate(listing.fetchedAt, "fetchedAt");
-  const observedAt =
-    optionalDate(listing.lifecycle?.observedAt) ?? fetchedAt;
-  const images = (listing.images ?? [
-    {
-      url: listing.imageUrl,
-    },
-  ]).map((image) => ({
+  const observedAt = optionalDate(listing.lifecycle?.observedAt) ?? fetchedAt;
+  const images = (
+    listing.images ?? [
+      {
+        url: listing.imageUrl,
+      },
+    ]
+  ).map((image) => ({
     height: image.height,
     url: image.url,
     width: image.width,
@@ -310,19 +292,14 @@ export function toListingObservation(
       listing.source.isMock !== true &&
       listing.analyticsEligibility?.eligible !== false &&
       listing.market?.isExcludedFromAnalytics !== true,
-    availability: availability(
-      listing.lifecycle?.status,
-      normalizedMarketStatus,
-    ),
+    availability: availability(listing.lifecycle?.status, normalizedMarketStatus),
     canonicalFingerprint: canonicalFingerprint(listing),
     category: listing.category,
     comparisonPrice: comparisonMoney(listing.pricing?.comparison),
     condition: listing.condition,
     fetchedAt,
-    id: deterministicUuid(
-      `listing:${listing.providerId}:${listing.providerListingId}`,
-    ),
-    idempotencyKey: idempotencyKey(listing, normalizedMarketStatus),
+    id: deterministicUuid(`listing:${listing.providerId}:${listing.providerListingId}`),
+    idempotencyKey: idempotencyKey(listing, normalizedMarketStatus, fetchedAt, observedAt),
     images,
     landedPrice: exactMoney(listing.pricing?.landed),
     listedAt: optionalDate(listing.lifecycle?.listedAt),
@@ -333,14 +310,11 @@ export function toListingObservation(
     providerBrand: listing.brand.name,
     providerId: listing.providerId,
     providerUpdatedAt: optionalDate(
-      listing.lifecycle?.sourceUpdatedAt ??
-        listing.freshness?.sourceUpdatedAt,
+      listing.lifecycle?.sourceUpdatedAt ?? listing.freshness?.sourceUpdatedAt,
     ),
     sellerMetadata: sellerMetadata(listing),
     shippingMetadata: shippingMetadata(listing),
-    shippingPrice: exactMoney(
-      listing.pricing?.shipping ?? listing.shipping?.cost,
-    ),
+    shippingPrice: exactMoney(listing.pricing?.shipping ?? listing.shipping?.cost),
     size: listing.size,
     soldAt: optionalDate(listing.lifecycle?.soldAt),
     soldPrice: exactMoney(listing.market?.soldPrice),
@@ -371,9 +345,7 @@ function parseContinuation(value: unknown): ProviderContinuation {
       : undefined;
   const pageValue = (value as { page?: unknown }).page;
   const page =
-    typeof pageValue === "number" &&
-    Number.isSafeInteger(pageValue) &&
-    pageValue >= 1
+    typeof pageValue === "number" && Number.isSafeInteger(pageValue) && pageValue >= 1
       ? pageValue
       : undefined;
 
@@ -393,12 +365,14 @@ function parseContinuation(value: unknown): ProviderContinuation {
 
 function nextContinuation(
   current: ProviderContinuation,
-  pagination: {
-    hasMore?: boolean;
-    nextCursor?: string;
-    nextPage?: number;
-    page?: number;
-  } | undefined,
+  pagination:
+    | {
+        hasMore?: boolean;
+        nextCursor?: string;
+        nextPage?: number;
+        page?: number;
+      }
+    | undefined,
 ) {
   if (!pagination?.hasMore) {
     return undefined;
@@ -430,9 +404,7 @@ function providerFailure(error: ProviderFailure): WorkerJobError {
   );
 }
 
-export class ContractProviderIngestionSource
-  implements ProviderIngestionSource
-{
+export class ContractProviderIngestionSource implements ProviderIngestionSource {
   readonly providerId: string;
   private readonly queries: ReadonlyMap<string, ProviderIngestionQuery>;
 
@@ -444,9 +416,7 @@ export class ContractProviderIngestionSource
     this.queries = new Map(queries.map((query) => [query.key, query]));
   }
 
-  async fetchPage(
-    request: ProviderIngestionRequest,
-  ): Promise<ProviderIngestionPage> {
+  async fetchPage(request: ProviderIngestionRequest): Promise<ProviderIngestionPage> {
     if (request.signal.aborted) {
       throw request.signal.reason ?? new Error("Provider ingestion aborted.");
     }
@@ -461,13 +431,9 @@ export class ContractProviderIngestionSource
       );
     }
 
-    const expectedScope =
-      definition.query.marketScope === "sold" ? "sold" : "active";
+    const expectedScope = definition.query.marketScope === "sold" ? "sold" : "active";
 
-    if (
-      (request.ingestionScope === "sold") !==
-      (expectedScope === "sold")
-    ) {
+    if ((request.ingestionScope === "sold") !== (expectedScope === "sold")) {
       throw new WorkerJobError(
         "Provider ingestion scope does not match its configured query.",
         "ingestion_query_scope_mismatch",
@@ -495,11 +461,13 @@ export class ContractProviderIngestionSource
       throw request.signal.reason ?? new Error("Provider ingestion aborted.");
     }
 
+    const sanitizedListings = response.listings
+      .map((listing) => sanitizeProviderListing(listing))
+      .filter((listing): listing is Listing => listing !== null);
+    const malformedListingsDropped = response.listings.length - sanitizedListings.length;
+
     return {
-      continuationCursor: nextContinuation(
-        continuation,
-        response.pagination,
-      ),
+      continuationCursor: nextContinuation(continuation, response.pagination),
       health: {
         latencyMs: response.metadata?.latencyMs ?? latencyMs,
         metadata: {
@@ -508,16 +476,18 @@ export class ContractProviderIngestionSource
             this.provider.dataOrigin ??
             this.provider.capabilities?.dataOrigin,
           fetchedAt: response.metadata?.fetchedAt,
-          resultCount: response.listings.length,
+          malformedListingsDropped,
+          resultCount: sanitizedListings.length,
           warnings: response.warnings?.map((warning) => warning.code),
         },
         state:
           response.metadata?.freshness === "stale" ||
-          Boolean(response.warnings?.length)
+          Boolean(response.warnings?.length) ||
+          malformedListingsDropped > 0
             ? "degraded"
             : "healthy",
       },
-      listings: response.listings.map((listing) =>
+      listings: sanitizedListings.map((listing) =>
         toListingObservation(listing, request.ingestionScope),
       ),
     };

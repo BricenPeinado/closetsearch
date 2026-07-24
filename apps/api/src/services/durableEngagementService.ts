@@ -39,6 +39,19 @@ const forbiddenPropertyNames = new Set([
   "token",
   "useragent",
 ]);
+const maximumPropertyDepth = 6;
+const maximumNestedPropertyCount = 100;
+
+function isSensitivePropertyName(value: string) {
+  const normalized = value.replace(/[^a-z]/gi, "").toLowerCase();
+
+  return Array.from(forbiddenPropertyNames).some(
+    (forbidden) =>
+      normalized === forbidden ||
+      normalized.startsWith(forbidden) ||
+      normalized.endsWith(forbidden),
+  );
+}
 
 export interface EngagementActor {
   privacySessionId: string;
@@ -159,15 +172,52 @@ function sanitizeProperties(value: unknown) {
     throw new ApiError(400, "invalid_engagement_event", "properties contains too many fields.");
   }
 
-  for (const [key] of entries) {
-    if (forbiddenPropertyNames.has(key.replace(/[^a-z]/gi, "").toLowerCase())) {
+  let nestedPropertyCount = 0;
+
+  function inspect(entry: unknown, depth: number) {
+    if (depth > maximumPropertyDepth) {
       throw new ApiError(
         400,
-        "sensitive_engagement_data",
-        "Engagement properties must not contain secrets or direct identifiers.",
+        "invalid_engagement_event",
+        "Engagement properties are nested too deeply.",
       );
     }
+
+    if (Array.isArray(entry)) {
+      for (const item of entry) {
+        inspect(item, depth + 1);
+      }
+      return;
+    }
+
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+
+    for (const [key, nestedValue] of Object.entries(entry)) {
+      nestedPropertyCount += 1;
+
+      if (nestedPropertyCount > maximumNestedPropertyCount) {
+        throw new ApiError(
+          400,
+          "invalid_engagement_event",
+          "Engagement properties contain too many nested fields.",
+        );
+      }
+
+      if (isSensitivePropertyName(key)) {
+        throw new ApiError(
+          400,
+          "sensitive_engagement_data",
+          "Engagement properties must not contain secrets or direct identifiers.",
+        );
+      }
+
+      inspect(nestedValue, depth + 1);
+    }
   }
+
+  inspect(value, 0);
 
   const serialized = JSON.stringify(value);
 

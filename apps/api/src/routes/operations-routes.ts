@@ -4,7 +4,7 @@ import {
   getPostgresDataPlane,
 } from "../db/persistence-runtime.js";
 import { clearGaugeFamily, renderMetrics, setGauge } from "../metrics.js";
-import { createProviderRuntime } from "../providers/registry.js";
+import { createProviderRuntime, type ProviderRuntime } from "../providers/registry.js";
 import type { RouteResult } from "./route-result.js";
 
 const persistenceLifecycle = createPersistenceLifecycleHooks();
@@ -113,9 +113,7 @@ async function operationsStatusResult(): Promise<RouteResult> {
   }
 }
 
-function providerHealthResult(): RouteResult {
-  const runtime = createProviderRuntime();
-
+function providerHealthResult(runtime: ProviderRuntime): RouteResult {
   return {
     body: {
       allowMockFallback: runtime.config.allowMockFallback,
@@ -143,10 +141,9 @@ function providerHealthResult(): RouteResult {
   };
 }
 
-async function readinessResult(): Promise<RouteResult> {
+async function readinessResult(providerRuntime: ProviderRuntime): Promise<RouteResult> {
   try {
     const persistence = await persistenceLifecycle.readiness();
-    const providerRuntime = createProviderRuntime();
     const activeRealProviderCount = providerRuntime.activeProviders.filter(
       (provider) => provider.mode === "real",
     ).length;
@@ -332,6 +329,7 @@ async function metricsResult(): Promise<RouteResult> {
 export async function handleOperationsRoute(
   request: IncomingMessage,
   requestUrl: URL,
+  providerRuntime: ProviderRuntime = createProviderRuntime(),
 ): Promise<RouteResult | undefined> {
   if ((request.method ?? "GET") !== "GET") {
     return undefined;
@@ -349,7 +347,7 @@ export async function handleOperationsRoute(
         statusCode: 200,
       };
     case "/health/ready":
-      return readinessResult();
+      return readinessResult(providerRuntime);
     case "/metrics":
       return metricsResult();
     case "/operations/status":
@@ -365,7 +363,7 @@ export async function handleOperationsRoute(
         statusCode: 200,
       };
     case "/providers/health":
-      return providerHealthResult();
+      return providerHealthResult(providerRuntime);
     default:
       return undefined;
   }

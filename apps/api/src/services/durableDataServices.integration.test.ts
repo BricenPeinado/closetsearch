@@ -5,17 +5,12 @@ import type { ListingObservationInput } from "../db/postgres/model.js";
 import { createPostgresTestHarness } from "../db/postgres/test-harness.js";
 import { AlertInboxService } from "./alertInboxService.js";
 import { DurableEngagementService } from "./durableEngagementService.js";
-import {
-  PersistedEntitlementService,
-  premiumAnalyticsFeature,
-} from "./entitlementService.js";
+import { PersistedEntitlementService, premiumAnalyticsFeature } from "./entitlementService.js";
 
 const now = new Date("2026-07-24T12:00:00.000Z");
 
 async function insertUser(
-  database: Awaited<
-    ReturnType<typeof createPostgresTestHarness>
-  >["database"],
+  database: Awaited<ReturnType<typeof createPostgresTestHarness>>["database"],
   userId = randomUUID(),
 ) {
   await database.query(
@@ -57,14 +52,10 @@ function listing(idempotencyKey: string): ListingObservationInput {
 }
 
 describe("durable PostgreSQL domain services", () => {
-  const harnesses: Array<
-    Awaited<ReturnType<typeof createPostgresTestHarness>>
-  > = [];
+  const harnesses: Array<Awaited<ReturnType<typeof createPostgresTestHarness>>> = [];
 
   afterEach(async () => {
-    await Promise.all(
-      harnesses.splice(0).map((harness) => harness.database.close()),
-    );
+    await Promise.all(harnesses.splice(0).map((harness) => harness.database.close()));
   });
 
   it("validates, hashes, and deduplicates client-originated viewport events", async () => {
@@ -122,9 +113,7 @@ describe("durable PostgreSQL domain services", () => {
       user_id: userId,
     });
     expect(stored.rows[0].privacy_session_hash).toHaveLength(64);
-    expect(stored.rows[0].privacy_session_hash).not.toContain(
-      actor.privacySessionId,
-    );
+    expect(stored.rows[0].privacy_session_hash).not.toContain(actor.privacySessionId);
 
     await expect(
       service.recordClientEvent(actor, {
@@ -163,6 +152,22 @@ describe("durable PostgreSQL domain services", () => {
       code: "listing_not_persisted",
       statusCode: 404,
     });
+    await expect(
+      service.recordClientEvent(actor, {
+        ...payload,
+        eventId: randomUUID(),
+        properties: {
+          marketplace: {
+            metadata: {
+              authorizationToken: "must-not-be-stored",
+            },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "sensitive_engagement_data",
+      statusCode: 400,
+    });
   });
 
   it("uses persisted entitlements and makes development grants unmistakable", async () => {
@@ -196,9 +201,7 @@ describe("durable PostgreSQL domain services", () => {
       provider: "admin",
       userId: targetUserId,
     });
-    await expect(
-      service.hasFeature(targetUserId, premiumAnalyticsFeature),
-    ).resolves.toBe(true);
+    await expect(service.hasFeature(targetUserId, premiumAnalyticsFeature)).resolves.toBe(true);
     await expect(service.getPremiumAccess(targetUserId)).resolves.toMatchObject({
       isPremium: true,
       planName: "Development entitlement — no billing",
@@ -212,18 +215,13 @@ describe("durable PostgreSQL domain services", () => {
       },
       () => now,
     );
-    await expect(
-      productionService.getPremiumAccess(targetUserId),
-    ).resolves.toMatchObject({
+    await expect(productionService.getPremiumAccess(targetUserId)).resolves.toMatchObject({
       isPremium: false,
       planName: "Free",
     });
-    await expect(
-      productionService.hasFeature(
-        targetUserId,
-        premiumAnalyticsFeature,
-      ),
-    ).resolves.toBe(false);
+    await expect(productionService.hasFeature(targetUserId, premiumAnalyticsFeature)).resolves.toBe(
+      false,
+    );
     await expect(
       productionService.grantDevelopmentEntitlement(
         {
@@ -258,20 +256,13 @@ describe("durable PostgreSQL domain services", () => {
     const persisted = await harness.dataPlane.listings.upsertObservation(
       listing("service-alert-listing"),
     );
-    expect(
-      await harness.dataPlane.alerts.matchListing(
-        persisted.listingId,
-        now,
-      ),
-    ).toBe(1);
+    expect(await harness.dataPlane.alerts.matchListing(persisted.listingId, now)).toBe(1);
     const service = new AlertInboxService(harness.dataPlane, () => now);
     const initial = await service.list(userId);
     expect(initial.unseenCount).toBe(1);
     const alertMatchId = initial.alerts[0].id;
 
-    await expect(
-      service.markSeen(userId, { alertMatchId }),
-    ).resolves.toEqual({
+    await expect(service.markSeen(userId, { alertMatchId })).resolves.toEqual({
       alertMatchId,
       state: "seen",
     });
@@ -283,12 +274,8 @@ describe("durable PostgreSQL domain services", () => {
     ).rejects.toMatchObject({
       code: "spoofed_user_id",
     });
-    await expect(
-      service.dismiss(otherUserId, { alertMatchId }),
-    ).rejects.toBeInstanceOf(ApiError);
-    await expect(
-      service.dismiss(userId, { alertMatchId }),
-    ).resolves.toEqual({
+    await expect(service.dismiss(otherUserId, { alertMatchId })).rejects.toBeInstanceOf(ApiError);
+    await expect(service.dismiss(userId, { alertMatchId })).resolves.toEqual({
       alertMatchId,
       state: "dismissed",
     });
