@@ -101,19 +101,21 @@ checksummed isolated logical restore. The same-timestamp price regression was
 reproduced before the fix and its monotonic-sequence regression passed
 afterward.
 
-This is not a final-release attestation. Re-run all commands after the last
-merged change and record five consecutive full-suite passes. Do not combine
-separate focused runs into a claim that one final SHA passed everything.
+Final code commit `3072b33` subsequently passed five independent consecutive
+root suites with the real-PostgreSQL gate enabled. Each run passed shared `2/2`,
+ML `19/19`, providers `51/51`, web `31/31`, and API `223/223`. The explicit
+integration suite passed `45/45` and PostgreSQL-backed Playwright passed `10/10`
+before and after a database-process restart. The production smoke remains
+externally blocked and correctly refuses a local/mock default.
 
 ## Environment limitations
 
 Docker is not installed on this workstation. Local validation covers static
 Compose/Dockerfile contracts, shell syntax, `pg-mem`, an ephemeral PostgreSQL
-17.10 engine, hermetic and PostgreSQL-backed Playwright, and an unencrypted
-isolated logical restore. It does not cover:
+17.10 engine, hermetic and PostgreSQL-backed Playwright, a database-process
+restart, and an unencrypted isolated logical restore. It does not cover:
 
 - a local Compose boot
-- a PostgreSQL service restart across the critical persistence flows
 - an encrypted off-host restore drill or managed HA/PITR
 - a live authorized provider
 - HTTPS staging behavior

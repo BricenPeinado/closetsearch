@@ -232,11 +232,12 @@ Status categories are intentionally separate:
 These are open even where the implementation exists:
 
 - [ ] obtain a current clean pass for every required root command
-- [ ] record five consecutive clean full test runs after the final code/doc state
+- [x] record five consecutive clean full test runs on final code commit
+      `3072b33` with the real-PostgreSQL gate enabled
 - [ ] retain a successful CI run of the gated real-PostgreSQL migration,
       concurrent-write, lease-contention, rollback, and session-revocation suite
-- [ ] retain PostgreSQL restart-persistence evidence across process/database
-      restarts; the gated repository suite does not itself restart the service
+- [x] retain local PostgreSQL stop/start persistence evidence and repeat the
+      ten-flow PostgreSQL browser suite after restart
 - [ ] create an encrypted production-style backup and complete a timed isolated
       restore drill with retained row-count/schema evidence
 - [ ] build and boot the current Compose topology and validate every healthcheck
@@ -248,6 +249,9 @@ These are open even where the implementation exists:
 
 This workstation has no Docker executable. An ephemeral local PostgreSQL 17.10
 run verified migrations, real-engine repository behavior, PostgreSQL-backed
-Playwright, and a checksummed isolated logical restore. That is valid local
-engine evidence; it is not a Compose boot, managed-HA/PITR, encrypted off-host
-backup, or live-provider claim.
+Playwright, five consecutive full suites, an actual database-process restart,
+and a checksummed isolated logical restore. All locally executable required
+commands pass except the production smoke, which correctly fails closed because
+no authorized HTTPS deployment URL exists. This is valid local engine evidence;
+it is not a Compose boot, managed-HA/PITR, encrypted off-host backup, or
+live-provider claim.

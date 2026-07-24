@@ -1,6 +1,6 @@
 # Production-Hardening Implementation Report
 
-Prepared after implementation commits through `1ddc0cc` on 2026-07-24. This
+Prepared after implementation commits through `3072b33` on 2026-07-24. This
 report records repository capability, not provider permission, deployment
 approval, or an unrecorded test result.
 
@@ -21,6 +21,7 @@ approval, or an unrecorded test result.
 | Durable discovery/replay       | application-scoped provider runtime, server-owned discovered catalog, durable engagement rate/privacy boundary, freshness refresh, and crash-safe idempotent alert replay                            | `dd8eb33`                                                                   |
 | Provider security              | canonical eBay/Grailed endpoint policy, manual redirect handling, same-origin Grailed bundle discovery, strict Algolia host construction, and malformed-row isolation                                | `c685d39`                                                                   |
 | Currency/market correctness    | currency-scoped rules/ML preference signals plus current-state, per-segment sold-first, currency-partitioned observed analytics                                                                      | `8b5ae6b`, `1ddc0cc`                                                        |
+| Release truth/toolchain        | truthful readiness docs, workspace formatting, and patched Babel/esbuild transitive build tooling                                                                                                    | `b572008`, `3072b33`                                                        |
 
 ## Important architectural decisions
 
@@ -195,8 +196,8 @@ run then recorded:
 - web component suite `58/58` plus the focused browser action-link flow after
   fragment consumption/scrubbing was aligned with generated email URLs
 
-These targeted results do not replace the pending final-SHA root-command table
-below.
+These targeted results are historical phase evidence. The final-code results
+below supersede them.
 
 After that drill, restore hardening added a fail-closed
 `current_database() === RESTORE_TARGET_DATABASE` check before any `--clean`
@@ -213,32 +214,42 @@ CI defines:
 - Compose configuration/build/boot and health/no-mock checks
 
 Evidence limitation: this workstation has no Docker, so no local Compose claim
-is made. The isolated logical restore was not an encrypted off-host,
-managed-HA/PITR, production incident cutover. No authorized live-provider or
-HTTPS staging claim is made.
+is made. The isolated logical restore was not encrypted or off-host and was not
+a managed-HA/PITR or production-incident cutover. No authorized live-provider
+or HTTPS staging claim is made.
 
-## Final command results — pending parent verification
+## Final-code command results
 
-Do not replace `PENDING` with a pass unless the command completed successfully
-against the final SHA. Record skips and environment-gated coverage explicitly.
+The following ran on implementation commit `3072b33`. PostgreSQL commands used
+an ephemeral local PostgreSQL 17.10 instance, not `pg-mem`.
 
-| Required command                          | Final result                                                                        |
-| ----------------------------------------- | ----------------------------------------------------------------------------------- |
-| `corepack pnpm install --frozen-lockfile` | PENDING                                                                             |
-| `corepack pnpm format:check`              | PENDING                                                                             |
-| `corepack pnpm lint`                      | PENDING                                                                             |
-| `corepack pnpm typecheck`                 | PENDING                                                                             |
-| `corepack pnpm build`                     | PENDING                                                                             |
-| `corepack pnpm test`                      | PENDING                                                                             |
-| `corepack pnpm test:integration`          | PENDING                                                                             |
-| `corepack pnpm test:e2e`                  | PENDING                                                                             |
-| `corepack pnpm db:migrate`                | PENDING — requires `DATABASE_URL`                                                   |
-| `corepack pnpm smoke:test`                | PENDING — requires an explicit deployed API URL and authorized provider expectation |
+| Required command                          | Final result                                                                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `corepack pnpm install --frozen-lockfile` | PASS — lockfile current                                                                                                                                                  |
+| `corepack pnpm format:check`              | PASS                                                                                                                                                                     |
+| `corepack pnpm lint`                      | PASS — all five code workspaces                                                                                                                                          |
+| `corepack pnpm typecheck`                 | PASS — all five code workspaces                                                                                                                                          |
+| `corepack pnpm build`                     | PASS — shared, ML, providers, web, and API                                                                                                                               |
+| `corepack pnpm test`                      | PASS in five independent consecutive invocations — each: shared `2/2`, ML `19/19`, providers `51/51`, web `31/31`, API `223/223`, including real-PostgreSQL `6/6`        |
+| `corepack pnpm test:integration`          | PASS — `45/45`, including migrations/upgrades, concurrent upserts, rollback, freshness, lease contention, sessions, worker replay, request state, account, and analytics |
+| `corepack pnpm test:e2e`                  | PASS — PostgreSQL mode `10/10`; repeated `10/10` after an actual PostgreSQL stop/start                                                                                   |
+| `corepack pnpm db:migrate`                | PASS — no pending migrations, current version `6`                                                                                                                        |
+| `corepack pnpm smoke:test`                | BLOCKED/EXPECTED FAIL-CLOSED — no `CLOSETSEARCH_API_BASE_URL`; the command refused to default to local or mock inventory                                                 |
 
-Five consecutive clean full-suite runs: **PENDING**.
+Additional gates passed:
 
-Release-environment evidence still to attach: real-PostgreSQL CI URL/artifacts,
-Compose boot, encrypted isolated restore, and authorized no-mock staging smoke.
+- `corepack pnpm deps:check`: no known vulnerabilities
+- `corepack pnpm infrastructure:check`: all 13 static infrastructure contracts
+- custom PostgreSQL backup/checksum/isolated restore: PASS; SHA-256
+  `9dc715b411da89c0fc8447bea0dcec731d0ae57b01e5a236658cd61b659358a1`,
+  schema version `6`, and identical source/restore counts (`users=18`,
+  `listings=6`, `price_observations=6`, `worker_jobs=0`, `migrations=6`)
+- database process restart: PASS; the same source counts survived a fast
+  stop/start and PostgreSQL-backed Playwright then passed `10/10`
+
+Release-environment evidence still required: a current CI URL/artifact set,
+Compose boot, encrypted off-host restore, and authorized HTTPS no-mock staging
+smoke.
 
 ## Remaining external blockers
 
@@ -260,9 +271,9 @@ Compose boot, encrypted isolated restore, and authorized no-mock staging smoke.
   horizontal scale
 - implement and test an approved external error-tracking exporter plus
   dashboards/alerts
-- approve and enforce retention/deletion schedules; test database service
-  restart, Compose, encrypted off-host restore, managed HA/PITR, and capacity
-  plans
+- approve and enforce retention/deletion schedules; test Compose, encrypted
+  off-host restore, managed HA/PITR/failover, and capacity plans in the intended
+  deployment environment
 
 ## Deployment
 

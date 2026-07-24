@@ -6,12 +6,11 @@
    providers; eBay and Grailed are both externally blocked.
 2. Run a no-mock HTTPS staging smoke with those providers.
 3. Configure transactional email and exercise verification/reset/export.
-4. Record final required commands plus five consecutive clean test runs.
-5. Add service-restart persistence evidence, a Compose boot, and an encrypted
-   off-host backup/restore drill to the completed local PostgreSQL
-   concurrency/lease/checksummed-restore evidence.
-6. Approve privacy, retention, subprocessor, and incident processes.
-7. Configure dashboards/alerts, secret rotation, error tracking, and HA/PITR.
+4. Add a Compose boot and encrypted off-host backup/restore drill to the
+   completed local PostgreSQL concurrency/lease/restart/checksummed-restore
+   evidence.
+5. Approve privacy, retention, subprocessor, and incident processes.
+6. Configure dashboards/alerts, secret rotation, error tracking, and HA/PITR.
 
 ## Production follow-through
 

@@ -138,12 +138,14 @@ ORDER BY version;
 Also retain critical row counts, worker checkpoint state, backup checksum,
 restore duration, and application smoke output.
 
-An ephemeral PostgreSQL 17.10 local run applied migrations `001`–`006`, passed
-the five real-engine reliability cases five consecutive times, and passed the
-full API suite against the real engine. A checksummed logical archive was also
-restored to an isolated database with migration count/max version `6`. Docker is
-still unavailable, so this evidence does not include a Compose boot, database
-service restart, managed HA/PITR, or encrypted off-host retention.
+On final code commit `3072b33`, an ephemeral PostgreSQL 17.10 local run applied
+migrations `001`–`006`, passed all six real-engine reliability cases inside five
+consecutive full root suites, and passed the explicit integration suite `45/45`.
+A checksummed logical archive restored to an isolated database at version `6`
+with matching source/restore counts. The database process was then stopped and
+started; counts were unchanged and PostgreSQL-backed Playwright passed `10/10`
+again. Docker is still unavailable, so this evidence does not include a Compose
+boot, managed HA/PITR/failover, or encrypted off-host retention.
 
 ## Backup, recovery, and retention
 

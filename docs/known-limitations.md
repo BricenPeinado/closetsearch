@@ -12,8 +12,9 @@
   boot evidence. An ephemeral PostgreSQL 17.10 engine and isolated logical
   restore were verified locally, but that does not establish managed HA/PITR or
   encrypted off-host backup operations.
-- A final pass of every required command plus five consecutive clean full test
-  runs must be recorded after the final merged state.
+- Final code commit `3072b33` passed every locally executable required command
+  and five consecutive full suites with the real-PostgreSQL gate. The production
+  smoke remains blocked because no authorized HTTPS deployment URL exists.
 
 ## Providers and listings
 
@@ -68,9 +69,10 @@
   error-tracking exporter/provider is implemented.
 - Local PostgreSQL evidence covers migrations `001`–`006`, real repository
   concurrency/rollback/lease/session cases, PostgreSQL-backed Playwright, and a
-  checksummed isolated logical restore. Retain CI/deployment evidence and still
-  test service restart, managed HA/PITR, encrypted off-host storage, and the
-  container topology before launch.
+  checksummed isolated logical restore. A database-process stop/start preserved
+  the verified data and the browser suite passed afterward. Retain
+  CI/deployment evidence and still test managed HA/PITR/failover, encrypted
+  off-host storage, and the container topology before launch.
 - Managed high availability, point-in-time recovery, dashboards, alerts, secret
   rotation, and error-tracking provider configuration belong to the deployment
   environment and cannot be proven by repository artifacts alone.

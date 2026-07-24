@@ -108,3 +108,10 @@ restore script restored it to an isolated database whose migration ledger count
 and maximum version were both verified as `6`. That proves the local logical
 path, not encryption, off-host retention, managed PITR/HA, a destructive
 incident cutover, or the documented production RPO/RTO.
+
+The final-code repeat on commit `3072b33` produced SHA-256
+`9dc715b411da89c0fc8447bea0dcec731d0ae57b01e5a236658cd61b659358a1`
+and restored transactionally at version `6`. Source and restore counts matched:
+`users=18`, `listings=6`, `price_observations=6`, `worker_jobs=0`, and
+`postgres_schema_migrations=6`. The archive was intentionally unencrypted and
+local, so it is evidence of script correctness only.
