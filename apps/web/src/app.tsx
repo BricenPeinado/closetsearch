@@ -267,7 +267,6 @@ interface AnalyticsOverviewResponse {
   message?: string;
   overview?: AnalyticsOverview;
   premiumAccess?: PremiumAccess;
-  premiumPreviewUsername?: string;
   sampleData?: boolean;
 }
 
@@ -277,7 +276,6 @@ interface MarketInsightsResponse {
   locked: boolean;
   message?: string;
   premiumAccess?: PremiumAccess;
-  premiumPreviewUsername?: string;
   sampleData?: boolean;
 }
 
@@ -285,7 +283,6 @@ interface UnderpricedSignalsResponse {
   locked: boolean;
   message?: string;
   premiumAccess?: PremiumAccess;
-  premiumPreviewUsername?: string;
   sampleData?: boolean;
   signals?: UnderpricedListingSignal[];
 }
@@ -298,7 +295,6 @@ interface AnalyticsRequestState {
   message?: string;
   overview?: AnalyticsOverview;
   premiumAccess?: PremiumAccess;
-  premiumPreviewUsername?: string;
   sampleData: boolean;
   signals: UnderpricedListingSignal[];
   status: "loading" | "success" | "error";
@@ -2284,7 +2280,6 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
             message: overviewResponse.message,
             overview: overviewResponse.overview,
             premiumAccess: overviewResponse.premiumAccess,
-            premiumPreviewUsername: overviewResponse.premiumPreviewUsername,
             sampleData: false,
             signals: [],
             status: "success",
@@ -2310,7 +2305,6 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
           message: overviewResponse.message,
           overview: overviewResponse.overview,
           premiumAccess: overviewResponse.premiumAccess,
-          premiumPreviewUsername: overviewResponse.premiumPreviewUsername,
           sampleData:
             overviewResponse.sampleData === true ||
             insightsResponse.sampleData === true ||
@@ -2380,15 +2374,15 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
         <section className="analytics-shell">
           <section className="market-header market-header--analytics">
             <div>
-              <h2>Observed pricing context preview</h2>
+              <h2>Observed pricing context</h2>
               <p className="page-description">
                 {state.message ??
-                  "Observed brand ranges, category pricing context, and cautious under-market signals are available in Collector Preview."}
+                  "Observed market analytics require an active persisted entitlement."}
               </p>
             </div>
             <div className="chip-row">
               <span className="info-chip info-chip--accent">Premium</span>
-              <span className="info-chip">Collector Preview</span>
+              <span className="info-chip">Entitlement required</span>
             </div>
           </section>
 
@@ -2409,9 +2403,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
           </div>
 
           <p className="analytics-note">
-            {state.premiumPreviewUsername
-              ? `Local preview access is available with ${state.premiumPreviewUsername}.`
-              : "Preview access is limited to a local sample account for now."}
+            Access is never inferred from a username. Development grants are
+            explicitly non-billing and disabled in production.
           </p>
         </section>
       </AnalyticsPage>
@@ -2429,7 +2422,7 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
             </p>
           </div>
           <div className="chip-row">
-            <span className="info-chip info-chip--accent">Premium preview</span>
+            <span className="info-chip info-chip--accent">Premium analytics</span>
             {state.sampleData ? <span className="info-chip">Sample data</span> : null}
           </div>
         </section>
