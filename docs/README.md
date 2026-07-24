@@ -45,3 +45,8 @@ Useful existing runbooks:
 - [Personalization](./runbooks/personalization.md)
 
 Root planning stays in `README.md`, `PRODUCT.md`, `ARCHITECTURE.md`, `TASKS.md`, and `DECISIONS.md`.
+
+## Production Hardening
+
+- [Pre-implementation production gap matrix](./production-gap-matrix.md)
+- [Provider acquisition and compliance matrix](./provider-acquisition-matrix.md)
