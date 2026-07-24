@@ -61,14 +61,7 @@ function asIsoString(value: Date | string) {
 }
 
 const zeroFractionCurrencies = new Set(["CLP", "JPY", "KRW", "VND"]);
-const threeFractionCurrencies = new Set([
-  "BHD",
-  "IQD",
-  "JOD",
-  "KWD",
-  "OMR",
-  "TND",
-]);
+const threeFractionCurrencies = new Set(["BHD", "IQD", "JOD", "KWD", "OMR", "TND"]);
 
 function currencyFractionDigits(currency: string) {
   if (zeroFractionCurrencies.has(currency)) {
@@ -78,10 +71,7 @@ function currencyFractionDigits(currency: string) {
   return threeFractionCurrencies.has(currency) ? 3 : 2;
 }
 
-function moneyMajorUnits(
-  value: string | number | bigint,
-  currency: string,
-) {
+function moneyMajorUnits(value: string | number | bigint, currency: string) {
   const minor = Number(value);
 
   if (!Number.isSafeInteger(minor)) {
@@ -110,10 +100,7 @@ function condition(value: string | null): ListingCondition | undefined {
 }
 
 function mapSnapshot(row: SnapshotRow): PriceSnapshot | undefined {
-  const priceAmount = moneyMajorUnits(
-    row.original_price_minor,
-    row.original_currency,
-  );
+  const priceAmount = moneyMajorUnits(row.original_price_minor, row.original_currency);
   const normalizedPriceAmount = moneyMajorUnits(
     row.normalized_price_minor,
     row.normalized_currency,
@@ -162,6 +149,66 @@ function unique(values: Array<string | undefined>) {
   return Array.from(
     new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]),
   ).sort();
+}
+
+type ComparableBasis = "confirmed_sold" | "observed_asking";
+
+function comparableGroupKey(
+  snapshot: PriceSnapshot,
+  getDimension: (snapshot: PriceSnapshot) => string | undefined,
+) {
+  const dimension = getDimension(snapshot)?.trim().toLowerCase();
+
+  return dimension
+    ? `${dimension}\u0000${snapshot.normalizedPriceCurrency.trim().toUpperCase()}`
+    : undefined;
+}
+
+function selectSoldFirstBySegment(
+  snapshots: PriceSnapshot[],
+  getDimension: (snapshot: PriceSnapshot) => string | undefined,
+) {
+  const groups = new Map<string, PriceSnapshot[]>();
+
+  for (const snapshot of snapshots) {
+    const key = comparableGroupKey(snapshot, getDimension);
+
+    if (!key) {
+      continue;
+    }
+
+    const group = groups.get(key);
+
+    if (group) {
+      group.push(snapshot);
+    } else {
+      groups.set(key, [snapshot]);
+    }
+  }
+
+  return Array.from(groups.values()).flatMap((group) => {
+    const sold = group.filter((snapshot) => snapshot.marketStatus === "sold");
+    return sold.length > 0 ? sold : group.filter((snapshot) => snapshot.marketStatus === "active");
+  });
+}
+
+function basisForSummary(
+  snapshots: PriceSnapshot[],
+  label: string,
+  currency: string,
+  getDimension: (snapshot: PriceSnapshot) => string | undefined,
+): ComparableBasis {
+  const normalizedLabel = label.trim().toLowerCase();
+  const normalizedCurrency = currency.trim().toUpperCase();
+
+  return snapshots.some(
+    (snapshot) =>
+      snapshot.marketStatus === "sold" &&
+      getDimension(snapshot)?.trim().toLowerCase() === normalizedLabel &&
+      snapshot.normalizedPriceCurrency.trim().toUpperCase() === normalizedCurrency,
+  )
+    ? "confirmed_sold"
+    : "observed_asking";
 }
 
 export class PostgresObservedAnalyticsService {
@@ -219,6 +266,12 @@ export class PostgresObservedAnalyticsService {
         AND image.ordinal = 0
        WHERE l.analytics_eligible = TRUE
          AND po.market_status IN ('active', 'sold')
+         AND state.market_status = po.market_status
+         AND (
+           (po.market_status = 'active' AND state.availability = 'available')
+           OR
+           (po.market_status = 'sold' AND state.availability = 'sold')
+         )
        ORDER BY po.observation_version DESC`,
     );
 
@@ -237,8 +290,12 @@ export class PostgresObservedAnalyticsService {
     const snapshots = await this.listLatestSnapshots();
     const active = snapshots.filter((snapshot) => snapshot.marketStatus === "active");
     const sold = snapshots.filter((snapshot) => snapshot.marketStatus === "sold");
+    const comparableSnapshots = selectSoldFirstBySegment(
+      snapshots,
+      (snapshot) => `${snapshot.brand ?? ""}\u0000${snapshot.category ?? ""}`,
+    );
     const sampleSizeThreshold = getMinimumComparableSampleSize();
-    const comparableCount = sold.length > 0 ? sold.length : active.length;
+    const comparableCount = comparableSnapshots.length;
 
     return {
       askingComparableCount: active.length,
@@ -260,18 +317,18 @@ export class PostgresObservedAnalyticsService {
             : {
                 comparableListingCount: comparableCount,
                 note:
-                  sold.length > 0
-                    ? "Ranges prioritize confirmed sold observations and keep asking prices separate."
-                    : "Sold access is unavailable; ranges use clearly labeled observed asking prices.",
+                  sold.length > 0 && active.length > 0
+                    ? "Each same-currency segment prioritizes confirmed sold observations and falls back to labeled asking prices only where sold data is unavailable."
+                    : sold.length > 0
+                      ? "Ranges use confirmed sold observations and keep asking prices separate."
+                      : "Sold access is unavailable; ranges use clearly labeled observed asking prices.",
                 sampleSizeThreshold,
                 status: "observed",
               },
       disclaimers: analyticsDisclaimers,
       latestObservationAt: latestObservationAt(snapshots),
       observedBrandCount: unique(snapshots.map((snapshot) => snapshot.brand)).length,
-      observedCategoryCount: unique(
-        snapshots.map((snapshot) => snapshot.category),
-      ).length,
+      observedCategoryCount: unique(snapshots.map((snapshot) => snapshot.category)).length,
       observedListingCount: snapshots.length,
       soldComparableCount: sold.length,
       sourceCoverage: unique(snapshots.map((snapshot) => snapshot.source)),
@@ -281,14 +338,48 @@ export class PostgresObservedAnalyticsService {
 
   async getMarketInsights() {
     const snapshots = await this.listLatestSnapshots();
-    const sold = snapshots.filter((snapshot) => snapshot.marketStatus === "sold");
-    const active = snapshots.filter((snapshot) => snapshot.marketStatus === "active");
-    const comparables = sold.length > 0 ? sold : active;
+    const brandComparables = selectSoldFirstBySegment(snapshots, (snapshot) => snapshot.brand);
+    const categoryComparables = selectSoldFirstBySegment(
+      snapshots,
+      (snapshot) => snapshot.category,
+    );
+    const comparables = Array.from(
+      new Map(
+        [...brandComparables, ...categoryComparables].map((snapshot) => [snapshot.id, snapshot]),
+      ).values(),
+    );
+    const hasSoldComparables = comparables.some((snapshot) => snapshot.marketStatus === "sold");
+    const hasAskingComparables = comparables.some((snapshot) => snapshot.marketStatus === "active");
 
     return {
-      basis: sold.length > 0 ? ("confirmed_sold" as const) : ("asking_fallback" as const),
-      brandSummaries: buildBrandMarketSummaries(comparables).slice(0, 8),
-      categorySummaries: buildCategoryMarketSummaries(comparables).slice(0, 8),
+      basis:
+        hasSoldComparables && hasAskingComparables
+          ? ("segment_sold_first" as const)
+          : hasSoldComparables
+            ? ("confirmed_sold" as const)
+            : ("asking_fallback" as const),
+      brandSummaries: buildBrandMarketSummaries(brandComparables)
+        .map((summary) => ({
+          ...summary,
+          basis: basisForSummary(
+            brandComparables,
+            summary.brand,
+            summary.range.currency,
+            (snapshot) => snapshot.brand,
+          ),
+        }))
+        .slice(0, 8),
+      categorySummaries: buildCategoryMarketSummaries(categoryComparables)
+        .map((summary) => ({
+          ...summary,
+          basis: basisForSummary(
+            categoryComparables,
+            summary.category,
+            summary.range.currency,
+            (snapshot) => snapshot.category,
+          ),
+        }))
+        .slice(0, 8),
       comparableCount: comparables.length,
       dataFreshnessAt: latestObservationAt(comparables),
       sourceCoverage: unique(comparables.map((snapshot) => snapshot.source)),

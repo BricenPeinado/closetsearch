@@ -53,11 +53,14 @@ function quartile(values: number[], percentile: number) {
 }
 
 function getLatestObservationAt(snapshots: PriceSnapshot[]) {
-  return snapshots.reduce((latest, snapshot) => {
-    return new Date(snapshot.lastSeenAt).getTime() > new Date(latest).getTime()
-      ? snapshot.lastSeenAt
-      : latest;
-  }, snapshots[0]?.lastSeenAt ?? new Date(0).toISOString());
+  return snapshots.reduce(
+    (latest, snapshot) => {
+      return new Date(snapshot.lastSeenAt).getTime() > new Date(latest).getTime()
+        ? snapshot.lastSeenAt
+        : latest;
+    },
+    snapshots[0]?.lastSeenAt ?? new Date(0).toISOString(),
+  );
 }
 
 function buildRange(snapshots: PriceSnapshot[]) {
@@ -96,10 +99,9 @@ function buildGroupedSummaries<T extends BrandMarketSummary | CategoryMarketSumm
       continue;
     }
 
-    const key = [
-      normalizeToken(label),
-      snapshot.normalizedPriceCurrency.trim().toUpperCase(),
-    ].join("\u0000");
+    const key = [normalizeToken(label), snapshot.normalizedPriceCurrency.trim().toUpperCase()].join(
+      "\u0000",
+    );
     const existingGroup = groupedSnapshots.get(key);
 
     if (existingGroup) {
@@ -263,10 +265,7 @@ export function buildCategoryMarketSummaries(snapshots: PriceSnapshot[]) {
   );
 }
 
-export function compareListingToObservedMarket(
-  target: PriceSnapshot,
-  snapshots: PriceSnapshot[],
-) {
+export function compareListingToObservedMarket(target: PriceSnapshot, snapshots: PriceSnapshot[]) {
   const targetBrand = normalizeToken(target.brand);
   const targetCategory = normalizeToken(target.category);
 
@@ -303,7 +302,8 @@ export function compareListingToObservedMarket(
         currentPrice: target.normalizedPriceAmount,
         label: "Limited data",
         listingId: target.listingId,
-        message: "Similar observed listings exist, but not enough share the same normalized currency.",
+        message:
+          "Similar observed listings exist, but not enough share the same normalized currency.",
         status: "currency_mismatch",
       } satisfies ListingPriceComparison;
     }
@@ -350,8 +350,8 @@ export function buildUnderMarketSignals(snapshots: PriceSnapshot[]) {
       comparison.label === "Below observed range"
         ? "below_observed_range"
         : comparison.label === "Below observed median"
-        ? "below_observed_median"
-        : "near_observed_range";
+          ? "below_observed_median"
+          : "near_observed_range";
 
     signals.push({
       brand: snapshot.brand,
@@ -377,8 +377,19 @@ export function buildUnderMarketSignals(snapshots: PriceSnapshot[]) {
   }
 
   return signals.sort((left, right) => {
+    const currencyOrder = left.currentCurrency.localeCompare(right.currentCurrency);
+
+    if (currencyOrder !== 0) {
+      return currencyOrder;
+    }
+
     const leftDelta = left.observedMedianPrice - left.currentPrice;
     const rightDelta = right.observedMedianPrice - right.currentPrice;
-    return rightDelta - leftDelta;
+
+    if (rightDelta !== leftDelta) {
+      return rightDelta - leftDelta;
+    }
+
+    return left.id.localeCompare(right.id);
   });
 }

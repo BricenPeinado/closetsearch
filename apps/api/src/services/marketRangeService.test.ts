@@ -52,7 +52,12 @@ describe("marketRangeService", () => {
       createSnapshot({ id: "kapital-2", brand: "Kapital", category: "jackets", priceAmount: 200 }),
       createSnapshot({ id: "kapital-3", brand: "Kapital", category: "jackets", priceAmount: 300 }),
       createSnapshot({ id: "kapital-4", brand: "Kapital", category: "jackets", priceAmount: 500 }),
-      createSnapshot({ id: "undercover-1", brand: "Undercover", category: "tops", priceAmount: 90 }),
+      createSnapshot({
+        id: "undercover-1",
+        brand: "Undercover",
+        category: "tops",
+        priceAmount: 90,
+      }),
     ];
 
     const brandSummaries = buildBrandMarketSummaries(snapshots);
@@ -109,10 +114,38 @@ describe("marketRangeService", () => {
       priceCurrency: "USD",
     });
     const comparables = [
-      createSnapshot({ id: "comp-1", brand: "Kapital", category: "jackets", priceAmount: 200, normalizedPriceCurrency: "EUR", priceCurrency: "EUR" }),
-      createSnapshot({ id: "comp-2", brand: "Kapital", category: "jackets", priceAmount: 220, normalizedPriceCurrency: "EUR", priceCurrency: "EUR" }),
-      createSnapshot({ id: "comp-3", brand: "Kapital", category: "jackets", priceAmount: 240, normalizedPriceCurrency: "EUR", priceCurrency: "EUR" }),
-      createSnapshot({ id: "comp-4", brand: "Kapital", category: "jackets", priceAmount: 260, normalizedPriceCurrency: "EUR", priceCurrency: "EUR" }),
+      createSnapshot({
+        id: "comp-1",
+        brand: "Kapital",
+        category: "jackets",
+        priceAmount: 200,
+        normalizedPriceCurrency: "EUR",
+        priceCurrency: "EUR",
+      }),
+      createSnapshot({
+        id: "comp-2",
+        brand: "Kapital",
+        category: "jackets",
+        priceAmount: 220,
+        normalizedPriceCurrency: "EUR",
+        priceCurrency: "EUR",
+      }),
+      createSnapshot({
+        id: "comp-3",
+        brand: "Kapital",
+        category: "jackets",
+        priceAmount: 240,
+        normalizedPriceCurrency: "EUR",
+        priceCurrency: "EUR",
+      }),
+      createSnapshot({
+        id: "comp-4",
+        brand: "Kapital",
+        category: "jackets",
+        priceAmount: 260,
+        normalizedPriceCurrency: "EUR",
+        priceCurrency: "EUR",
+      }),
     ];
 
     const comparison = compareListingToObservedMarket(target, [target, ...comparables]);
@@ -144,10 +177,7 @@ describe("marketRangeService", () => {
     ]);
 
     expect(summaries).toHaveLength(2);
-    expect(summaries.map((summary) => summary.range.currency).sort()).toEqual([
-      "EUR",
-      "USD",
-    ]);
+    expect(summaries.map((summary) => summary.range.currency).sort()).toEqual(["EUR", "USD"]);
     expect(summaries.every((summary) => summary.range.count === 1)).toBe(true);
   });
 
@@ -177,5 +207,53 @@ describe("marketRangeService", () => {
     });
     expect(signals[0]?.summary.toLowerCase()).toContain("observed");
     expect(signals[0]?.summary.toLowerCase()).not.toContain("profit");
+  });
+
+  it("orders signals within currency groups instead of comparing raw cross-currency deltas", () => {
+    const snapshots = [
+      createSnapshot({
+        id: "usd-target",
+        brand: "Kapital",
+        category: "jackets",
+        priceAmount: 1,
+        normalizedPriceCurrency: "USD",
+      }),
+      ...[1_000, 1_100, 1_200, 1_300].map((priceAmount, index) =>
+        createSnapshot({
+          id: `usd-${index}`,
+          brand: "Kapital",
+          category: "jackets",
+          priceAmount,
+          normalizedPriceCurrency: "USD",
+        }),
+      ),
+      createSnapshot({
+        id: "jpy-target",
+        brand: "Visvim",
+        category: "shoes",
+        priceAmount: 100,
+        normalizedPriceAmount: 100,
+        normalizedPriceCurrency: "JPY",
+        priceCurrency: "JPY",
+      }),
+      ...[200, 220, 240, 260].map((priceAmount, index) =>
+        createSnapshot({
+          id: `jpy-${index}`,
+          brand: "Visvim",
+          category: "shoes",
+          priceAmount,
+          normalizedPriceAmount: priceAmount,
+          normalizedPriceCurrency: "JPY",
+          priceCurrency: "JPY",
+        }),
+      ),
+    ];
+
+    const signals = buildUnderMarketSignals(snapshots);
+    const currencies = signals.map((signal) => signal.currentCurrency);
+
+    expect(currencies).toContain("JPY");
+    expect(currencies).toContain("USD");
+    expect(currencies).toEqual([...currencies].sort());
   });
 });

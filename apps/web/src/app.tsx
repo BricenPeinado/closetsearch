@@ -768,7 +768,6 @@ function useLikes(session: AuthResponse | null, onAuthFailure: () => void) {
         const response = await sendJson<LikeMutationResponse>("/me/likes", "POST", {
           listingId: listing.id,
           source: listing.source.id,
-          listing,
         });
 
         setLikes((currentLikes) => {
@@ -2507,6 +2506,11 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
                       {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}
                     </span>
                     <span className="info-chip">{summary.range.currency}</span>
+                    {summary.basis ? (
+                      <span className="info-chip">
+                        {summary.basis === "confirmed_sold" ? "Confirmed sold" : "Observed asking"}
+                      </span>
+                    ) : null}
                   </div>
                 </article>
               ))}
@@ -2551,6 +2555,11 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
                       {formatCurrencyAmount(summary.range.averagePrice, summary.range.currency)}
                     </span>
                     <span className="info-chip">{summary.range.currency}</span>
+                    {summary.basis ? (
+                      <span className="info-chip">
+                        {summary.basis === "confirmed_sold" ? "Confirmed sold" : "Observed asking"}
+                      </span>
+                    ) : null}
                   </div>
                 </article>
               ))}

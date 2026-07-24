@@ -9,6 +9,8 @@ const observedAt = new Date("2026-07-24T12:00:00.000Z");
 function observation(
   sourceListingId: string,
   options: {
+    brand?: string;
+    category?: string;
     currency?: string;
     marketStatus: "active" | "sold";
     priceMinor: bigint;
@@ -17,7 +19,7 @@ function observation(
   return {
     analyticsEligible: true,
     availability: options.marketStatus === "sold" ? "sold" : "available",
-    category: "jackets",
+    category: options.category ?? "jackets",
     condition: "good",
     fetchedAt: observedAt,
     id: randomUUID(),
@@ -34,7 +36,7 @@ function observation(
       amountMinor: options.priceMinor,
       currency: options.currency ?? "USD",
     },
-    providerBrand: "Kapital",
+    providerBrand: options.brand ?? "Kapital",
     providerId: "fixture-provider",
     soldPrice:
       options.marketStatus === "sold"
@@ -51,26 +53,17 @@ function observation(
 }
 
 describe("PostgreSQL observed analytics", () => {
-  const harnesses: Array<
-    Awaited<ReturnType<typeof createPostgresTestHarness>>
-  > = [];
+  const harnesses: Array<Awaited<ReturnType<typeof createPostgresTestHarness>>> = [];
 
   afterEach(async () => {
-    await Promise.all(
-      harnesses.splice(0).map((harness) => harness.database.close()),
-    );
+    await Promise.all(harnesses.splice(0).map((harness) => harness.database.close()));
   });
 
   it("keeps sold and asking observations distinct and prioritizes sold ranges", async () => {
     const harness = await createPostgresTestHarness();
     harnesses.push(harness);
 
-    for (const [index, priceMinor] of [
-      12_000n,
-      15_000n,
-      18_000n,
-      21_000n,
-    ].entries()) {
+    for (const [index, priceMinor] of [12_000n, 15_000n, 18_000n, 21_000n].entries()) {
       await harness.dataPlane.listings.upsertObservation(
         observation(`sold-${index + 1}`, {
           marketStatus: "sold",
@@ -135,13 +128,78 @@ describe("PostgreSQL observed analytics", () => {
       harness.dataPlane,
     ).listLatestSnapshots();
     const byCurrency = new Map(
-      snapshots.map((snapshot) => [
-        snapshot.priceCurrency,
-        snapshot.priceAmount,
-      ]),
+      snapshots.map((snapshot) => [snapshot.priceCurrency, snapshot.priceAmount]),
     );
 
     expect(byCurrency.get("JPY")).toBe(12_500);
     expect(byCurrency.get("BHD")).toBe(12.5);
+  });
+
+  it("uses sold data per segment without dropping asking-only segments", async () => {
+    const harness = await createPostgresTestHarness();
+    harnesses.push(harness);
+
+    for (let index = 0; index < 4; index += 1) {
+      await harness.dataPlane.listings.upsertObservation(
+        observation(`kapital-sold-${index}`, {
+          brand: "Kapital",
+          category: "jackets",
+          marketStatus: "sold",
+          priceMinor: BigInt(15_000 + index * 1_000),
+        }),
+      );
+      await harness.dataPlane.listings.upsertObservation(
+        observation(`visvim-active-${index}`, {
+          brand: "Visvim",
+          category: "shoes",
+          marketStatus: "active",
+          priceMinor: BigInt(25_000 + index * 1_000),
+        }),
+      );
+    }
+
+    const insights = await new PostgresObservedAnalyticsService(
+      harness.dataPlane,
+    ).getMarketInsights();
+
+    expect(insights).toMatchObject({
+      basis: "segment_sold_first",
+      comparableCount: 8,
+    });
+    expect(insights.brandSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          basis: "confirmed_sold",
+          brand: "Kapital",
+          range: expect.objectContaining({ count: 4, currency: "USD" }),
+        }),
+        expect.objectContaining({
+          basis: "observed_asking",
+          brand: "Visvim",
+          range: expect.objectContaining({ count: 4, currency: "USD" }),
+        }),
+      ]),
+    );
+  });
+
+  it("excludes listings whose current lifecycle is stale", async () => {
+    const harness = await createPostgresTestHarness();
+    harnesses.push(harness);
+    const persisted = await harness.dataPlane.listings.upsertObservation(
+      observation("stale-active", {
+        marketStatus: "active",
+        priceMinor: 15_000n,
+      }),
+    );
+    await harness.database.query(
+      `UPDATE listing_current_state
+       SET availability = 'stale'
+       WHERE listing_id = $1`,
+      [persisted.listingId],
+    );
+
+    await expect(
+      new PostgresObservedAnalyticsService(harness.dataPlane).listLatestSnapshots(),
+    ).resolves.toEqual([]);
   });
 });
