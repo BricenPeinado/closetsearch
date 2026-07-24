@@ -7,6 +7,7 @@ interface MatchCandidateRow extends QueryResultRow {
   user_id: string;
   query_text: string | null;
   canonical_brand_id: string | null;
+  brand_text: string | null;
   category: string | null;
   source_marketplace: string | null;
   listing_type: string | null;
@@ -63,13 +64,7 @@ interface AlertDeliveryRow extends QueryResultRow {
   destination_hash: string | null;
   idempotency_key: string;
   status:
-    | "dead_letter"
-    | "delivered"
-    | "failed"
-    | "processing"
-    | "queued"
-    | "retry_wait"
-    | "suppressed";
+    "dead_letter" | "delivered" | "failed" | "processing" | "queued" | "retry_wait" | "suppressed";
   attempt_count: number;
   next_attempt_at: Date | string;
   last_attempt_at: Date | string | null;
@@ -96,10 +91,7 @@ function candidatePrice(row: MatchCandidateRow) {
     return BigInt(row.listing_comparison_price_minor);
   }
 
-  if (
-    !row.price_currency ||
-    row.listing_original_currency === row.price_currency
-  ) {
+  if (!row.price_currency || row.listing_original_currency === row.price_currency) {
     return BigInt(row.listing_original_price_minor);
   }
 
@@ -112,11 +104,7 @@ function evaluateCandidate(row: MatchCandidateRow) {
   if (
     row.query_text &&
     !normalize(
-      [
-        row.listing_title,
-        row.listing_provider_brand,
-        row.listing_category,
-      ].join(" "),
+      [row.listing_title, row.listing_provider_brand, row.listing_category].join(" "),
     ).includes(normalize(row.query_text))
   ) {
     return undefined;
@@ -126,14 +114,23 @@ function evaluateCandidate(row: MatchCandidateRow) {
     reasons.push({ code: "query_match", label: "Search text matched" });
   }
 
-  if (
-    row.canonical_brand_id &&
-    row.canonical_brand_id !== row.listing_brand_id
-  ) {
+  if (row.canonical_brand_id && row.canonical_brand_id !== row.listing_brand_id) {
     return undefined;
   }
 
   if (row.canonical_brand_id) {
+    reasons.push({ code: "brand_match", label: "Brand matched" });
+  }
+
+  if (
+    !row.canonical_brand_id &&
+    row.brand_text &&
+    normalize(row.brand_text) !== normalize(row.listing_provider_brand)
+  ) {
+    return undefined;
+  }
+
+  if (!row.canonical_brand_id && row.brand_text) {
     reasons.push({ code: "brand_match", label: "Brand matched" });
   }
 
@@ -157,10 +154,7 @@ function evaluateCandidate(row: MatchCandidateRow) {
     reasons.push({ code: "source_match", label: "Marketplace matched" });
   }
 
-  if (
-    row.listing_type &&
-    row.listing_type !== row.listing_type_value
-  ) {
+  if (row.listing_type && row.listing_type !== row.listing_type_value) {
     return undefined;
   }
 
@@ -178,26 +172,15 @@ function evaluateCandidate(row: MatchCandidateRow) {
 
   const price = candidatePrice(row);
 
-  if (
-    (row.min_price_minor !== null || row.max_price_minor !== null) &&
-    price === undefined
-  ) {
+  if ((row.min_price_minor !== null || row.max_price_minor !== null) && price === undefined) {
     return undefined;
   }
 
-  if (
-    price !== undefined &&
-    row.min_price_minor !== null &&
-    price < BigInt(row.min_price_minor)
-  ) {
+  if (price !== undefined && row.min_price_minor !== null && price < BigInt(row.min_price_minor)) {
     return undefined;
   }
 
-  if (
-    price !== undefined &&
-    row.max_price_minor !== null &&
-    price > BigInt(row.max_price_minor)
-  ) {
+  if (price !== undefined && row.max_price_minor !== null && price > BigInt(row.max_price_minor)) {
     return undefined;
   }
 
@@ -235,9 +218,7 @@ function localMinutes(at: Date, timezone: string) {
   });
   const parts = formatter.formatToParts(at);
   const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
-  const minute = Number(
-    parts.find((part) => part.type === "minute")?.value ?? 0,
-  );
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
 
   return (hour % 24) * 60 + minute;
 }
@@ -259,12 +240,7 @@ export function nextAllowedDeliveryAt(
     weekly: 604_800_000,
   }[input.frequency];
   let next = input.lastDeliveredAt
-    ? new Date(
-        Math.max(
-          at.getTime(),
-          input.lastDeliveredAt.getTime() + frequencyMs,
-        ),
-      )
+    ? new Date(Math.max(at.getTime(), input.lastDeliveredAt.getTime() + frequencyMs))
     : new Date(at);
   const start = parseMinutes(input.quietHoursStart ?? null);
   const end = parseMinutes(input.quietHoursEnd ?? null);
@@ -275,18 +251,13 @@ export function nextAllowedDeliveryAt(
 
   const current = localMinutes(next, input.timezone);
   const inQuietHours =
-    start < end
-      ? current >= start && current < end
-      : current >= start || current < end;
+    start < end ? current >= start && current < end : current >= start || current < end;
 
   if (!inQuietHours) {
     return next;
   }
 
-  const minutesUntilEnd =
-    start < end || current < end
-      ? end - current
-      : 1_440 - current + end;
+  const minutesUntilEnd = start < end || current < end ? end - current : 1_440 - current + end;
   next = new Date(next.getTime() + minutesUntilEnd * 60_000 + 1_000);
 
   return next;
@@ -305,17 +276,13 @@ function mapDelivery(row: AlertDeliveryRow) {
     alertMatchId: row.alert_match_id,
     attemptCount: Number(row.attempt_count),
     channel: row.channel,
-    deliveredAt: row.delivered_at
-      ? toDate(row.delivered_at)
-      : undefined,
+    deliveredAt: row.delivered_at ? toDate(row.delivered_at) : undefined,
     destinationHash: row.destination_hash ?? undefined,
     errorCode: row.last_error_code ?? undefined,
     errorMessage: row.last_error_message ?? undefined,
     id: row.id,
     idempotencyKey: row.idempotency_key,
-    lastAttemptAt: row.last_attempt_at
-      ? toDate(row.last_attempt_at)
-      : undefined,
+    lastAttemptAt: row.last_attempt_at ? toDate(row.last_attempt_at) : undefined,
     nextAttemptAt: toDate(row.next_attempt_at),
     providerMessageId: row.provider_message_id ?? undefined,
     status: row.status,
@@ -351,6 +318,7 @@ export class AlertRepository {
            w.user_id,
            w.query_text,
            w.canonical_brand_id,
+           w.brand_text,
            w.category,
            w.source_marketplace,
            w.listing_type,
@@ -580,9 +548,7 @@ export class AlertRepository {
       lastMatchedAt: toDate(row.last_matched_at),
       listingId: row.listing_id,
       reasons:
-        typeof row.match_reasons === "string"
-          ? JSON.parse(row.match_reasons)
-          : row.match_reasons,
+        typeof row.match_reasons === "string" ? JSON.parse(row.match_reasons) : row.match_reasons,
       seenAt: row.seen_at ? toDate(row.seen_at) : undefined,
       state: row.state,
       userId: row.user_id,
@@ -615,11 +581,7 @@ export class AlertRepository {
     return result.rows[0] ? mapDelivery(result.rows[0]) : undefined;
   }
 
-  async markDeliveryDelivered(
-    deliveryId: string,
-    deliveredAt: Date,
-    providerMessageId?: string,
-  ) {
+  async markDeliveryDelivered(deliveryId: string, deliveredAt: Date, providerMessageId?: string) {
     const result = await this.database.query<AlertDeliveryRow>(
       `UPDATE alert_deliveries
        SET status = 'delivered',
@@ -662,8 +624,7 @@ export class AlertRepository {
       }
 
       const deadLetter =
-        input.terminal ||
-        Number(delivery.attempt_count) >= (input.maxAttempts ?? 5);
+        input.terminal || Number(delivery.attempt_count) >= (input.maxAttempts ?? 5);
       const result = await client.query<AlertDeliveryRow>(
         `UPDATE alert_deliveries
          SET status = $2,

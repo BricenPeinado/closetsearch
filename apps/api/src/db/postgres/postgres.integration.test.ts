@@ -10,9 +10,7 @@ import type { ListingObservationInput } from "./model.js";
 import { createPostgresTestHarness } from "./test-harness.js";
 
 async function insertUser(
-  database: Awaited<
-    ReturnType<typeof createPostgresTestHarness>
-  >["database"],
+  database: Awaited<ReturnType<typeof createPostgresTestHarness>>["database"],
   userId = randomUUID(),
 ) {
   await database.query(
@@ -27,18 +25,15 @@ async function insertUser(
   return userId;
 }
 
-function listingInput(
-  input: {
-    amountMinor: bigint;
-    fetchedAt?: Date;
-    idempotencyKey: string;
-    images?: boolean;
-    observedAt?: Date;
-    sourceListingId?: string;
-  },
-): ListingObservationInput {
-  const observedAt =
-    input.observedAt ?? new Date("2026-07-24T12:00:00.000Z");
+function listingInput(input: {
+  amountMinor: bigint;
+  fetchedAt?: Date;
+  idempotencyKey: string;
+  images?: boolean;
+  observedAt?: Date;
+  sourceListingId?: string;
+}): ListingObservationInput {
+  const observedAt = input.observedAt ?? new Date("2026-07-24T12:00:00.000Z");
 
   return {
     analyticsEligible: true,
@@ -82,14 +77,12 @@ describe("PostgreSQL production data plane", () => {
       });
       expect(secondRun).toEqual({
         applied: [],
-        currentVersion: 4,
+        currentVersion: 5,
       });
 
       const migrations = loadPostgresMigrations();
       const drifted = migrations.map((migration) =>
-        migration.version === 2
-          ? { ...migration, checksum: "0".repeat(64) }
-          : migration,
+        migration.version === 2 ? { ...migration, checksum: "0".repeat(64) } : migration,
       );
 
       await expect(
@@ -129,11 +122,7 @@ describe("PostgreSQL production data plane", () => {
         throw new Error("force rollback");
       }),
     ).rejects.toThrow("force rollback");
-    expect(statements).toEqual([
-      "BEGIN",
-      "INSERT INTO durable_record VALUES (1)",
-      "ROLLBACK",
-    ]);
+    expect(statements).toEqual(["BEGIN", "INSERT INTO durable_record VALUES (1)", "ROLLBACK"]);
   });
 
   it("orders repeated same-timestamp price changes by a monotonic version", async () => {
@@ -163,20 +152,13 @@ describe("PostgreSQL production data plane", () => {
         }),
       );
 
-      const history =
-        await harness.dataPlane.listings.latestPriceHistory(
-          "fixture-provider",
-          "listing-1",
-        );
+      const history = await harness.dataPlane.listings.latestPriceHistory(
+        "fixture-provider",
+        "listing-1",
+      );
 
-      expect(history.map((entry) => entry.originalPriceMinor)).toEqual([
-        18_000n,
-        14_000n,
-        18_000n,
-      ]);
-      expect(
-        history.map((entry) => entry.observationVersion),
-      ).toEqual([3n, 2n, 1n]);
+      expect(history.map((entry) => entry.originalPriceMinor)).toEqual([18_000n, 14_000n, 18_000n]);
+      expect(history.map((entry) => entry.observationVersion)).toEqual([3n, 2n, 1n]);
     } finally {
       await harness.database.close();
     }
@@ -192,13 +174,12 @@ describe("PostgreSQL production data plane", () => {
           idempotencyKey: "duplicate-event",
         }),
       );
-      const duplicate =
-        await harness.dataPlane.listings.upsertObservation(
-          listingInput({
-            amountMinor: 10_000n,
-            idempotencyKey: "duplicate-event",
-          }),
-        );
+      const duplicate = await harness.dataPlane.listings.upsertObservation(
+        listingInput({
+          amountMinor: 10_000n,
+          idempotencyKey: "duplicate-event",
+        }),
+      );
       expect(first.result).toBe("inserted");
       expect(duplicate).toMatchObject({
         duplicate: true,
@@ -237,22 +218,19 @@ describe("PostgreSQL production data plane", () => {
     const backup = harness.memory.backup();
 
     await harness.database.close();
-    const restartedPool =
-      new harness.adapter.Pool() as unknown as typeof harness.pool;
+    const restartedPool = new harness.adapter.Pool() as unknown as typeof harness.pool;
 
     try {
-      const restartedResult = await restartedPool.query(
-        "SELECT id FROM users WHERE id = $1",
-        [userId],
-      );
+      const restartedResult = await restartedPool.query("SELECT id FROM users WHERE id = $1", [
+        userId,
+      ]);
       expect(restartedResult.rowCount).toBe(1);
 
       await restartedPool.query("DELETE FROM users WHERE id = $1", [userId]);
       backup.restore();
-      const restoredResult = await restartedPool.query(
-        "SELECT id FROM users WHERE id = $1",
-        [userId],
-      );
+      const restoredResult = await restartedPool.query("SELECT id FROM users WHERE id = $1", [
+        userId,
+      ]);
       expect(restoredResult.rowCount).toBe(1);
     } finally {
       await restartedPool.end();
@@ -289,11 +267,10 @@ describe("PostgreSQL production data plane", () => {
         recorded: false,
       });
       await harness.dataPlane.engagement.rollupDay(event.occurredAt);
-      const aggregate =
-        await harness.dataPlane.engagement.getDailyAggregate(
-          listing.listingId,
-          event.occurredAt,
-        );
+      const aggregate = await harness.dataPlane.engagement.getDailyAggregate(
+        listing.listingId,
+        event.occurredAt,
+      );
       expect(aggregate).toMatchObject({
         uniqueSessionCount: 1n,
         viewCount: 1n,

@@ -1,13 +1,10 @@
 import { createHash } from "node:crypto";
 import type { PostgresDataPlane } from "../db/postgres/data-plane.js";
-import type {
-  EngagementEventInput,
-  EngagementEventType,
-} from "../db/postgres/model.js";
+import type { EngagementEventInput, EngagementEventType } from "../db/postgres/model.js";
+import { parsePublicListingId } from "../db/postgres/public-listing-id.js";
 import { ApiError } from "../api-error.js";
 
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const allowedEventTypes = new Set<EngagementEventType>([
   "conversion",
   "filter_apply",
@@ -61,11 +58,7 @@ function boundedInteger(
   maximum: number,
 ) {
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) &&
-    parsed >= minimum &&
-    parsed <= maximum
-    ? parsed
-    : fallback;
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : fallback;
 }
 
 export function getEngagementRuntimeConfig(
@@ -73,23 +66,14 @@ export function getEngagementRuntimeConfig(
 ): EngagementRuntimeConfig {
   const sessionPepper =
     env.ENGAGEMENT_SESSION_PEPPER?.trim() ||
-    (env.NODE_ENV === "production"
-      ? ""
-      : "closetsearch-development-engagement-pepper");
+    (env.NODE_ENV === "production" ? "" : "closetsearch-development-engagement-pepper");
 
   if (env.NODE_ENV === "production" && sessionPepper.length < 32) {
-    throw new Error(
-      "ENGAGEMENT_SESSION_PEPPER must contain at least 32 characters in production.",
-    );
+    throw new Error("ENGAGEMENT_SESSION_PEPPER must contain at least 32 characters in production.");
   }
 
   return {
-    futureToleranceMs: boundedInteger(
-      env.ENGAGEMENT_FUTURE_TOLERANCE_MS,
-      300_000,
-      0,
-      3_600_000,
-    ),
+    futureToleranceMs: boundedInteger(env.ENGAGEMENT_FUTURE_TOLERANCE_MS, 300_000, 0, 3_600_000),
     maxEventAgeMs: boundedInteger(
       env.ENGAGEMENT_MAX_EVENT_AGE_MS,
       604_800_000,
@@ -100,11 +84,7 @@ export function getEngagementRuntimeConfig(
   };
 }
 
-function requiredString(
-  payload: Record<string, unknown>,
-  name: string,
-  maximumLength: number,
-) {
+function requiredString(payload: Record<string, unknown>, name: string, maximumLength: number) {
   const value = payload[name];
 
   if (
@@ -122,10 +102,7 @@ function requiredString(
   return value.trim();
 }
 
-function optionalUuid(
-  payload: Record<string, unknown>,
-  name: string,
-) {
+function optionalUuid(payload: Record<string, unknown>, name: string) {
   const value = payload[name];
 
   if (value === undefined || value === null || value === "") {
@@ -133,35 +110,20 @@ function optionalUuid(
   }
 
   if (typeof value !== "string" || !uuidPattern.test(value)) {
-    throw new ApiError(
-      400,
-      "invalid_engagement_event",
-      `${name} must be a UUID.`,
-    );
+    throw new ApiError(400, "invalid_engagement_event", `${name} must be a UUID.`);
   }
 
   return value.toLowerCase();
 }
 
-function optionalPublicListingId(
-  payload: Record<string, unknown>,
-  name: string,
-) {
+function optionalPublicListingId(payload: Record<string, unknown>, name: string) {
   const value = payload[name];
 
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
 
-  if (
-    typeof value !== "string" ||
-    value !== value.trim() ||
-    value.length > 337 ||
-    Array.from(value).some((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint <= 31 || codePoint === 127;
-    })
-  ) {
+  if (typeof value !== "string") {
     throw new ApiError(
       400,
       "invalid_engagement_event",
@@ -169,18 +131,9 @@ function optionalPublicListingId(
     );
   }
 
-  const separatorIndex = value.indexOf(":");
-  const providerId = value.slice(0, separatorIndex);
-  const sourceListingId = value.slice(separatorIndex + 1);
+  const identity = parsePublicListingId(value);
 
-  if (
-    separatorIndex <= 0 ||
-    providerId.length > 80 ||
-    !/^[a-z0-9][a-z0-9._-]*$/.test(providerId) ||
-    sourceListingId.length === 0 ||
-    sourceListingId.length > 256 ||
-    sourceListingId !== sourceListingId.trim()
-  ) {
+  if (!identity) {
     throw new ApiError(
       400,
       "invalid_engagement_event",
@@ -188,11 +141,7 @@ function optionalPublicListingId(
     );
   }
 
-  return {
-    providerId,
-    publicId: value,
-    sourceListingId,
-  };
+  return identity;
 }
 
 function sanitizeProperties(value: unknown) {
@@ -201,21 +150,13 @@ function sanitizeProperties(value: unknown) {
   }
 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new ApiError(
-      400,
-      "invalid_engagement_event",
-      "properties must be an object.",
-    );
+    throw new ApiError(400, "invalid_engagement_event", "properties must be an object.");
   }
 
   const entries = Object.entries(value);
 
   if (entries.length > 20) {
-    throw new ApiError(
-      400,
-      "invalid_engagement_event",
-      "properties contains too many fields.",
-    );
+    throw new ApiError(400, "invalid_engagement_event", "properties contains too many fields.");
   }
 
   for (const [key] of entries) {
@@ -258,15 +199,8 @@ export class DurableEngagementService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async recordClientEvent(
-    actor: EngagementActor,
-    rawPayload: unknown,
-  ) {
-    if (
-      !rawPayload ||
-      typeof rawPayload !== "object" ||
-      Array.isArray(rawPayload)
-    ) {
+  async recordClientEvent(actor: EngagementActor, rawPayload: unknown) {
+    if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) {
       throw new ApiError(
         400,
         "invalid_engagement_event",
@@ -284,35 +218,20 @@ export class DurableEngagementService {
       );
     }
 
-    if (
-      actor.userId !== undefined &&
-      !uuidPattern.test(actor.userId)
-    ) {
-      throw new ApiError(
-        401,
-        "invalid_actor",
-        "Authenticated user identity is invalid.",
-      );
+    if (actor.userId !== undefined && !uuidPattern.test(actor.userId)) {
+      throw new ApiError(401, "invalid_actor", "Authenticated user identity is invalid.");
     }
 
     const eventId = requiredString(payload, "eventId", 36);
 
     if (!uuidPattern.test(eventId)) {
-      throw new ApiError(
-        400,
-        "invalid_engagement_event",
-        "eventId must be a UUID.",
-      );
+      throw new ApiError(400, "invalid_engagement_event", "eventId must be a UUID.");
     }
 
     const eventTypeValue = requiredString(payload, "eventType", 64);
 
     if (!allowedEventTypes.has(eventTypeValue as EngagementEventType)) {
-      throw new ApiError(
-        400,
-        "invalid_engagement_event",
-        "eventType is not supported.",
-      );
+      throw new ApiError(400, "invalid_engagement_event", "eventType is not supported.");
     }
 
     const eventType = eventTypeValue as EngagementEventType;
@@ -332,10 +251,8 @@ export class DurableEngagementService {
 
     if (
       Number.isNaN(occurredAt.getTime()) ||
-      occurredAt.getTime() <
-        currentTime.getTime() - this.config.maxEventAgeMs ||
-      occurredAt.getTime() >
-        currentTime.getTime() + this.config.futureToleranceMs
+      occurredAt.getTime() < currentTime.getTime() - this.config.maxEventAgeMs ||
+      occurredAt.getTime() > currentTime.getTime() + this.config.futureToleranceMs
     ) {
       throw new ApiError(
         400,
@@ -362,15 +279,11 @@ export class DurableEngagementService {
     }
 
     const rankedPosition =
-      typeof payload.rankedPosition === "number" &&
-      Number.isSafeInteger(payload.rankedPosition)
+      typeof payload.rankedPosition === "number" && Number.isSafeInteger(payload.rankedPosition)
         ? payload.rankedPosition
         : undefined;
 
-    if (
-      rankedPosition !== undefined &&
-      (rankedPosition < 0 || rankedPosition > 10_000)
-    ) {
+    if (rankedPosition !== undefined && (rankedPosition < 0 || rankedPosition > 10_000)) {
       throw new ApiError(
         400,
         "invalid_engagement_event",
@@ -380,10 +293,7 @@ export class DurableEngagementService {
 
     const privacySessionId = actor.privacySessionId.trim();
 
-    if (
-      privacySessionId.length < 16 ||
-      privacySessionId.length > 256
-    ) {
+    if (privacySessionId.length < 16 || privacySessionId.length > 256) {
       throw new ApiError(
         400,
         "invalid_privacy_session",
@@ -392,9 +302,7 @@ export class DurableEngagementService {
     }
 
     const searchQuery =
-      typeof payload.searchQuery === "string"
-        ? payload.searchQuery.trim()
-        : undefined;
+      typeof payload.searchQuery === "string" ? payload.searchQuery.trim() : undefined;
 
     if (searchQuery && searchQuery.length > 500) {
       throw new ApiError(
