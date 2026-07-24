@@ -7,8 +7,14 @@ import type {
   ProviderSearchResponse,
   ProviderSearchResult,
 } from "@closetsearch/providers";
-import type { Listing, PaginationInfo, SearchProviderSummary, SearchQuery } from "@closetsearch/shared";
+import type {
+  Listing,
+  PaginationInfo,
+  SearchProviderSummary,
+  SearchQuery,
+} from "@closetsearch/shared";
 import { logWarn } from "../logger.js";
+import { incrementCounter, observeHistogram } from "../metrics.js";
 import { sanitizeProviderListing } from "./listing-sanitizer.js";
 import {
   createProviderRuntime,
@@ -235,15 +241,11 @@ function buildProviderSummary(
 ): SearchProviderSummary {
   if (response.status === "success") {
     const warningMessages = response.warnings?.map((warning) => warning.message);
-    const degraded =
-      response.metadata?.freshness === "stale" ||
-      Boolean(warningMessages?.length);
+    const degraded = response.metadata?.freshness === "stale" || Boolean(warningMessages?.length);
 
     return {
       cacheStatus: response.metadata?.cacheStatus,
-      dataOrigin:
-        response.metadata?.dataOrigin ??
-        registration.provider.dataOrigin,
+      dataOrigin: response.metadata?.dataOrigin ?? registration.provider.dataOrigin,
       degraded: degraded || undefined,
       fetchedAt: response.metadata?.fetchedAt,
       freshness: response.metadata?.freshness,
@@ -273,28 +275,18 @@ function buildProviderSummary(
 function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
   const sorted = [...listings];
   const stableTieBreak = (left: Listing, right: Listing) =>
-    [
-      left.providerId,
-      left.providerListingId,
-      left.id,
-    ]
+    [left.providerId, left.providerListingId, left.id]
       .join(":")
-      .localeCompare(
-        [right.providerId, right.providerListingId, right.id].join(":"),
-      );
+      .localeCompare([right.providerId, right.providerListingId, right.id].join(":"));
   const getTimestamp = (listing: Listing) =>
     new Date(
-      listing.lifecycle?.sourceUpdatedAt ??
-        listing.lifecycle?.listedAt ??
-        listing.fetchedAt,
+      listing.lifecycle?.sourceUpdatedAt ?? listing.lifecycle?.listedAt ?? listing.fetchedAt,
     ).getTime();
 
   switch (sort) {
     case "price_asc":
       sorted.sort((left, right) => {
-        const currencyComparison = left.price.currency.localeCompare(
-          right.price.currency,
-        );
+        const currencyComparison = left.price.currency.localeCompare(right.price.currency);
         return (
           currencyComparison ||
           left.price.amount - right.price.amount ||
@@ -304,9 +296,7 @@ function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
       break;
     case "price_desc":
       sorted.sort((left, right) => {
-        const currencyComparison = left.price.currency.localeCompare(
-          right.price.currency,
-        );
+        const currencyComparison = left.price.currency.localeCompare(right.price.currency);
         return (
           currencyComparison ||
           right.price.amount - left.price.amount ||
@@ -318,9 +308,7 @@ function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
     case "relevance":
     default:
       sorted.sort(
-        (left, right) =>
-          getTimestamp(right) - getTimestamp(left) ||
-          stableTieBreak(left, right),
+        (left, right) => getTimestamp(right) - getTimestamp(left) || stableTieBreak(left, right),
       );
       break;
   }
@@ -392,9 +380,7 @@ function createCanonicalListingFingerprint(listing: Listing) {
 
 function createListingDedupeKey(listing: Listing) {
   return createHash("sha1")
-    .update(
-      `source:${listing.providerId}:${listing.providerListingId}`,
-    )
+    .update(`source:${listing.providerId}:${listing.providerListingId}`)
     .digest("base64url")
     .slice(0, 16);
 }
@@ -446,9 +432,7 @@ function sanitizeProviderResult(result: ProviderSearchResult): ProviderSearchRes
     metadata: result.metadata
       ? {
           ...result.metadata,
-          pagination: result.metadata.pagination
-            ? { ...result.metadata.pagination }
-            : undefined,
+          pagination: result.metadata.pagination ? { ...result.metadata.pagination } : undefined,
         }
       : undefined,
     pagination: result.pagination ? { ...result.pagination } : undefined,
@@ -478,10 +462,7 @@ function getCachedProviderBatch(cacheKey: string) {
   }
 
   return {
-    status:
-      cachedEntry.expiresAt <= Date.now()
-        ? ("stale" as const)
-        : ("fresh" as const),
+    status: cachedEntry.expiresAt <= Date.now() ? ("stale" as const) : ("fresh" as const),
     value: cachedEntry.value,
   };
 }
@@ -489,10 +470,7 @@ function getCachedProviderBatch(cacheKey: string) {
 function setCachedProviderBatch(cacheKey: string, value: ProviderSearchResult) {
   providerSearchCache.set(cacheKey, {
     expiresAt: Date.now() + PROVIDER_SEARCH_CACHE_TTL_MS,
-    staleUntil:
-      Date.now() +
-      PROVIDER_SEARCH_CACHE_TTL_MS +
-      PROVIDER_SEARCH_CACHE_STALE_MS,
+    staleUntil: Date.now() + PROVIDER_SEARCH_CACHE_TTL_MS + PROVIDER_SEARCH_CACHE_STALE_MS,
     value,
   });
 }
@@ -656,50 +634,81 @@ async function fetchProviderBatch(
   const cachedResponse = getCachedProviderBatch(cacheKey);
 
   const executeSearch = async () => {
-    const response = await withTimeout(
-      registration.provider.search({
-        query,
-        pagination: {
-          cursor: state.cursor,
-          page: state.page,
-          pageSize: requestedPageSize,
-        },
-      }),
-      runtime.config.requestTimeoutMs,
-      registration.provider,
-    );
+    const startedAt = performance.now();
+    let outcome: "failure" | "success" = "failure";
+    let rateLimited = false;
 
-    if (response.status === "success") {
-      const sanitizedResponse = sanitizeProviderResult(response);
-      setCachedProviderBatch(cacheKey, sanitizedResponse);
-      return sanitizedResponse;
+    try {
+      const response = await withTimeout(
+        registration.provider.search({
+          query,
+          pagination: {
+            cursor: state.cursor,
+            page: state.page,
+            pageSize: requestedPageSize,
+          },
+        }),
+        runtime.config.requestTimeoutMs,
+        registration.provider,
+      );
+
+      if (response.status === "success") {
+        const sanitizedResponse = sanitizeProviderResult(response);
+        setCachedProviderBatch(cacheKey, sanitizedResponse);
+        outcome = "success";
+        return sanitizedResponse;
+      }
+
+      rateLimited = response.failure.code === "rate_limited";
+      return response;
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error ? String(error.code) : "unknown";
+      rateLimited = code === "rate_limited";
+      throw error;
+    } finally {
+      incrementCounter("closetsearch_provider_requests_total", {
+        outcome,
+        provider: registration.provider.id,
+      });
+      observeHistogram(
+        "closetsearch_provider_request_duration_ms",
+        { provider: registration.provider.id },
+        performance.now() - startedAt,
+      );
+      if (rateLimited) {
+        incrementCounter("closetsearch_provider_rate_limits_total", {
+          provider: registration.provider.id,
+        });
+      }
     }
-
-    return response;
   };
 
   if (cachedResponse?.status === "fresh") {
+    incrementCounter("closetsearch_provider_cache_total", {
+      provider: registration.provider.id,
+      status: "fresh",
+    });
     return {
       ...cachedResponse.value,
       metadata: {
         ...cachedResponse.value.metadata,
         providerId: cachedResponse.value.providerId,
-        fetchedAt:
-          cachedResponse.value.metadata?.fetchedAt ??
-          new Date().toISOString(),
+        fetchedAt: cachedResponse.value.metadata?.fetchedAt ?? new Date().toISOString(),
         cacheStatus: "fresh",
       },
     };
   }
 
   if (cachedResponse?.status === "stale") {
+    incrementCounter("closetsearch_provider_cache_total", {
+      provider: registration.provider.id,
+      status: "stale",
+    });
     void executeSearch().catch((error: unknown) => {
       logWarn("Provider stale-cache refresh failed", {
         providerId: registration.provider.id,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Provider refresh failed.",
+        errorName: error instanceof Error ? error.name : "UnknownProviderError",
       });
     });
 
@@ -708,15 +717,17 @@ async function fetchProviderBatch(
       metadata: {
         ...cachedResponse.value.metadata,
         providerId: cachedResponse.value.providerId,
-        fetchedAt:
-          cachedResponse.value.metadata?.fetchedAt ??
-          new Date().toISOString(),
+        fetchedAt: cachedResponse.value.metadata?.fetchedAt ?? new Date().toISOString(),
         cacheStatus: "stale",
         freshness: "stale",
       },
     };
   }
 
+  incrementCounter("closetsearch_provider_cache_total", {
+    provider: registration.provider.id,
+    status: "miss",
+  });
   const response = await executeSearch();
   return response.status === "success"
     ? {
@@ -724,8 +735,7 @@ async function fetchProviderBatch(
         metadata: {
           ...response.metadata,
           providerId: response.providerId,
-          fetchedAt:
-            response.metadata?.fetchedAt ?? new Date().toISOString(),
+          fetchedAt: response.metadata?.fetchedAt ?? new Date().toISOString(),
           cacheStatus: "miss",
         },
       }
@@ -773,7 +783,11 @@ async function collectProviderCandidates(
 
   let state = { ...initialState };
 
-  for (let attempt = 0; attempt < maxProviderBatchAdvances && hasProviderWork(state); attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < maxProviderBatchAdvances && hasProviderWork(state);
+    attempt += 1
+  ) {
     try {
       const response = await fetchProviderBatch(
         registration,
@@ -806,10 +820,7 @@ async function collectProviderCandidates(
             providerId: registration.provider.id,
           };
         })
-        .filter(
-          (candidate) =>
-            !candidate.dedupeKeys.some((key) => seenKeys.has(key)),
-        );
+        .filter((candidate) => !candidate.dedupeKeys.some((key) => seenKeys.has(key)));
 
       if (availableListings.length > 0) {
         return {
@@ -889,9 +900,7 @@ export async function runProviderSearch(
   const activeProviders = runtime.activeProviders.slice(0, runtime.config.maxProvidersPerRequest);
   const providerQuery = stripPaginationQuery(query);
   const decodedCursor = decodeCursor(query.cursor);
-  const requestedPageSize = normalizeRequestedPageSize(
-    query.pageSize ?? decodedCursor?.pageSize,
-  );
+  const requestedPageSize = normalizeRequestedPageSize(query.pageSize ?? decodedCursor?.pageSize);
   const queryKey = createQueryKey(providerQuery, requestedPageSize, activeProviders);
   const cursorState = decodedCursor?.queryKey === queryKey ? decodedCursor : null;
   const currentPage = cursorState?.page ?? query.page ?? 1;
@@ -934,7 +943,6 @@ export async function runProviderSearch(
       logWarn("Provider failure", {
         providerId: result.failure.providerId,
         code: result.failure.code,
-        message: result.failure.message,
         retryable: result.failure.retryable,
       });
       failures.push(result.failure);
@@ -967,9 +975,7 @@ export async function runProviderSearch(
 
       return {
         dedupeKey,
-        dedupeKeys:
-          candidate?.dedupeKeys ??
-          createListingDedupeKeys(listing),
+        dedupeKeys: candidate?.dedupeKeys ?? createListingDedupeKeys(listing),
         listing,
         providerId: candidate?.providerId ?? listing.providerId,
       };
@@ -987,8 +993,7 @@ export async function runProviderSearch(
     }
 
     const hasRemainingUnseenListings = candidatePage.availableListings.some(
-      (candidate) =>
-        !candidate.dedupeKeys.some((key) => seenKeys.has(key)),
+      (candidate) => !candidate.dedupeKeys.some((key) => seenKeys.has(key)),
     );
 
     if (hasRemainingUnseenListings) {
@@ -1003,16 +1008,13 @@ export async function runProviderSearch(
   }
 
   const normalizedProviderStates = activeProviders.map(
-    (registration) => nextProviderStates.get(registration.provider.id) ?? mergeProviderState(registration, cursorState),
+    (registration) =>
+      nextProviderStates.get(registration.provider.id) ??
+      mergeProviderState(registration, cursorState),
   );
   const hasMore = normalizedProviderStates.some(hasProviderWork);
-  const totalCount = normalizedProviderStates.every(
-    (state) => typeof state.totalCount === "number",
-  )
-    ? normalizedProviderStates.reduce(
-        (sum, state) => sum + (state.totalCount ?? 0),
-        0,
-      )
+  const totalCount = normalizedProviderStates.every((state) => typeof state.totalCount === "number")
+    ? normalizedProviderStates.reduce((sum, state) => sum + (state.totalCount ?? 0), 0)
     : undefined;
 
   return {

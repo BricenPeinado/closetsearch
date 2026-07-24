@@ -1,12 +1,7 @@
 import type { QueryResultRow } from "pg";
 import type { PostgresDatabase } from "../database.js";
 
-export type ProviderHealthState =
-  | "blocked"
-  | "degraded"
-  | "disabled"
-  | "healthy"
-  | "unavailable";
+export type ProviderHealthState = "blocked" | "degraded" | "disabled" | "healthy" | "unavailable";
 
 interface ProviderHealthRow extends QueryResultRow {
   provider_id: string;
@@ -23,6 +18,24 @@ interface ProviderHealthRow extends QueryResultRow {
 
 function toDate(value: Date | string) {
   return value instanceof Date ? value : new Date(value);
+}
+
+function mapProviderHealth(row: ProviderHealthRow) {
+  return {
+    circuitOpenUntil: row.circuit_open_until ? toDate(row.circuit_open_until) : undefined,
+    consecutiveFailures: Number(row.consecutive_failures),
+    errorCode: row.last_error_code ?? undefined,
+    lastCheckedAt: toDate(row.last_checked_at),
+    lastSuccessAt: row.last_success_at ? toDate(row.last_success_at) : undefined,
+    latencyMs: row.latency_ms ?? undefined,
+    metadata:
+      typeof row.metadata === "string"
+        ? (JSON.parse(row.metadata) as Record<string, unknown>)
+        : row.metadata,
+    providerId: row.provider_id,
+    rateLimitedUntil: row.rate_limited_until ? toDate(row.rate_limited_until) : undefined,
+    state: row.health_state,
+  };
 }
 
 export class ProviderRepository {
@@ -109,26 +122,26 @@ export class ProviderRepository {
       return undefined;
     }
 
-    return {
-      circuitOpenUntil: row.circuit_open_until
-        ? toDate(row.circuit_open_until)
-        : undefined,
-      consecutiveFailures: Number(row.consecutive_failures),
-      errorCode: row.last_error_code ?? undefined,
-      lastCheckedAt: toDate(row.last_checked_at),
-      lastSuccessAt: row.last_success_at
-        ? toDate(row.last_success_at)
-        : undefined,
-      latencyMs: row.latency_ms ?? undefined,
-      metadata:
-        typeof row.metadata === "string"
-          ? (JSON.parse(row.metadata) as Record<string, unknown>)
-          : row.metadata,
-      providerId: row.provider_id,
-      rateLimitedUntil: row.rate_limited_until
-        ? toDate(row.rate_limited_until)
-        : undefined,
-      state: row.health_state,
-    };
+    return mapProviderHealth(row);
+  }
+
+  async listHealth() {
+    const result = await this.database.query<ProviderHealthRow>(
+      `SELECT
+         provider_id,
+         health_state,
+         last_checked_at,
+         last_success_at,
+         latency_ms,
+         consecutive_failures,
+         last_error_code,
+         rate_limited_until,
+         circuit_open_until,
+         metadata
+       FROM provider_health
+       ORDER BY provider_id`,
+    );
+
+    return result.rows.map(mapProviderHealth);
   }
 }

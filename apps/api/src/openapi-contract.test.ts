@@ -34,6 +34,7 @@ const implementedOperations = [
   "GET /me/settings",
   "GET /me/watchlists",
   "GET /metrics",
+  "GET /operations/status",
   "GET /providers/health",
   "GET /recent-searches",
   "GET /saved-searches",

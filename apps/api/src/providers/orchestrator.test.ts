@@ -1,10 +1,12 @@
-import type { Provider, ProviderSearchFailure, ProviderSearchResponse } from "@closetsearch/providers";
+import type {
+  Provider,
+  ProviderSearchFailure,
+  ProviderSearchResponse,
+} from "@closetsearch/providers";
 import type { Listing, SearchQuery } from "@closetsearch/shared";
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  resetProviderSearchCache,
-  runProviderSearch,
-} from "./orchestrator.js";
+import { renderMetrics, resetMetrics } from "../metrics.js";
+import { resetProviderSearchCache, runProviderSearch } from "./orchestrator.js";
 import type { ProviderRuntime } from "./registry.js";
 import { loadProviderRuntimeConfig } from "./runtime-config.js";
 
@@ -49,6 +51,7 @@ function createRuntime(activeProviders: ProviderRuntime["activeProviders"]): Pro
 describe("runProviderSearch", () => {
   beforeEach(() => {
     resetProviderSearchCache();
+    resetMetrics();
   });
 
   it("captures provider failures without breaking the normalized response", async () => {
@@ -111,6 +114,43 @@ describe("runProviderSearch", () => {
         code: "unavailable",
       }),
     ]);
+    expect(renderMetrics()).toContain(
+      'closetsearch_provider_requests_total{outcome="failure",provider="throwing"} 1',
+    );
+  });
+
+  it("records provider rate-limit responses without exposing error details in labels", async () => {
+    const provider: Provider = {
+      id: "limited",
+      name: "Rate Limited Provider",
+      async search(): Promise<ProviderSearchResponse> {
+        return {
+          failure: {
+            code: "rate_limited",
+            message: "secret upstream detail",
+            providerId: "limited",
+            retryable: true,
+          },
+          providerId: "limited",
+          status: "failure",
+        };
+      },
+    };
+
+    const result = await runProviderSearch(
+      { text: "jacket", pageSize: 24 },
+      createRuntime([{ mode: "real", name: provider.name, provider }]),
+    );
+    const metrics = renderMetrics();
+
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        code: "rate_limited",
+        providerId: "limited",
+      }),
+    ]);
+    expect(metrics).toContain('closetsearch_provider_rate_limits_total{provider="limited"} 1');
+    expect(metrics).not.toContain("secret upstream detail");
   });
 
   it("strips provider-specific raw fields before results reach the API response layer", async () => {
@@ -212,10 +252,7 @@ describe("runProviderSearch", () => {
     };
     const runtime = createRuntime([{ mode: "real", name: provider.name, provider }]);
 
-    const firstPage = await runProviderSearch(
-      { text: "jacket", pageSize: 1 },
-      runtime,
-    );
+    const firstPage = await runProviderSearch({ text: "jacket", pageSize: 1 }, runtime);
     const secondPage = await runProviderSearch(
       {
         text: "jacket",
@@ -229,6 +266,12 @@ describe("runProviderSearch", () => {
     expect(secondPage.listings.map((listing) => listing.id)).toEqual(["cached:2"]);
     expect(searchCalls).toBe(1);
     expect(secondPage.pagination.hasMore).toBe(false);
+    expect(renderMetrics()).toContain(
+      'closetsearch_provider_cache_total{provider="cached",status="miss"} 1',
+    );
+    expect(renderMetrics()).toContain(
+      'closetsearch_provider_cache_total{provider="cached",status="fresh"} 1',
+    );
   });
 
   it("does not crash when a provider omits pagination metadata", async () => {

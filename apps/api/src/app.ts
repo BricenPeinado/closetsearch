@@ -30,7 +30,7 @@ import { createRequestId, logError, logWarn } from "./logger.js";
 import { parseJsonRequestBody } from "./http/request-body.js";
 import { FixedWindowRateLimiter, getRequestIpHint } from "./http/rate-limit.js";
 import { assertCsrfSafeRequest, buildSecurityHeaders } from "./http/security.js";
-import { incrementCounter } from "./metrics.js";
+import { incrementCounter, observeHistogram } from "./metrics.js";
 import {
   addRecentSearch,
   getRecentSearchesByUserId,
@@ -41,13 +41,15 @@ import {
   getSavedSearchesByUserId,
   removeSavedSearch,
 } from "./saved-search-service.js";
-import { addSavedFilter, getSavedFiltersByUserId, removeSavedFilter } from "./saved-filter-service.js";
+import {
+  addSavedFilter,
+  getSavedFiltersByUserId,
+  removeSavedFilter,
+} from "./saved-filter-service.js";
 import { searchListings } from "./search-service.js";
 import { getSettingsByUserId, updateSettings } from "./user-settings-service.js";
 import { createUser, loginUser, saveOnboardingPreferences } from "./user-service.js";
-import {
-  getAlertMatchesByUserId,
-} from "./services/alertMatchService.js";
+import { getAlertMatchesByUserId } from "./services/alertMatchService.js";
 import {
   getAlertPreferencesByUserId,
   updateAlertPreferences,
@@ -77,13 +79,97 @@ export function resetHttpSecurityStateForTests() {
   authRateLimiter.reset();
 }
 
+const exactMetricRoutes = new Set([
+  "/",
+  "/account/export",
+  "/admin/development-entitlements",
+  "/analytics/market-insights",
+  "/analytics/overview",
+  "/analytics/underpriced",
+  "/auth/login",
+  "/auth/logout",
+  "/auth/logout-all",
+  "/auth/me",
+  "/auth/password-reset/complete",
+  "/auth/password-reset/request",
+  "/auth/signup",
+  "/auth/verify-email",
+  "/brands",
+  "/events",
+  "/feed",
+  "/health",
+  "/health/live",
+  "/health/ready",
+  "/likes",
+  "/me",
+  "/me/account-export",
+  "/me/alert-matches",
+  "/me/alerts",
+  "/me/alerts/dismiss",
+  "/me/alerts/seen",
+  "/me/email",
+  "/me/email/verification",
+  "/me/likes",
+  "/me/notification-preferences",
+  "/me/saved-filters",
+  "/me/saved-searches",
+  "/me/settings",
+  "/me/watchlists",
+  "/metrics",
+  "/operations/status",
+  "/providers/health",
+  "/recent-searches",
+  "/saved-searches",
+  "/search",
+  "/users/onboarding",
+]);
+
+export function getMetricRoute(rawUrl: string | undefined) {
+  let pathname: string;
+
+  try {
+    pathname = new URL(rawUrl ?? "/", "http://closetsearch.local").pathname;
+  } catch {
+    return "unmatched";
+  }
+
+  if (exactMetricRoutes.has(pathname)) {
+    return pathname;
+  }
+
+  if (pathname.startsWith("/brands/")) {
+    return "/brands/:slug";
+  }
+  if (pathname.startsWith("/likes/")) {
+    return "/likes/:legacyUserId";
+  }
+  if (pathname.startsWith("/me/likes/")) {
+    return "/me/likes/:legacyUserId";
+  }
+  if (pathname.startsWith("/recent-searches/")) {
+    return "/recent-searches/:legacyUserId";
+  }
+  if (pathname.startsWith("/me/saved-filters/")) {
+    return "/me/saved-filters/:filterId";
+  }
+  if (pathname.startsWith("/me/saved-searches/")) {
+    return "/me/saved-searches/:searchId";
+  }
+  if (pathname.startsWith("/saved-searches/")) {
+    return "/saved-searches/:legacyUserId";
+  }
+  if (pathname.startsWith("/me/watchlists/")) {
+    return "/me/watchlists/:watchlistId";
+  }
+
+  return "unmatched";
+}
+
 function buildCorsHeaders(request: IncomingMessage) {
-  const origin =
-    typeof request.headers?.origin === "string" ? request.headers.origin.trim() : "";
+  const origin = typeof request.headers?.origin === "string" ? request.headers.origin.trim() : "";
   const authConfig = getAuthConfig();
   const headers: Record<string, string> = {
-    "access-control-allow-headers":
-      "content-type,x-privacy-session-id",
+    "access-control-allow-headers": "content-type,x-privacy-session-id",
     "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
   };
 
@@ -100,10 +186,7 @@ function getRequestId(request: IncomingMessage) {
   return (request as IncomingMessage & { __requestId?: string }).__requestId ?? "unknown";
 }
 
-function buildResponseHeaders(
-  request: IncomingMessage,
-  extraHeaders?: Record<string, string>,
-) {
+function buildResponseHeaders(request: IncomingMessage, extraHeaders?: Record<string, string>) {
   return {
     ...buildSecurityHeaders(),
     ...buildCorsHeaders(request),
@@ -165,9 +248,7 @@ function parseSearchSortMode(value: string | null): SearchSortMode {
   }
 }
 
-function parseListingMarketStatus(
-  value: string | null,
-): ListingMarketStatus | undefined {
+function parseListingMarketStatus(value: string | null): ListingMarketStatus | undefined {
   switch (value?.trim().toLowerCase()) {
     case "active":
       return "active";
@@ -196,14 +277,10 @@ function parseListingTypes(value: string | null): ListingType[] | undefined {
   return listingTypes && listingTypes.length > 0 ? listingTypes : undefined;
 }
 
-function parseListingConditions(
-  value: string | null,
-): ListingCondition[] | undefined {
+function parseListingConditions(value: string | null): ListingCondition[] | undefined {
   const conditions = parseListParameter(value)
     ?.map((item) => toOptionalListingCondition(item))
-    .filter(
-      (condition): condition is ListingCondition => condition !== undefined,
-    );
+    .filter((condition): condition is ListingCondition => condition !== undefined);
 
   return conditions && conditions.length > 0 ? conditions : undefined;
 }
@@ -263,19 +340,15 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
     brandSlugs: parseListParameter(requestUrl.searchParams.get("brands")),
     categories: parseListParameter(requestUrl.searchParams.get("categories")),
     sizes: parseListParameter(requestUrl.searchParams.get("sizes")),
-    conditions: parseListingConditions(
-      requestUrl.searchParams.get("conditions"),
-    ),
+    conditions: parseListingConditions(requestUrl.searchParams.get("conditions")),
     sourceIds:
       parseListParameter(requestUrl.searchParams.get("source")) ??
       parseListParameter(requestUrl.searchParams.get("sources")),
     listingTypes: parseListingTypes(
-      requestUrl.searchParams.get("listingType") ??
-        requestUrl.searchParams.get("listingTypes"),
+      requestUrl.searchParams.get("listingType") ?? requestUrl.searchParams.get("listingTypes"),
     ),
     marketScope: parseListingMarketStatus(
-      requestUrl.searchParams.get("marketScope") ??
-        requestUrl.searchParams.get("market"),
+      requestUrl.searchParams.get("marketScope") ?? requestUrl.searchParams.get("market"),
     ),
     sort: parseSearchSortMode(requestUrl.searchParams.get("sort")),
     currency: requestUrl.searchParams.get("currency") ?? undefined,
@@ -295,10 +368,7 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
 
 function parseFeedQuery(requestUrl: URL): FeedQuery {
   const page = parsePositiveInteger(requestUrl.searchParams.get("page"), 1);
-  const requestedPageSize = parsePositiveInteger(
-    requestUrl.searchParams.get("pageSize"),
-    12,
-  );
+  const requestedPageSize = parsePositiveInteger(requestUrl.searchParams.get("pageSize"), 12);
   const debugPersonalizationValue = requestUrl.searchParams.get("debugPersonalization");
 
   return {
@@ -320,11 +390,8 @@ function toStringArray(value: unknown) {
     return [];
   }
 
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
+  return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 }
-
 
 function toOptionalNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -340,7 +407,12 @@ function toOptionalNumber(value: unknown) {
 }
 
 function toOptionalSearchSortMode(value: unknown) {
-  if (value === "price_asc" || value === "price_desc" || value === "newest" || value === "relevance") {
+  if (
+    value === "price_asc" ||
+    value === "price_desc" ||
+    value === "newest" ||
+    value === "relevance"
+  ) {
     return value;
   }
 
@@ -444,10 +516,7 @@ function toOptionalListingSnapshot(value: unknown) {
 }
 
 function toOnboardingPreferences(value: unknown): OnboardingPreferences {
-  const preferences =
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : {};
+  const preferences = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
   return {
     favoriteBrands: toStringArray(preferences.favoriteBrands),
@@ -469,10 +538,7 @@ function sendValidationError(
   });
 }
 
-async function handleSignup(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+async function handleSignup(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   authRateLimiter.consume(`signup:${getRequestIpHint(request)}`);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
   const username = toTrimmedString(body?.username);
@@ -492,10 +558,7 @@ async function handleSignup(
   });
 }
 
-async function handleLogin(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+async function handleLogin(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   authRateLimiter.consume(`login:${getRequestIpHint(request)}`);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
   const username = toTrimmedString(body?.username);
@@ -515,10 +578,7 @@ async function handleLogin(
   });
 }
 
-function handleAuthMe(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleAuthMe(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const authSession = getAuthSessionResolution(request);
 
   if (authSession.status !== "authenticated") {
@@ -559,10 +619,7 @@ function handleAuthMe(
   );
 }
 
-function handleLogout(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleLogout(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   revokeCurrentSession(request);
 
   sendJson(
@@ -579,10 +636,7 @@ function handleLogout(
   );
 }
 
-function handleLogoutAll(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleLogoutAll(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
   const revokedSessions = revokeAllSessionsForUser(user.id);
 
@@ -674,10 +728,7 @@ async function handleDeleteLike(
   });
 }
 
-function handleGetLikes(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleGetLikes(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
 
   sendJson(request, response, 200, {
@@ -908,10 +959,7 @@ async function handleCreateWatchlist(
   });
 }
 
-function handleGetWatchlists(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleGetWatchlists(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
 
   sendJson(request, response, 200, {
@@ -1011,15 +1059,13 @@ function handleGetAlertMatches(
   sendJson(request, response, 200, {
     alertMatches: getAlertMatchesByUserId(user.id),
     deliveryActive: false,
-    message: "Alert delivery is not active yet. Stored matches are foundation data only.",
+    message:
+      "SQLite compatibility mode does not run worker matching. In-app alerts are available with PostgreSQL; outbound email, push, and SMS remain disabled.",
     userId: user.id,
   });
 }
 
-function handleGetSettings(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleGetSettings(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
 
   sendJson(request, response, 200, {
@@ -1089,10 +1135,7 @@ export async function handleRequest(
 
   assertCsrfSafeRequest(request);
 
-  const postgresAuthRoute = await handlePostgresAuthRoute(
-    request,
-    requestUrl,
-  );
+  const postgresAuthRoute = await handlePostgresAuthRoute(request, requestUrl);
 
   if (postgresAuthRoute) {
     sendJson(
@@ -1105,10 +1148,7 @@ export async function handleRequest(
     return;
   }
 
-  const postgresAccountRoute = await handlePostgresAccountRoute(
-    request,
-    requestUrl,
-  );
+  const postgresAccountRoute = await handlePostgresAccountRoute(request, requestUrl);
 
   if (postgresAccountRoute) {
     sendJson(
@@ -1121,10 +1161,7 @@ export async function handleRequest(
     return;
   }
 
-  const postgresSavedRoute = await handlePostgresSavedRoute(
-    request,
-    requestUrl,
-  );
+  const postgresSavedRoute = await handlePostgresSavedRoute(request, requestUrl);
 
   if (postgresSavedRoute) {
     sendJson(
@@ -1140,12 +1177,7 @@ export async function handleRequest(
   const engagementRoute = await handleEngagementRoute(request, requestUrl);
 
   if (engagementRoute) {
-    sendJson(
-      request,
-      response,
-      engagementRoute.statusCode,
-      engagementRoute.body,
-    );
+    sendJson(request, response, engagementRoute.statusCode, engagementRoute.body);
     return;
   }
 
@@ -1256,34 +1288,32 @@ export async function handleRequest(
   const brandRoute = handleBrandRoute(request, requestUrl);
 
   if (brandRoute) {
-    sendJson(
-      request,
-      response,
-      brandRoute.statusCode,
-      brandRoute.body,
-      brandRoute.headers,
-    );
+    sendJson(request, response, brandRoute.statusCode, brandRoute.body, brandRoute.headers);
     return;
   }
 
-  if (method === "POST" && (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")) {
+  if (
+    method === "POST" &&
+    (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")
+  ) {
     await handleCreateLike(request, response);
     return;
   }
 
-  if (method === "DELETE" && (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")) {
+  if (
+    method === "DELETE" &&
+    (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")
+  ) {
     await handleDeleteLike(request, response);
     return;
   }
 
   if (
     method === "GET" &&
-    (
-      requestUrl.pathname === "/likes" ||
+    (requestUrl.pathname === "/likes" ||
       requestUrl.pathname.startsWith("/likes/") ||
       requestUrl.pathname === "/me/likes" ||
-      requestUrl.pathname.startsWith("/me/likes/")
-    )
+      requestUrl.pathname.startsWith("/me/likes/"))
   ) {
     handleGetLikes(request, response);
     return;
@@ -1312,25 +1342,29 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "POST" && (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")) {
+  if (
+    method === "POST" &&
+    (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")
+  ) {
     await handleCreateSavedSearch(request, response);
     return;
   }
 
   if (
     method === "GET" &&
-    (
-      requestUrl.pathname === "/saved-searches" ||
+    (requestUrl.pathname === "/saved-searches" ||
       requestUrl.pathname.startsWith("/saved-searches/") ||
       requestUrl.pathname === "/me/saved-searches" ||
-      requestUrl.pathname.startsWith("/me/saved-searches/")
-    )
+      requestUrl.pathname.startsWith("/me/saved-searches/"))
   ) {
     handleGetSavedSearches(request, response);
     return;
   }
 
-  if (method === "DELETE" && (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")) {
+  if (
+    method === "DELETE" &&
+    (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")
+  ) {
     await handleDeleteSavedSearch(request, response);
     return;
   }
@@ -1342,7 +1376,8 @@ export async function handleRequest(
 
   if (
     method === "GET" &&
-    (requestUrl.pathname === "/me/saved-filters" || requestUrl.pathname.startsWith("/me/saved-filters/"))
+    (requestUrl.pathname === "/me/saved-filters" ||
+      requestUrl.pathname.startsWith("/me/saved-filters/"))
   ) {
     handleGetSavedFilters(request, response);
     return;
@@ -1412,74 +1447,86 @@ export function createApp() {
     const requestWithContext = request as IncomingMessage & { __requestId?: string };
     requestWithContext.__requestId = createRequestId();
     const recordCompletion = () => {
+      const method = request.method ?? "GET";
+      const route = getMetricRoute(request.url);
       incrementCounter("closetsearch_http_requests_total", {
-        method: request.method ?? "GET",
+        method,
+        route,
         status: String(response.statusCode || 0),
       });
+      observeHistogram(
+        "closetsearch_http_request_duration_ms",
+        {
+          method,
+          route,
+        },
+        performance.now() - startedAt,
+      );
     };
 
     if (typeof response.once === "function") {
       response.once("finish", recordCompletion);
     }
 
-    void handleRequest(request, response).catch((error: unknown) => {
-      const requestContext = {
-        method: request.method ?? "GET",
-        path: request.url ?? "/",
-        requestId: getRequestId(request),
-      };
-
-      if (isApiError(error)) {
-        logWarn("Handled API error", {
-          ...requestContext,
-          errorCode: error.code,
-          statusCode: error.statusCode,
-        });
-        sendJson(
-          request,
-          response,
-          error.statusCode,
-          {
-            error: error.code,
-            message: error.message,
-          },
-          {
-            ...getErrorHeaders(error),
-            ...("retryAfterSeconds" in error &&
-            typeof error.retryAfterSeconds === "number"
-              ? {
-                  "retry-after": String(error.retryAfterSeconds),
-                }
-              : {}),
-          },
-        );
-        return;
-      }
-
-      logError("Unhandled API error", {
-        ...requestContext,
-        errorName: error instanceof Error ? error.name : "UnknownError",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-
-      sendJson(request, response, 500, {
-        error: "internal_error",
-        message: "The API could not complete the request.",
-      });
-    }).finally(() => {
-      if (typeof response.once !== "function") {
-        recordCompletion();
-      }
-
-      const durationMs = performance.now() - startedAt;
-      if (durationMs >= 1_000) {
-        logWarn("Slow API request", {
-          durationMs: Math.round(durationMs),
+    void handleRequest(request, response)
+      .catch((error: unknown) => {
+        const requestContext = {
           method: request.method ?? "GET",
-          path: request.url ?? "/",
+          path: getMetricRoute(request.url),
           requestId: getRequestId(request),
+        };
+
+        if (isApiError(error)) {
+          logWarn("Handled API error", {
+            ...requestContext,
+            errorCode: error.code,
+            statusCode: error.statusCode,
+          });
+          sendJson(
+            request,
+            response,
+            error.statusCode,
+            {
+              error: error.code,
+              message: error.message,
+            },
+            {
+              ...getErrorHeaders(error),
+              ...("retryAfterSeconds" in error && typeof error.retryAfterSeconds === "number"
+                ? {
+                    "retry-after": String(error.retryAfterSeconds),
+                  }
+                : {}),
+            },
+          );
+          return;
+        }
+
+        logError("Unhandled API error", {
+          ...requestContext,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          message: error instanceof Error ? error.message : "Unknown error",
         });
-      }
-    });
+
+        sendJson(request, response, 500, {
+          error: "internal_error",
+          message: "The API could not complete the request.",
+        });
+      })
+      .finally(() => {
+        if (typeof response.once !== "function") {
+          recordCompletion();
+        }
+
+        const durationMs = performance.now() - startedAt;
+        if (durationMs >= 1_000) {
+          logWarn("Slow API request", {
+            durationMs: Math.round(durationMs),
+            method: request.method ?? "GET",
+            path: getMetricRoute(request.url),
+            requestId: getRequestId(request),
+          });
+        }
+      });
   });
 }

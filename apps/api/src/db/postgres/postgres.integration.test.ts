@@ -339,4 +339,64 @@ describe("PostgreSQL production data plane", () => {
       await harness.database.close();
     }
   });
+
+  it("lists operational checkpoint and provider health snapshots", async () => {
+    const harness = await createPostgresTestHarness();
+    const checkedAt = new Date("2026-07-24T12:00:00.000Z");
+    const nextRunAt = new Date("2026-07-24T12:05:00.000Z");
+
+    try {
+      await harness.dataPlane.jobs.saveIngestionCheckpoint({
+        consecutiveFailures: 2,
+        continuationCursor: {
+          cursor: "opaque-cursor",
+        },
+        expectedVersion: 0n,
+        ingestionScope: "active",
+        lastSuccessAt: checkedAt,
+        nextRunAt,
+        providerId: "ebay",
+        queryKey: "active:default",
+      });
+      await harness.dataPlane.providers.recordHealth({
+        checkedAt,
+        latencyMs: 125,
+        metadata: {
+          source: "worker",
+        },
+        providerId: "ebay",
+        state: "healthy",
+      });
+
+      await expect(harness.dataPlane.jobs.listIngestionCheckpoints()).resolves.toEqual([
+        expect.objectContaining({
+          consecutiveFailures: 2,
+          continuationCursor: {
+            cursor: "opaque-cursor",
+          },
+          ingestionScope: "active",
+          lastSuccessAt: checkedAt,
+          nextRunAt,
+          providerId: "ebay",
+          queryKey: "active:default",
+          version: 1n,
+        }),
+      ]);
+      await expect(harness.dataPlane.providers.listHealth()).resolves.toEqual([
+        expect.objectContaining({
+          consecutiveFailures: 0,
+          lastCheckedAt: checkedAt,
+          lastSuccessAt: checkedAt,
+          latencyMs: 125,
+          metadata: {
+            source: "worker",
+          },
+          providerId: "ebay",
+          state: "healthy",
+        }),
+      ]);
+    } finally {
+      await harness.database.close();
+    }
+  });
 });

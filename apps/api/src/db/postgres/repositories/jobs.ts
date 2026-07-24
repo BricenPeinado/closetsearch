@@ -3,12 +3,7 @@ import type { QueryResultRow } from "pg";
 import type { PostgresDatabase } from "../database.js";
 
 export type WorkerJobStatus =
-  | "dead_letter"
-  | "paused"
-  | "queued"
-  | "retry_wait"
-  | "running"
-  | "succeeded";
+  "dead_letter" | "paused" | "queued" | "retry_wait" | "running" | "succeeded";
 
 export interface WorkerJob {
   attemptCount: number;
@@ -20,6 +15,9 @@ export interface WorkerJob {
   jobType: string;
   lastErrorCode?: string;
   lastErrorMessage?: string;
+  lastFailedAt?: Date;
+  lastStartedAt?: Date;
+  lastSucceededAt?: Date;
   leaseExpiresAt?: Date;
   leaseOwner?: string;
   leaseToken?: string;
@@ -50,6 +48,9 @@ interface WorkerJobRow extends QueryResultRow {
   lease_expires_at: Date | string | null;
   last_error_code: string | null;
   last_error_message: string | null;
+  last_failed_at: Date | string | null;
+  last_started_at: Date | string | null;
+  last_succeeded_at: Date | string | null;
 }
 
 interface IngestionCheckpointRow extends QueryResultRow {
@@ -110,9 +111,10 @@ function mapWorkerJob(row: WorkerJobRow): WorkerJob {
     jobType: row.job_type,
     lastErrorCode: row.last_error_code ?? undefined,
     lastErrorMessage: row.last_error_message ?? undefined,
-    leaseExpiresAt: row.lease_expires_at
-      ? toDate(row.lease_expires_at)
-      : undefined,
+    lastFailedAt: row.last_failed_at ? toDate(row.last_failed_at) : undefined,
+    lastStartedAt: row.last_started_at ? toDate(row.last_started_at) : undefined,
+    lastSucceededAt: row.last_succeeded_at ? toDate(row.last_succeeded_at) : undefined,
+    leaseExpiresAt: row.lease_expires_at ? toDate(row.lease_expires_at) : undefined,
     leaseOwner: row.lease_owner ?? undefined,
     leaseToken: row.lease_token ?? undefined,
     maxAttempts: Number(row.max_attempts),
@@ -120,10 +122,24 @@ function mapWorkerJob(row: WorkerJobRow): WorkerJob {
     priority: Number(row.priority),
     runAfter: toDate(row.run_after),
     scheduleIntervalSeconds:
-      row.schedule_interval_seconds === null
-        ? undefined
-        : Number(row.schedule_interval_seconds),
+      row.schedule_interval_seconds === null ? undefined : Number(row.schedule_interval_seconds),
     status: row.status,
+  };
+}
+
+function mapIngestionCheckpoint(row: IngestionCheckpointRow): IngestionCheckpoint {
+  return {
+    consecutiveFailures: Number(row.consecutive_failures),
+    continuationCursor: row.continuation_cursor ?? undefined,
+    id: row.id,
+    ingestionScope: row.ingestion_scope,
+    lastSuccessAt: row.last_success_at ? toDate(row.last_success_at) : undefined,
+    lastErrorCode: row.last_error_code ?? undefined,
+    lastErrorMessage: row.last_error_message ?? undefined,
+    nextRunAt: toDate(row.next_run_at),
+    providerId: row.provider_id,
+    queryKey: row.query_key,
+    version: BigInt(row.checkpoint_version),
   };
 }
 
@@ -146,7 +162,10 @@ function selectWorkerJobColumns(prefix = "") {
     ${prefix}lease_token,
     ${prefix}lease_expires_at,
     ${prefix}last_error_code,
-    ${prefix}last_error_message
+    ${prefix}last_error_message,
+    ${prefix}last_failed_at,
+    ${prefix}last_started_at,
+    ${prefix}last_succeeded_at
   `;
 }
 
@@ -241,9 +260,7 @@ export class JobRepository {
 
   async claimNext(input: ClaimJobInput) {
     return this.database.withTransaction(async (client) => {
-      const lockClause = this.supportsSkipLocked
-        ? "FOR UPDATE SKIP LOCKED"
-        : "";
+      const lockClause = this.supportsSkipLocked ? "FOR UPDATE SKIP LOCKED" : "";
 
       const expiredRuns = await client.query<{
         job_id: string;
@@ -314,12 +331,7 @@ export class JobRepository {
              )
            )
          RETURNING ${selectWorkerJobColumns()}`,
-        [
-          input.now,
-          input.workerId,
-          leaseToken,
-          input.leaseExpiresAt,
-        ],
+        [input.now, input.workerId, leaseToken, input.leaseExpiresAt],
       );
       const claimed = claimedResult.rows[0];
 
@@ -343,9 +355,7 @@ export class JobRepository {
           leaseToken,
           input.workerId,
           input.now,
-          claimed.checkpoint === null
-            ? null
-            : JSON.stringify(claimed.checkpoint),
+          claimed.checkpoint === null ? null : JSON.stringify(claimed.checkpoint),
         ],
       );
 
@@ -353,11 +363,7 @@ export class JobRepository {
     });
   }
 
-  async renewLease(
-    jobId: string,
-    leaseToken: string,
-    leaseExpiresAt: Date,
-  ) {
+  async renewLease(jobId: string, leaseToken: string, leaseExpiresAt: Date) {
     const result = await this.database.query(
       `UPDATE worker_jobs
        SET lease_expires_at = $3,
@@ -371,12 +377,7 @@ export class JobRepository {
     return result.rowCount === 1;
   }
 
-  async checkpoint(
-    jobId: string,
-    leaseToken: string,
-    checkpoint: unknown,
-    leaseExpiresAt: Date,
-  ) {
+  async checkpoint(jobId: string, leaseToken: string, checkpoint: unknown, leaseExpiresAt: Date) {
     return this.database.withTransaction(async (client) => {
       const result = await client.query(
         `UPDATE worker_jobs
@@ -405,10 +406,7 @@ export class JobRepository {
   }
 
   async complete(
-    job: Pick<
-      WorkerJob,
-      "id" | "leaseToken" | "scheduleIntervalSeconds"
-    >,
+    job: Pick<WorkerJob, "id" | "leaseToken" | "scheduleIntervalSeconds">,
     input: {
       checkpoint?: unknown;
       completedAt: Date;
@@ -423,10 +421,7 @@ export class JobRepository {
     const nextRunAt =
       input.nextRunAt ??
       (recurring
-        ? new Date(
-            input.completedAt.getTime() +
-              (job.scheduleIntervalSeconds ?? 0) * 1_000,
-          )
+        ? new Date(input.completedAt.getTime() + (job.scheduleIntervalSeconds ?? 0) * 1_000)
         : input.completedAt);
 
     return this.database.withTransaction(async (client) => {
@@ -450,9 +445,7 @@ export class JobRepository {
         [
           job.id,
           job.leaseToken,
-          input.checkpoint === undefined
-            ? null
-            : JSON.stringify(input.checkpoint),
+          input.checkpoint === undefined ? null : JSON.stringify(input.checkpoint),
           recurring ? "queued" : "succeeded",
           nextRunAt,
           input.completedAt,
@@ -475,9 +468,7 @@ export class JobRepository {
           job.id,
           job.leaseToken,
           input.completedAt,
-          input.checkpoint === undefined
-            ? null
-            : JSON.stringify(input.checkpoint),
+          input.checkpoint === undefined ? null : JSON.stringify(input.checkpoint),
         ],
       );
 
@@ -514,8 +505,7 @@ export class JobRepository {
       }
 
       const deadLetter =
-        input.terminal ||
-        Number(current.attempt_count) >= Number(current.max_attempts);
+        input.terminal || Number(current.attempt_count) >= Number(current.max_attempts);
       const result = await client.query<WorkerJobRow>(
         `UPDATE worker_jobs
          SET status = $3,
@@ -614,21 +604,28 @@ export class JobRepository {
       return undefined;
     }
 
-    return {
-      consecutiveFailures: Number(row.consecutive_failures),
-      continuationCursor: row.continuation_cursor ?? undefined,
-      id: row.id,
-      ingestionScope: row.ingestion_scope,
-      lastSuccessAt: row.last_success_at
-        ? toDate(row.last_success_at)
-        : undefined,
-      lastErrorCode: row.last_error_code ?? undefined,
-      lastErrorMessage: row.last_error_message ?? undefined,
-      nextRunAt: toDate(row.next_run_at),
-      providerId: row.provider_id,
-      queryKey: row.query_key,
-      version: BigInt(row.checkpoint_version),
-    } satisfies IngestionCheckpoint;
+    return mapIngestionCheckpoint(row);
+  }
+
+  async listIngestionCheckpoints() {
+    const result = await this.database.query<IngestionCheckpointRow>(
+      `SELECT
+         id,
+         provider_id,
+         ingestion_scope,
+         query_key,
+         continuation_cursor,
+         checkpoint_version,
+         last_success_at,
+         next_run_at,
+         consecutive_failures,
+         last_error_code,
+         last_error_message
+       FROM provider_ingestion_checkpoints
+       ORDER BY provider_id, ingestion_scope, query_key`,
+    );
+
+    return result.rows.map(mapIngestionCheckpoint);
   }
 
   async saveIngestionCheckpoint(input: {
@@ -687,9 +684,7 @@ export class JobRepository {
         input.providerId,
         input.ingestionScope,
         input.queryKey,
-        input.continuationCursor === undefined
-          ? null
-          : JSON.stringify(input.continuationCursor),
+        input.continuationCursor === undefined ? null : JSON.stringify(input.continuationCursor),
         input.lastSuccessAt ?? null,
         input.nextRunAt,
         input.consecutiveFailures ?? 0,
@@ -703,11 +698,7 @@ export class JobRepository {
       );
     }
 
-    return this.getIngestionCheckpoint(
-      input.providerId,
-      input.ingestionScope,
-      input.queryKey,
-    );
+    return this.getIngestionCheckpoint(input.providerId, input.ingestionScope, input.queryKey);
   }
 
   async recordIngestionFailure(input: {
@@ -754,10 +745,6 @@ export class JobRepository {
       ],
     );
 
-    return this.getIngestionCheckpoint(
-      input.providerId,
-      input.ingestionScope,
-      input.queryKey,
-    );
+    return this.getIngestionCheckpoint(input.providerId, input.ingestionScope, input.queryKey);
   }
 }

@@ -105,6 +105,23 @@
         }
       }
     },
+    "/operations/status": {
+      "get": {
+        "operationId": "getOperationsStatus",
+        "summary": "Durable worker, ingestion, and provider status",
+        "description": "Reads operational state from PostgreSQL without exposing job payloads, continuation cursors, provider metadata, credentials, or error messages.",
+        "tags": ["Operations"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/OperationsStatus"
+          },
+          "503": {
+            "$ref": "#/components/responses/OperationsStatusUnavailable"
+          }
+        }
+      }
+    },
     "/providers/health": {
       "get": {
         "operationId": "getProviderHealth",
@@ -2879,6 +2896,206 @@
           "text/plain": {
             "schema": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "OperationsStatus": {
+        "description": "Current PostgreSQL-backed operational status.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["checkpoints", "jobs", "providers", "status", "timestamp"],
+              "properties": {
+                "checkpoints": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "consecutiveFailures",
+                      "ingestionScope",
+                      "nextRunAt",
+                      "providerId"
+                    ],
+                    "properties": {
+                      "consecutiveFailures": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "ingestionScope": {
+                        "type": "string",
+                        "enum": ["active", "refresh", "sold", "watchlist"]
+                      },
+                      "lastErrorCode": {
+                        "type": "string"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "nextRunAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "providerId": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "jobs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "attemptCount",
+                      "consecutiveFailures",
+                      "enabled",
+                      "jobType",
+                      "nextRunAt",
+                      "status"
+                    ],
+                    "properties": {
+                      "attemptCount": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "consecutiveFailures": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "jobType": {
+                        "type": "string"
+                      },
+                      "lastErrorCode": {
+                        "type": "string"
+                      },
+                      "lastFailedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lastStartedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lastSucceededAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "nextRunAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "dead_letter",
+                          "paused",
+                          "queued",
+                          "retry_wait",
+                          "running",
+                          "succeeded"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "providers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["consecutiveFailures", "lastCheckedAt", "providerId", "state"],
+                    "properties": {
+                      "circuitOpenUntil": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "consecutiveFailures": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "errorCode": {
+                        "type": "string"
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "latencyMs": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "providerId": {
+                        "type": "string"
+                      },
+                      "rateLimitedUntil": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["blocked", "degraded", "disabled", "healthy", "unavailable"]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["degraded", "ok"]
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "OperationsStatusUnavailable": {
+        "description": "PostgreSQL operational state is unavailable.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["reason", "status", "timestamp"],
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "enum": ["operations_state_unavailable"]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["unavailable"]
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false
             }
           }
         }

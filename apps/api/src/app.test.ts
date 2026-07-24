@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Brand } from "@closetsearch/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApp, resetHttpSecurityStateForTests } from "./app.js";
+import { createApp, getMetricRoute, resetHttpSecurityStateForTests } from "./app.js";
 import { resetAuthSessionStore } from "./auth/session-service.js";
 import { getDatabase } from "./db/database.js";
 import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.js";
@@ -156,6 +156,17 @@ const sampleLikedListing = {
   fetchedAt: "2026-07-10T12:00:00.000Z",
 };
 
+describe("HTTP metric route normalization", () => {
+  it("keeps query values and resource identifiers out of metric labels", () => {
+    expect(getMetricRoute("/search?text=secret-query")).toBe("/search");
+    expect(getMetricRoute("/brands/kapital")).toBe("/brands/:slug");
+    expect(getMetricRoute("/me/watchlists/private-watchlist-id")).toBe(
+      "/me/watchlists/:watchlistId",
+    );
+    expect(getMetricRoute("/not-a-route/private-value")).toBe("unmatched");
+  });
+});
+
 describe("handleRequest", () => {
   let databasePath = "";
 
@@ -264,16 +275,14 @@ describe("handleRequest", () => {
     const previousMode = process.env.PROVIDER_RUNTIME_MODE;
     const previousEnabled = process.env.GRAILED_PROVIDER_ENABLED;
     const previousScrapingAllowed = process.env.GRAILED_SCRAPING_ALLOWED;
-    const previousAuthorizationReference =
-      process.env.GRAILED_AUTHORIZATION_REFERENCE;
+    const previousAuthorizationReference = process.env.GRAILED_AUTHORIZATION_REFERENCE;
     const previousUserAgent = process.env.GRAILED_USER_AGENT;
     const previousBaseUrl = process.env.GRAILED_BASE_URL;
 
     process.env.PROVIDER_RUNTIME_MODE = "hybrid";
     process.env.GRAILED_PROVIDER_ENABLED = "true";
     process.env.GRAILED_SCRAPING_ALLOWED = "true";
-    process.env.GRAILED_AUTHORIZATION_REFERENCE =
-      "legal-approval-fixture-CS-123";
+    process.env.GRAILED_AUTHORIZATION_REFERENCE = "legal-approval-fixture-CS-123";
     process.env.GRAILED_USER_AGENT = "ClosetSearchBot/0.1 contact:team.com";
     process.env.GRAILED_BASE_URL = "https://secret-grailed.example/private";
 
@@ -330,8 +339,7 @@ describe("handleRequest", () => {
       if (previousAuthorizationReference === undefined) {
         delete process.env.GRAILED_AUTHORIZATION_REFERENCE;
       } else {
-        process.env.GRAILED_AUTHORIZATION_REFERENCE =
-          previousAuthorizationReference;
+        process.env.GRAILED_AUTHORIZATION_REFERENCE = previousAuthorizationReference;
       }
       if (previousUserAgent === undefined) delete process.env.GRAILED_USER_AGENT;
       else process.env.GRAILED_USER_AGENT = previousUserAgent;
@@ -419,9 +427,14 @@ describe("handleRequest", () => {
     const signup = await signupAndGetSession("logoutdemo", "mohaircoat");
 
     const logoutSnapshot = await runRequest(
-      createJsonRequest("POST", "/auth/logout", {}, {
-        cookie: signup.cookie,
-      }),
+      createJsonRequest(
+        "POST",
+        "/auth/logout",
+        {},
+        {
+          cookie: signup.cookie,
+        },
+      ),
     );
 
     expect(logoutSnapshot.statusCode).toBe(200);
@@ -725,7 +738,9 @@ describe("handleRequest", () => {
     );
 
     const body = JSON.parse(personalizedSnapshot.body) as {
-      debugPersonalization?: { scoreBreakdowns: Array<{ listingId: string; reasons: Array<{ code: string }> }> };
+      debugPersonalization?: {
+        scoreBreakdowns: Array<{ listingId: string; reasons: Array<{ code: string }> }>;
+      };
       isPersonalized: boolean;
       listings: Array<{ brand: { name: string }; category?: string; id: string }>;
       personalizationSummary?: { isPersonalized: boolean; message: string; signalLabels: string[] };
@@ -773,10 +788,7 @@ describe("handleRequest", () => {
 
   it("keeps analytics locked without a persisted entitlement, regardless of username", async () => {
     const lockedSnapshot = await runRequest(createRequest("GET", "/analytics/overview"));
-    const signedOutBody = JSON.parse(lockedSnapshot.body) as Record<
-      string,
-      unknown
-    >;
+    const signedOutBody = JSON.parse(lockedSnapshot.body) as Record<string, unknown>;
 
     expect(signedOutBody).toMatchObject({
       locked: true,
@@ -784,19 +796,13 @@ describe("handleRequest", () => {
     });
     expect(signedOutBody).not.toHaveProperty("premiumPreviewUsername");
 
-    const usernameOnly = await signupAndGetSession(
-      "premiumdemo",
-      "mohaircoat",
-    );
+    const usernameOnly = await signupAndGetSession("premiumdemo", "mohaircoat");
     const signedInSnapshot = await runRequest(
       createRequest("GET", "/analytics/overview", {
         cookie: usernameOnly.cookie,
       }),
     );
-    const signedInBody = JSON.parse(signedInSnapshot.body) as Record<
-      string,
-      unknown
-    >;
+    const signedInBody = JSON.parse(signedInSnapshot.body) as Record<string, unknown>;
 
     expect(signedInBody).toMatchObject({
       locked: true,
@@ -846,9 +852,14 @@ describe("handleRequest", () => {
     });
 
     const clearSnapshot = await runRequest(
-      createJsonRequest("DELETE", "/recent-searches", {}, {
-        cookie: signup.cookie,
-      }),
+      createJsonRequest(
+        "DELETE",
+        "/recent-searches",
+        {},
+        {
+          cookie: signup.cookie,
+        },
+      ),
     );
 
     expect(JSON.parse(clearSnapshot.body)).toEqual({
@@ -1261,7 +1272,8 @@ describe("handleRequest", () => {
     expect(JSON.parse(alertMatchesSnapshot.body)).toMatchObject({
       alertMatches: [],
       deliveryActive: false,
-      message: "Alert delivery is not active yet. Stored matches are foundation data only.",
+      message:
+        "SQLite compatibility mode does not run worker matching. In-app alerts are available with PostgreSQL; outbound email, push, and SMS remain disabled.",
       userId: signup.body.userId,
     });
 
