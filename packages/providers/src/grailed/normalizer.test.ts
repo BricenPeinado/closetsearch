@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createGrailedListingInputFromParsedCard,
-  normalizeGrailedListing,
-} from "./normalizer";
+import { createGrailedListingInputFromParsedCard, normalizeGrailedListing } from "./normalizer";
 
 describe("normalizeGrailedListing", () => {
   it("maps parsed Grailed fields into the shared Listing model", () => {
@@ -24,6 +21,11 @@ describe("normalizeGrailedListing", () => {
       ),
     );
 
+    expect(listing).toBeDefined();
+    if (!listing) {
+      throw new Error("Expected valid Grailed fixture to normalize.");
+    }
+
     expect(listing).toMatchObject({
       id: "grailed:grailed-raw-123",
       providerId: "grailed",
@@ -42,7 +44,7 @@ describe("normalizeGrailedListing", () => {
     });
   });
 
-  it("handles missing brand, image, size, condition, and malformed price safely", () => {
+  it("drops records whose original price or observation time is malformed", () => {
     const listing = normalizeGrailedListing(
       createGrailedListingInputFromParsedCard(
         {
@@ -56,17 +58,6 @@ describe("normalizeGrailedListing", () => {
       ),
     );
 
-    expect(listing.providerId).toBe("grailed");
-    expect(listing.brand).toEqual({
-      id: "brand:unknown-brand",
-      slug: "unknown-brand",
-      name: "Unknown brand",
-    });
-    expect(listing.imageUrl).toBe("https://closetsearch.dev/placeholders/grailed-listing.png");
-    expect(listing.price).toMatchObject({ amount: 0, currency: "USD" });
-    expect(listing.size).toBeUndefined();
-    expect(listing.condition).toBeUndefined();
-    expect(listing.listingType).toBe("unknown");
-    expect(Number.isNaN(new Date(listing.fetchedAt).valueOf())).toBe(false);
+    expect(listing).toBeUndefined();
   });
 });

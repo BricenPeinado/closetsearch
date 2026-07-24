@@ -1,16 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderFetch } from "../http/resilient-http.js";
-import {
-  ebayBrowseSearchFixture,
-  ebayMalformedSearchFixture,
-} from "./fixtures.js";
+import { ebayBrowseSearchFixture, ebayMalformedSearchFixture } from "./fixtures.js";
 import { createEbayProvider } from "./provider.js";
 
-function jsonResponse(
-  status: number,
-  body: unknown,
-  headers: Record<string, string> = {},
-) {
+function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
@@ -34,8 +27,7 @@ const tokenResponse = {
 describe("createEbayProvider", () => {
   it("uses client-credentials OAuth and normalizes recorded Browse fixtures", async () => {
     const now = new Date("2026-07-24T12:00:00.000Z").valueOf();
-    const fetchImpl = vi.fn(
-      async (input: string, _init?: Parameters<ProviderFetch>[1]) => {
+    const fetchImpl = vi.fn(async (input: string, _init?: Parameters<ProviderFetch>[1]) => {
       if (input.endsWith("/identity/v1/oauth2/token")) {
         return jsonResponse(200, tokenResponse);
       }
@@ -45,8 +37,7 @@ describe("createEbayProvider", () => {
       }
 
       throw new Error(`Unexpected fixture URL: ${input}`);
-      },
-    );
+    });
     const provider = createEbayProvider({
       affiliateCampaignId: "fixture-campaign",
       affiliateReferenceId: "closetsearch-test",
@@ -88,8 +79,7 @@ describe("createEbayProvider", () => {
         isMock: false,
         marketplaceId: "EBAY_US",
       },
-      sourceUrl:
-        "https://www.ebay.com/itm/145100000001?campid=fixture-campaign",
+      sourceUrl: "https://www.ebay.com/itm/145100000001?campid=fixture-campaign",
       title: "Kapital patchwork denim jacket",
       brand: {
         id: "brand:kapital",
@@ -161,13 +151,10 @@ describe("createEbayProvider", () => {
     });
 
     const tokenCall = fetchImpl.mock.calls[0];
-    expect(tokenCall?.[0]).toBe(
-      "https://api.ebay.com/identity/v1/oauth2/token",
-    );
+    expect(tokenCall?.[0]).toBe("https://api.ebay.com/identity/v1/oauth2/token");
     expect(tokenCall?.[1]).toMatchObject({
       method: "POST",
-      body:
-        "grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope",
+      body: "grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope",
       headers: {
         authorization: `Basic ${btoa("fixture-client:fixture-secret")}`,
         "content-type": "application/x-www-form-urlencoded",
@@ -176,9 +163,7 @@ describe("createEbayProvider", () => {
 
     const searchCall = fetchImpl.mock.calls[1];
     const searchUrl = new URL(String(searchCall?.[0]));
-    expect(searchUrl.pathname).toBe(
-      "/buy/browse/v1/item_summary/search",
-    );
+    expect(searchUrl.pathname).toBe("/buy/browse/v1/item_summary/search");
     expect(searchUrl.searchParams.get("q")).toBe("kapital");
     expect(searchUrl.searchParams.get("limit")).toBe("2");
     expect(searchUrl.searchParams.get("offset")).toBe("0");
@@ -214,9 +199,7 @@ describe("createEbayProvider", () => {
     await provider.search({ query: { text: "kapital" } });
 
     expect(
-      fetchImpl.mock.calls.filter(([url]) =>
-        String(url).endsWith("/identity/v1/oauth2/token"),
-      ),
+      fetchImpl.mock.calls.filter(([url]) => String(url).endsWith("/identity/v1/oauth2/token")),
     ).toHaveLength(1);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
@@ -257,12 +240,8 @@ describe("createEbayProvider", () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, tokenResponse))
-      .mockResolvedValueOnce(
-        jsonResponse(429, { errors: [] }, { "retry-after": "1" }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse(429, { errors: [] }, { "retry-after": "1" }),
-      );
+      .mockResolvedValueOnce(jsonResponse(429, { errors: [] }, { "retry-after": "1" }))
+      .mockResolvedValueOnce(jsonResponse(429, { errors: [] }, { "retry-after": "1" }));
     const provider = createEbayProvider({
       clientId: "fixture-client",
       clientSecret: "fixture-secret",
@@ -273,9 +252,7 @@ describe("createEbayProvider", () => {
       },
     });
 
-    await expect(
-      provider.search({ query: { text: "kapital" } }),
-    ).resolves.toEqual({
+    await expect(provider.search({ query: { text: "kapital" } })).resolves.toEqual({
       providerId: "ebay",
       status: "failure",
       failure: {
@@ -300,9 +277,7 @@ describe("createEbayProvider", () => {
       fetchImpl,
     });
 
-    await expect(
-      missingCredentials.search({ query: { text: "kapital" } }),
-    ).resolves.toMatchObject({
+    await expect(missingCredentials.search({ query: { text: "kapital" } })).resolves.toMatchObject({
       status: "failure",
       failure: { code: "missing_credentials", retryable: false },
     });
@@ -314,6 +289,28 @@ describe("createEbayProvider", () => {
       status: "failure",
       failure: { code: "unsupported_capability", retryable: false },
     });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-official API origins before credentials can leave the process", () => {
+    const fetchImpl = vi.fn();
+
+    expect(() =>
+      createEbayProvider({
+        apiBaseUrl: "http://internal.invalid",
+        clientId: "fixture-client",
+        clientSecret: "fixture-secret",
+        fetchImpl,
+      }),
+    ).toThrow(/official absolute HTTPS origin/);
+    expect(() =>
+      createEbayProvider({
+        clientId: "fixture-client",
+        clientSecret: "fixture-secret",
+        fetchImpl,
+        identityBaseUrl: "https://attacker.invalid",
+      }),
+    ).toThrow(/official absolute HTTPS origin/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

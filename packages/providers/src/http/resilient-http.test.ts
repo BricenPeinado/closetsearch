@@ -5,17 +5,13 @@ import {
   ProviderHttpError,
 } from "./resilient-http.js";
 
-function response(
-  status: number,
-  body = "{}",
-  retryAfter?: string,
-) {
+function response(status: number, body = "{}", retryAfter?: string) {
   return {
     ok: status >= 200 && status < 300,
     status,
     headers: {
       get(name: string) {
-        return name.toLowerCase() === "retry-after" ? retryAfter ?? null : null;
+        return name.toLowerCase() === "retry-after" ? (retryAfter ?? null) : null;
       },
     },
     async text() {
@@ -27,13 +23,35 @@ function response(
 describe("parseRetryAfterMs", () => {
   it("supports seconds and HTTP dates", () => {
     expect(parseRetryAfterMs("1.5", 0)).toBe(1_500);
-    expect(parseRetryAfterMs("Thu, 01 Jan 1970 00:00:03 GMT", 1_000)).toBe(
-      2_000,
-    );
+    expect(parseRetryAfterMs("Thu, 01 Jan 1970 00:00:03 GMT", 1_000)).toBe(2_000);
   });
 });
 
 describe("createResilientHttpClient", () => {
+  it("requires callers to handle redirects instead of forwarding headers automatically", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(response(302));
+    const client = createResilientHttpClient({
+      fetchImpl,
+      maxRetries: 0,
+    });
+
+    await expect(
+      client.request({
+        headers: {
+          authorization: "Bearer fixture-secret",
+        },
+        operation: "redirect_boundary",
+        url: "https://api.example.test/search",
+      }),
+    ).resolves.toMatchObject({ status: 302 });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.example.test/search",
+      expect.objectContaining({
+        redirect: "manual",
+      }),
+    );
+  });
+
   it("honors Retry-After before retrying a rate-limited request", async () => {
     const slept: number[] = [];
     const fetchImpl = vi

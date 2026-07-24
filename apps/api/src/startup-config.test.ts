@@ -47,6 +47,27 @@ describe("startup environment validation", () => {
     ).toThrowError("HTTPS origins");
   });
 
+  it("rejects provider endpoints that could receive credentials or trigger SSRF", () => {
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        EBAY_IDENTITY_BASE_URL: "http://attacker.invalid",
+      }),
+    ).toThrowError("EBAY_IDENTITY_BASE_URL");
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        EBAY_API_BASE_URL: "https://api.ebay.com.attacker.invalid",
+      }),
+    ).toThrowError("EBAY_API_BASE_URL");
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        GRAILED_BASE_URL: "https://127.0.0.1:4444/internal",
+      }),
+    ).toThrowError("GRAILED_BASE_URL");
+  });
+
   it("requires PostgreSQL and a database URL in production", () => {
     expect(() =>
       validateStartupEnvironment({

@@ -29,21 +29,81 @@ function createJsonResponse(status: number, body: unknown) {
 
 describe("Grailed credentials", () => {
   it("extracts the PUBLIC_CONFIG JSON block and Algolia credentials", () => {
-    expect(extractGrailedPublicConfigJson(grailedPublicConfigHtmlFixture)).toContain(
-      '"algolia"',
-    );
+    expect(extractGrailedPublicConfigJson(grailedPublicConfigHtmlFixture)).toContain('"algolia"');
     expect(extractGrailedAlgoliaCredentials(grailedPublicConfigHtmlFixture)).toEqual({
-      appId: "grailed-app-123",
+      appId: "GRAILED123",
       apiKey: "grailed-key-123",
     });
   });
 
   it("throws clear errors when PUBLIC_CONFIG structure changes", () => {
-    expect(() =>
-      extractGrailedAlgoliaCredentials(grailedBrokenPublicConfigHtmlFixture),
-    ).toThrow(/algolia configuration object/i);
+    expect(() => extractGrailedAlgoliaCredentials(grailedBrokenPublicConfigHtmlFixture)).toThrow(
+      /algolia configuration object/i,
+    );
     expect(() => extractGrailedPublicConfigJson("<html></html>")).toThrow(
       /PUBLIC_CONFIG was not found/i,
+    );
+  });
+
+  it("rejects host-injecting Algolia application identifiers before networking", async () => {
+    const maliciousHtml = grailedPublicConfigHtmlFixture.replace(
+      "GRAILED123",
+      "127.0.0.1:4443/internal",
+    );
+    const fetchImpl = vi.fn(async (input: string) => {
+      if (input === "https://www.grailed.com") {
+        return createTextResponse(200, maliciousHtml);
+      }
+
+      throw new Error(`Unexpected URL: ${input}`);
+    });
+    const client = createGrailedHttpClient({
+      fetchImpl,
+      minRequestIntervalMs: 0,
+      requestTimeoutMs: 1_000,
+      userAgent: "ClosetSearchBot/0.1 contact:team@example.com",
+    });
+
+    await expect(
+      resolveGrailedAlgoliaCredentials({
+        baseUrl: "https://www.grailed.com",
+        cache: createGrailedCredentialCache(60_000),
+        client,
+      }),
+    ).rejects.toThrow(/invalid Algolia application identifier/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores cross-origin script bundles during credential discovery", async () => {
+    const maliciousHtml =
+      '<html><script src="http://127.0.0.1:4444/internal/admin"></script></html>';
+    const fetchImpl = vi.fn(async (input: string) => {
+      if (input === "https://www.grailed.com") {
+        return createTextResponse(200, maliciousHtml);
+      }
+
+      throw new Error(`Unexpected URL: ${input}`);
+    });
+    const client = createGrailedHttpClient({
+      fetchImpl,
+      minRequestIntervalMs: 0,
+      requestTimeoutMs: 1_000,
+      userAgent: "ClosetSearchBot/0.1 contact:team@example.com",
+    });
+
+    await expect(
+      resolveGrailedAlgoliaCredentials({
+        baseUrl: "https://www.grailed.com",
+        cache: createGrailedCredentialCache(60_000),
+        client,
+      }),
+    ).rejects.toMatchObject({
+      code: "missing_credentials",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      expect.stringContaining("127.0.0.1"),
+      expect.anything(),
     );
   });
 
@@ -80,7 +140,7 @@ describe("Grailed credentials", () => {
         client,
       }),
     ).resolves.toEqual({
-      appId: "grailed-app-123",
+      appId: "GRAILED123",
       apiKey: "grailed-key-123",
     });
   });
@@ -118,7 +178,7 @@ describe("Grailed credentials", () => {
         client,
       }),
     ).resolves.toEqual({
-      appId: "grailed-app-234",
+      appId: "GRAILED234",
       apiKey: "grailed-key-234",
     });
   });
@@ -164,7 +224,7 @@ describe("Grailed credentials", () => {
         client,
       }),
     ).resolves.toEqual({
-      appId: "grailed-app-456",
+      appId: "GRAILED456",
       apiKey: "grailed-key-456",
     });
   });
@@ -239,11 +299,7 @@ describe("Grailed credentials", () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      1,
-      "https://www.grailed.com",
-      expect.any(Object),
-    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://www.grailed.com", expect.any(Object));
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("algolia.net/1/indexes/Listing_production/query"),
@@ -261,12 +317,12 @@ describe("Grailed credentials", () => {
     const cache = createGrailedCredentialCache(1000, () => now);
 
     cache.set({
-      appId: "grailed-app-123",
+      appId: "GRAILED123",
       apiKey: "grailed-key-123",
     });
 
     expect(cache.get()).toEqual({
-      appId: "grailed-app-123",
+      appId: "GRAILED123",
       apiKey: "grailed-key-123",
     });
 

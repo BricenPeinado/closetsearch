@@ -17,11 +17,7 @@ import {
   type ProviderHttpResponse,
 } from "../http/resilient-http.js";
 import { normalizeEbayItemSummary } from "./normalizer.js";
-import type {
-  EbayRawBrowseResponse,
-  EbayRawItemSummary,
-  EbayRawOAuthResponse,
-} from "./raw.js";
+import type { EbayRawBrowseResponse, EbayRawItemSummary, EbayRawOAuthResponse } from "./raw.js";
 
 const ebayProviderId = "ebay";
 const ebayProviderName = "eBay";
@@ -32,6 +28,7 @@ const defaultOAuthScope = "https://api.ebay.com/oauth/api_scope";
 const defaultSearchQuery = "designer clothing";
 const defaultPageSize = 50;
 const maxPageSize = 200;
+const allowedEbayApiOrigins = new Set(["https://api.ebay.com", "https://api.sandbox.ebay.com"]);
 
 export const ebayProviderCapabilities: ProviderCapabilities = {
   dataOrigin: "official_api",
@@ -92,9 +89,27 @@ function toTrimmedString(value: unknown) {
 
 function normalizeBaseUrl(value: string | undefined, fallback: string) {
   const normalizedValue = toTrimmedString(value) || fallback;
-  return normalizedValue.endsWith("/")
-    ? normalizedValue.slice(0, -1)
-    : normalizedValue;
+  let url: URL;
+
+  try {
+    url = new URL(normalizedValue);
+  } catch {
+    throw new Error("eBay API endpoints must use an official absolute HTTPS origin.");
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    !allowedEbayApiOrigins.has(url.origin) ||
+    url.username ||
+    url.password ||
+    (url.pathname !== "/" && url.pathname !== "") ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("eBay API endpoints must use an official absolute HTTPS origin.");
+  }
+
+  return url.origin;
 }
 
 function createFailure(
@@ -156,21 +171,16 @@ async function parseJsonResponse<T>(response: ProviderHttpResponse): Promise<T> 
   try {
     return JSON.parse(body) as T;
   } catch {
-    throw new ProviderHttpError(
-      "eBay returned a malformed JSON response.",
-      {
-        code: "invalid_response",
-        retryable: false,
-        statusCode: response.status,
-      },
-    );
+    throw new ProviderHttpError("eBay returned a malformed JSON response.", {
+      code: "invalid_response",
+      retryable: false,
+      statusCode: response.status,
+    });
   }
 }
 
 function normalizePage(value: number | undefined) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 1
-    ? Math.trunc(value)
-    : 1;
+  return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.trunc(value) : 1;
 }
 
 function normalizePageSize(value: number | undefined) {
@@ -179,9 +189,7 @@ function normalizePageSize(value: number | undefined) {
     : defaultPageSize;
 }
 
-function validateQuery(
-  request: ProviderSearchRequest,
-): ProviderSearchFailure | undefined {
+function validateQuery(request: ProviderSearchRequest): ProviderSearchFailure | undefined {
   const query = request.query;
 
   if (query.marketScope === "sold") {
@@ -244,10 +252,7 @@ function validateQuery(
     query.price.max !== undefined &&
     query.price.min > query.price.max
   ) {
-    return createFailure(
-      "invalid_query",
-      "Minimum price cannot exceed maximum price.",
-    );
+    return createFailure("invalid_query", "Minimum price cannot exceed maximum price.");
   }
 
   if (
@@ -278,17 +283,10 @@ function mapSort(sort: ProviderSearchRequest["query"]["sort"]) {
   }
 }
 
-function buildSearchUrl(
-  apiBaseUrl: string,
-  request: ProviderSearchRequest,
-  defaultQuery: string,
-) {
+function buildSearchUrl(apiBaseUrl: string, request: ProviderSearchRequest, defaultQuery: string) {
   const page = normalizePage(request.pagination?.page);
   const pageSize = normalizePageSize(request.pagination?.pageSize);
-  const url = new URL(
-    "/buy/browse/v1/item_summary/search",
-    `${apiBaseUrl}/`,
-  );
+  const url = new URL("/buy/browse/v1/item_summary/search", `${apiBaseUrl}/`);
   const queryText = toTrimmedString(request.query.text) || defaultQuery;
   url.searchParams.set("q", queryText);
   url.searchParams.set("limit", String(pageSize));
@@ -306,9 +304,7 @@ function buildSearchUrl(
   if (price && (price.min !== undefined || price.max !== undefined)) {
     const minimum = price.min ?? "";
     const maximum = price.max ?? "";
-    const currency = toTrimmedString(
-      price.currency ?? request.query.currency,
-    ).toUpperCase();
+    const currency = toTrimmedString(price.currency ?? request.query.currency).toUpperCase();
     filters.push(`price:[${minimum}..${maximum}]`);
     filters.push(`priceCurrency:${currency}`);
   }
@@ -360,35 +356,25 @@ function toHttpFailure(error: unknown): ProviderSearchFailure {
     });
   }
 
-  return createFailure(
-    "unavailable",
-    error instanceof Error
-      ? error.message
-      : "eBay Browse failed before receiving a response.",
-    { retryable: false },
-  );
+  return createFailure("unavailable", "eBay Browse failed before receiving a response.", {
+    retryable: false,
+  });
 }
 
 export function createEbayProvider(options: EbayProviderOptions = {}): Provider {
   const clientId = toTrimmedString(options.clientId);
   const clientSecret = toTrimmedString(options.clientSecret);
   const apiBaseUrl = normalizeBaseUrl(options.apiBaseUrl, defaultApiBaseUrl);
-  const identityBaseUrl = normalizeBaseUrl(
-    options.identityBaseUrl,
-    defaultIdentityBaseUrl,
-  );
-  const marketplaceId =
-    toTrimmedString(options.marketplaceId) || defaultMarketplaceId;
+  const identityBaseUrl = normalizeBaseUrl(options.identityBaseUrl, defaultIdentityBaseUrl);
+  const marketplaceId = toTrimmedString(options.marketplaceId) || defaultMarketplaceId;
   const oauthScope = toTrimmedString(options.oauthScope) || defaultOAuthScope;
-  const defaultQuery =
-    toTrimmedString(options.defaultSearchQuery) || defaultSearchQuery;
+  const defaultQuery = toTrimmedString(options.defaultSearchQuery) || defaultSearchQuery;
   const nowImpl = options.nowImpl ?? (() => Date.now());
   const httpClient = options.fetchImpl
     ? createResilientHttpClient({
         baseBackoffMs: options.baseBackoffMs,
         circuitBreakerCooldownMs: options.circuitBreakerCooldownMs,
-        circuitBreakerFailureThreshold:
-          options.circuitBreakerFailureThreshold,
+        circuitBreakerFailureThreshold: options.circuitBreakerFailureThreshold,
         fetchImpl: options.fetchImpl,
         maxConcurrency: options.maxConcurrency,
         maxRetries: options.maxRetries,
@@ -457,14 +443,11 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
       });
 
       if (response.status === 401) {
-        throw new ProviderHttpError(
-          "eBay rejected the configured OAuth client credentials.",
-          {
-            code: "missing_credentials",
-            retryable: false,
-            statusCode: response.status,
-          },
-        );
+        throw new ProviderHttpError("eBay rejected the configured OAuth client credentials.", {
+          code: "missing_credentials",
+          retryable: false,
+          statusCode: response.status,
+        });
       }
 
       if (response.status === 403) {
@@ -479,14 +462,11 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
       }
 
       if (!response.ok) {
-        throw new ProviderHttpError(
-          `eBay OAuth failed with status ${response.status}.`,
-          {
-            code: response.status === 400 ? "missing_credentials" : "unavailable",
-            retryable: false,
-            statusCode: response.status,
-          },
-        );
+        throw new ProviderHttpError(`eBay OAuth failed with status ${response.status}.`, {
+          code: response.status === 400 ? "missing_credentials" : "unavailable",
+          retryable: false,
+          statusCode: response.status,
+        });
       }
 
       const payload = await parseJsonResponse<EbayRawOAuthResponse>(response);
@@ -499,14 +479,11 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
           : 0;
 
       if (!accessToken || !expiresIn) {
-        throw new ProviderHttpError(
-          "eBay OAuth returned an invalid access-token payload.",
-          {
-            code: "invalid_response",
-            retryable: false,
-            statusCode: response.status,
-          },
-        );
+        throw new ProviderHttpError("eBay OAuth returned an invalid access-token payload.", {
+          code: "invalid_response",
+          retryable: false,
+          statusCode: response.status,
+        });
       }
 
       const cachedToken = {
@@ -524,10 +501,7 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
     }
   }
 
-  async function requestBrowse(
-    request: ProviderSearchRequest,
-    accessToken: string,
-  ) {
+  async function requestBrowse(request: ProviderSearchRequest, accessToken: string) {
     if (!httpClient) {
       throw new ProviderHttpError(
         "eBay Browse is configured without a server-side HTTP implementation.",
@@ -547,9 +521,7 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
         accept: "application/json",
         authorization: `Bearer ${accessToken}`,
         "x-ebay-c-marketplace-id": marketplaceId,
-        ...(affiliateHeader
-          ? { "x-ebay-c-enduserctx": affiliateHeader }
-          : {}),
+        ...(affiliateHeader ? { "x-ebay-c-enduserctx": affiliateHeader } : {}),
       },
     });
 
@@ -582,10 +554,7 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
         );
       }
 
-      if (
-        request.query.sourceIds?.length &&
-        !request.query.sourceIds.includes(ebayProviderId)
-      ) {
+      if (request.query.sourceIds?.length && !request.query.sourceIds.includes(ebayProviderId)) {
         const page = normalizePage(request.pagination?.page);
         const pageSize = normalizePageSize(request.pagination?.pageSize);
         return createSuccess(
@@ -648,24 +617,13 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
           );
         }
 
-        const payload = await parseJsonResponse<EbayRawBrowseResponse>(
-          browse.response,
-        );
+        const payload = await parseJsonResponse<EbayRawBrowseResponse>(browse.response);
         const fetchedAt = new Date(nowImpl()).toISOString();
-        const rawItems = Array.isArray(payload.itemSummaries)
-          ? payload.itemSummaries
-          : [];
+        const rawItems = Array.isArray(payload.itemSummaries) ? payload.itemSummaries : [];
         const listings = rawItems
           .filter(isRecord)
-          .map((item) =>
-            normalizeEbayItemSummary(
-              item as unknown as EbayRawItemSummary,
-              fetchedAt,
-            ),
-          )
-          .filter((listing): listing is NonNullable<typeof listing> =>
-            listing !== null
-          );
+          .map((item) => normalizeEbayItemSummary(item as unknown as EbayRawItemSummary, fetchedAt))
+          .filter((listing): listing is NonNullable<typeof listing> => listing !== null);
         const warnings: ProviderWarning[] = [];
         const droppedCount = rawItems.length - listings.length;
 
@@ -678,9 +636,7 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
         }
 
         for (const warning of payload.warnings ?? []) {
-          const message =
-            toTrimmedString(warning.message) ||
-            toTrimmedString(warning.longMessage);
+          const message = toTrimmedString(warning.message) || toTrimmedString(warning.longMessage);
 
           if (message) {
             warnings.push({
@@ -705,8 +661,7 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
             : (browse.page - 1) * browse.pageSize;
         const hasMore =
           Boolean(toTrimmedString(payload.next)) ||
-          (totalCount !== undefined &&
-            rawOffset + rawItems.length < totalCount);
+          (totalCount !== undefined && rawOffset + rawItems.length < totalCount);
         const pagination = {
           page: browse.page,
           pageSize: browse.pageSize,

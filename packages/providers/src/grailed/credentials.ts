@@ -3,6 +3,11 @@ import { ProviderHttpError } from "../http/resilient-http.js";
 import { validateGrailedAlgoliaCredentials } from "./algolia.js";
 import type { GrailedHttpClient } from "./http-client.js";
 import { buildGrailedSearchUrl } from "./search-url.js";
+import {
+  isAllowedGrailedDocumentUrl,
+  normalizeGrailedAlgoliaAppId,
+  normalizeGrailedBaseUrl,
+} from "./url-policy.js";
 
 export interface GrailedAlgoliaCredentials {
   apiKey: string;
@@ -111,25 +116,11 @@ function asRecord(value: unknown) {
     : undefined;
 }
 
-function maskSecret(value: string) {
-  const trimmed = value.trim();
-
-  if (trimmed.length <= 8) {
-    return trimmed.length <= 4
-      ? "*".repeat(trimmed.length)
-      : `${trimmed.slice(0, 2)}...${trimmed.slice(-2)}`;
-  }
-
-  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
-}
-
 function logCredentialCandidate(event: string, candidate: GrailedCredentialCandidate) {
   console.info("Grailed Algolia credential candidate", {
     event,
     source: candidate.source,
     detail: candidate.detail,
-    appId: maskSecret(candidate.appId),
-    apiKey: maskSecret(candidate.apiKey),
   });
 }
 
@@ -386,7 +377,7 @@ function collectInlineCredentialCandidates(
 function extractScriptUrls(html: string, baseUrl: string) {
   const urls = new Set<string>();
   let match: RegExpExecArray | null;
-  const baseOrigin = new URL(baseUrl).origin;
+  const normalizedBaseUrl = normalizeGrailedBaseUrl(baseUrl);
 
   scriptSourcePattern.lastIndex = 0;
 
@@ -398,20 +389,17 @@ function extractScriptUrls(html: string, baseUrl: string) {
     }
 
     try {
-      const normalizedUrl = new URL(rawUrl, baseUrl).toString();
-      urls.add(normalizedUrl);
+      const normalizedUrl = new URL(rawUrl, normalizedBaseUrl).toString();
+
+      if (isAllowedGrailedDocumentUrl(normalizedUrl, normalizedBaseUrl)) {
+        urls.add(normalizedUrl);
+      }
     } catch {
       continue;
     }
   }
 
-  return Array.from(urls)
-    .sort((left, right) => {
-      const leftSameOrigin = left.startsWith(baseOrigin) ? 0 : 1;
-      const rightSameOrigin = right.startsWith(baseOrigin) ? 0 : 1;
-      return leftSameOrigin - rightSameOrigin;
-    })
-    .slice(0, maxScriptBundlesToInspect);
+  return Array.from(urls).sort().slice(0, maxScriptBundlesToInspect);
 }
 
 function collectRegexMatches(pattern: RegExp, source: string) {
@@ -513,32 +501,34 @@ async function validateCandidate(
   candidate: GrailedCredentialCandidate,
   options: GrailedCredentialResolutionOptions,
 ): Promise<ValidationResult> {
-  logCredentialCandidate("validating", candidate);
+  const validatedCandidate = {
+    ...candidate,
+    appId: normalizeGrailedAlgoliaAppId(candidate.appId),
+  };
+  logCredentialCandidate("validating", validatedCandidate);
 
   try {
     const response = await validateGrailedAlgoliaCredentials(options.client, {
       baseUrl: options.baseUrl,
-      credentials: candidate,
+      credentials: validatedCandidate,
       queryText: options.queryText,
     });
 
     if (response.ok) {
-      logCredentialCandidate("accepted", candidate);
+      logCredentialCandidate("accepted", validatedCandidate);
       return {
         kind: "accepted",
         credentials: options.cache.set({
-          appId: candidate.appId,
-          apiKey: candidate.apiKey,
+          appId: validatedCandidate.appId,
+          apiKey: validatedCandidate.apiKey,
         }),
       };
     }
 
     if (response.status === 401 || response.status === 403) {
       console.warn("Grailed Algolia credential candidate rejected", {
-        source: candidate.source,
-        detail: candidate.detail,
-        appId: maskSecret(candidate.appId),
-        apiKey: maskSecret(candidate.apiKey),
+        source: validatedCandidate.source,
+        detail: validatedCandidate.detail,
         status: response.status,
       });
       return {
@@ -549,8 +539,8 @@ async function validateCandidate(
 
     if (response.status === 429) {
       console.warn("Grailed Algolia credential validation rate limited", {
-        source: candidate.source,
-        detail: candidate.detail,
+        source: validatedCandidate.source,
+        detail: validatedCandidate.detail,
         status: response.status,
       });
       return {
@@ -560,8 +550,8 @@ async function validateCandidate(
     }
 
     console.warn("Grailed Algolia credential validation unavailable", {
-      source: candidate.source,
-      detail: candidate.detail,
+      source: validatedCandidate.source,
+      detail: validatedCandidate.detail,
       status: response.status,
     });
     return {
@@ -578,9 +568,9 @@ async function validateCandidate(
     }
 
     console.warn("Grailed Algolia credential validation errored", {
-      source: candidate.source,
-      detail: candidate.detail,
-      message: error instanceof Error ? error.message : "unknown error",
+      source: validatedCandidate.source,
+      detail: validatedCandidate.detail,
+      errorName: error instanceof Error ? error.name : "UnknownCredentialValidationError",
     });
 
     return {
@@ -821,10 +811,10 @@ export function extractGrailedAlgoliaCredentials(html: string): GrailedAlgoliaCr
     throw new Error("Grailed PUBLIC_CONFIG no longer contains an algolia configuration object.");
   }
 
-  const appId = toTrimmedString(algolia.appId);
+  const rawAppId = toTrimmedString(algolia.appId);
   const apiKey = toTrimmedString(algolia.apiKey);
 
-  if (!appId) {
+  if (!rawAppId) {
     throw new Error("Grailed PUBLIC_CONFIG.algolia.appId was missing or empty.");
   }
 
@@ -833,7 +823,7 @@ export function extractGrailedAlgoliaCredentials(html: string): GrailedAlgoliaCr
   }
 
   return {
-    appId,
+    appId: normalizeGrailedAlgoliaAppId(rawAppId),
     apiKey,
   };
 }
@@ -841,6 +831,10 @@ export function extractGrailedAlgoliaCredentials(html: string): GrailedAlgoliaCr
 export async function resolveGrailedAlgoliaCredentials(
   options: GrailedCredentialResolutionOptions,
 ): Promise<GrailedAlgoliaCredentials> {
+  options = {
+    ...options,
+    baseUrl: normalizeGrailedBaseUrl(options.baseUrl),
+  };
   const state: GrailedCredentialResolutionState = {
     sawCredentialFailure: false,
     sawUnavailable: false,

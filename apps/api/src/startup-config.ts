@@ -1,8 +1,5 @@
 import { getAuthConfig } from "./auth/config.js";
-import {
-  resolvePersistenceDriver,
-  type PersistenceDriver,
-} from "./db/persistence-driver.js";
+import { resolvePersistenceDriver, type PersistenceDriver } from "./db/persistence-driver.js";
 import { loadPostgresRuntimeConfig } from "./db/postgres/config.js";
 import { getEngagementRuntimeConfig } from "./services/durableEngagementService.js";
 import { readRecommendationRuntimeConfig } from "./services/mlRecommendationRuntimeService.js";
@@ -14,11 +11,7 @@ export interface StartupConfig {
   shutdownTimeoutMs: number;
 }
 
-function parsePositiveInteger(
-  value: string | undefined,
-  fallback: number,
-  maximum: number,
-) {
+function parsePositiveInteger(value: string | undefined, fallback: number, maximum: number) {
   const parsed = Number.parseInt(value ?? "", 10);
 
   if (!Number.isFinite(parsed) || parsed < 1 || parsed > maximum) {
@@ -43,6 +36,38 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
   }
 }
 
+function validateProductionProviderOrigin(
+  value: string | undefined,
+  label: string,
+  allowedOrigins: ReadonlySet<string>,
+) {
+  const normalizedValue = value?.trim();
+
+  if (!normalizedValue) {
+    return;
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(normalizedValue);
+  } catch {
+    throw new Error(`${label} must be an official absolute HTTPS origin.`);
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    !allowedOrigins.has(url.origin) ||
+    url.username ||
+    url.password ||
+    (url.pathname !== "/" && url.pathname !== "") ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(`${label} must be an official absolute HTTPS origin.`);
+  }
+}
+
 export function validateStartupEnvironment(
   env: Record<string, string | undefined> = process.env,
 ): StartupConfig {
@@ -56,28 +81,19 @@ export function validateStartupEnvironment(
   }
 
   if (env.NODE_ENV === "production") {
-    const recommendationMode =
-      env.CLOSETSEARCH_RECOMMENDATION_MODE?.trim() ?? "disabled";
+    const recommendationMode = env.CLOSETSEARCH_RECOMMENDATION_MODE?.trim() ?? "disabled";
 
     if (!["active", "disabled", "shadow"].includes(recommendationMode)) {
-      throw new Error(
-        "CLOSETSEARCH_RECOMMENDATION_MODE must be disabled, shadow, or active.",
-      );
+      throw new Error("CLOSETSEARCH_RECOMMENDATION_MODE must be disabled, shadow, or active.");
     }
 
-    if (
-      recommendationMode !== "disabled" &&
-      !recommendationConfig.artifactPath
-    ) {
+    if (recommendationMode !== "disabled" && !recommendationConfig.artifactPath) {
       throw new Error(
         "CLOSETSEARCH_RECOMMENDATION_ARTIFACT_PATH is required for shadow or active recommendation mode.",
       );
     }
 
-    if (
-      recommendationMode === "active" &&
-      !recommendationConfig.promotionApproved
-    ) {
+    if (recommendationMode === "active" && !recommendationConfig.promotionApproved) {
       throw new Error(
         "Active recommendation mode requires CLOSETSEARCH_RECOMMENDATION_PROMOTION_APPROVED=true.",
       );
@@ -88,9 +104,7 @@ export function validateStartupEnvironment(
     }
 
     if (authConfig.tokenPepper.length < 32) {
-      throw new Error(
-        "AUTH_SESSION_PEPPER must contain at least 32 characters in production.",
-      );
+      throw new Error("AUTH_SESSION_PEPPER must contain at least 32 characters in production.");
     }
 
     if (!authConfig.cookieSecure) {
@@ -121,16 +135,28 @@ export function validateStartupEnvironment(
     if (mockFallback || parseBoolean(env.PROVIDER_MOCK_ENABLED, false)) {
       throw new Error("Mock providers and fallback must be disabled in production.");
     }
+
+    validateProductionProviderOrigin(
+      env.EBAY_API_BASE_URL,
+      "EBAY_API_BASE_URL",
+      new Set(["https://api.ebay.com", "https://api.sandbox.ebay.com"]),
+    );
+    validateProductionProviderOrigin(
+      env.EBAY_IDENTITY_BASE_URL,
+      "EBAY_IDENTITY_BASE_URL",
+      new Set(["https://api.ebay.com", "https://api.sandbox.ebay.com"]),
+    );
+    validateProductionProviderOrigin(
+      env.GRAILED_BASE_URL,
+      "GRAILED_BASE_URL",
+      new Set(["https://www.grailed.com"]),
+    );
   }
 
   return {
     host: env.HOST?.trim() || "127.0.0.1",
     persistenceDriver,
     port: parsePositiveInteger(env.PORT, 4_000, 65_535),
-    shutdownTimeoutMs: parsePositiveInteger(
-      env.SHUTDOWN_TIMEOUT_MS,
-      10_000,
-      60_000,
-    ),
+    shutdownTimeoutMs: parsePositiveInteger(env.SHUTDOWN_TIMEOUT_MS, 10_000, 60_000),
   };
 }

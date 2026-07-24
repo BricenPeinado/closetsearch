@@ -27,6 +27,7 @@ import {
 import { grailedFixtureListings, type RawGrailedFixtureListing } from "./fixtures.js";
 import { createGrailedHttpClient, type GrailedFetch } from "./http-client.js";
 import { createGrailedListingInputFromFixture, normalizeGrailedListing } from "./normalizer.js";
+import { normalizeGrailedBaseUrl } from "./url-policy.js";
 
 const GRAILED_PROVIDER_ID = "grailed";
 const GRAILED_PROVIDER_NAME = "Grailed";
@@ -216,10 +217,9 @@ function matchesListingQuery(listing: Listing, query: ProviderSearchQuery) {
 }
 
 function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearchQuery) {
-  return matchesListingQuery(
-    normalizeGrailedListing(createGrailedListingInputFromFixture(raw)),
-    query,
-  );
+  const listing = normalizeGrailedListing(createGrailedListingInputFromFixture(raw));
+
+  return listing ? matchesListingQuery(listing, query) : false;
 }
 
 function sortFixtureListings(
@@ -248,12 +248,10 @@ async function searchFixtureListings(
   const matchedListings = sortFixtureListings(
     fixtureListings.filter((listing) => matchesFixtureQuery(listing, request.query)),
     request.query.sort,
-  ).map((listing) => {
-    const normalizedListing = normalizeGrailedListing(
-      createGrailedListingInputFromFixture(listing),
-    );
-
-    return {
+  )
+    .map((listing) => normalizeGrailedListing(createGrailedListingInputFromFixture(listing)))
+    .filter((listing): listing is Listing => listing !== undefined)
+    .map((normalizedListing) => ({
       ...normalizedListing,
       source: {
         ...normalizedListing.source,
@@ -270,8 +268,7 @@ async function searchFixtureListings(
             isExcludedFromAnalytics: true,
           }
         : undefined,
-    };
-  });
+    }));
   const startIndex = (page - 1) * pageSize;
   const endIndex = startIndex + pageSize;
   const listings = matchedListings.slice(startIndex, endIndex);
@@ -411,7 +408,7 @@ async function searchAuthorizedLiveListings(
 
     const hits = Array.isArray(response.body.hits) ? response.body.hits : [];
     const fetchedAt = new Date().toISOString();
-    const listings = hits
+    const normalizedListings = hits
       .map((hit) =>
         normalizeGrailedAlgoliaHit(hit, {
           baseUrl: options.baseUrl,
@@ -419,9 +416,27 @@ async function searchAuthorizedLiveListings(
           marketScope: request.query.marketScope,
         }),
       )
-      .filter((listing) => matchesListingQuery(listing, request.query));
+      .filter((listing): listing is Listing => listing !== undefined);
+    const droppedListingCount = hits.length - normalizedListings.length;
+    const listings = normalizedListings.filter((listing) =>
+      matchesListingQuery(listing, request.query),
+    );
 
-    return createSuccess(listings, createGrailedPagination(response.body, page));
+    return createSuccess(
+      listings,
+      createGrailedPagination(response.body, page),
+      droppedListingCount > 0
+        ? [
+            {
+              code: "malformed_items_dropped",
+              message: `Dropped ${droppedListingCount} malformed Grailed listing ${
+                droppedListingCount === 1 ? "record" : "records"
+              }.`,
+              severity: "warning",
+            },
+          ]
+        : undefined,
+    );
   } catch (error) {
     if (error instanceof GrailedCredentialResolutionError) {
       return createFailure(error.code, error.message, error.retryable);
@@ -437,9 +452,7 @@ async function searchAuthorizedLiveListings(
 
     return createFailure(
       "unavailable",
-      error instanceof Error
-        ? error.message
-        : "Grailed scraping request failed before a response was returned.",
+      "Grailed scraping request failed before a response was returned.",
     );
   }
 }
@@ -447,7 +460,11 @@ async function searchAuthorizedLiveListings(
 export function createGrailedProvider(options: GrailedProviderOptions = {}): Provider {
   const runtimeMode = options.runtimeMode ?? "fixture";
   const fixtureListings = options.fixtureListings ?? grailedFixtureListings;
-  const baseUrl = toTrimmedString(options.baseUrl) || defaultBaseUrl;
+  const configuredBaseUrl = toTrimmedString(options.baseUrl) || defaultBaseUrl;
+  const baseUrl =
+    runtimeMode === "authorized-live"
+      ? normalizeGrailedBaseUrl(configuredBaseUrl)
+      : configuredBaseUrl;
   const userAgent = toTrimmedString(options.userAgent) || defaultUserAgent;
   const requestTimeoutMs = options.requestTimeoutMs ?? defaultRequestTimeoutMs;
   const minRequestIntervalMs = options.minRequestIntervalMs ?? defaultMinRequestIntervalMs;

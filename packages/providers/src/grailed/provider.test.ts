@@ -28,6 +28,21 @@ function createJsonResponse(status: number, body: unknown, headers: Record<strin
 }
 
 describe("createGrailedProvider", () => {
+  it("rejects non-canonical authorized-live origins before networking", () => {
+    const fetchImpl = vi.fn();
+
+    expect(() =>
+      createGrailedProvider({
+        authorizationReference: "fixture-written-authorization",
+        baseUrl: "http://127.0.0.1:4444/internal",
+        fetchImpl,
+        runtimeMode: "authorized-live",
+        scrapingAllowed: true,
+      }),
+    ).toThrow(/canonical HTTPS marketplace origin/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("uses local fixtures by default and does not make live network calls", async () => {
     const fetchImpl = vi.fn();
     const provider = createGrailedProvider({ fetchImpl });
@@ -145,23 +160,23 @@ describe("createGrailedProvider", () => {
     );
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
-      "https://grailed-app-123-dsn.algolia.net/1/indexes/Listing_production/query",
+      "https://GRAILED123-dsn.algolia.net/1/indexes/Listing_production/query",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
           "x-algolia-api-key": "grailed-key-123",
-          "x-algolia-application-id": "grailed-app-123",
+          "x-algolia-application-id": "GRAILED123",
         }),
       }),
     );
     expect(fetchImpl).toHaveBeenNthCalledWith(
       3,
-      "https://grailed-app-123-dsn.algolia.net/1/indexes/Listing_production/query",
+      "https://GRAILED123-dsn.algolia.net/1/indexes/Listing_production/query",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
           "x-algolia-api-key": "grailed-key-123",
-          "x-algolia-application-id": "grailed-app-123",
+          "x-algolia-application-id": "GRAILED123",
         }),
       }),
     );
@@ -201,6 +216,64 @@ describe("createGrailedProvider", () => {
     });
   });
 
+  it("drops malformed live hits while preserving valid results and a warning", async () => {
+    const malformedResponse = {
+      ...grailedAlgoliaActiveResponseFixture,
+      hits: [
+        {},
+        {
+          objectID: "grailed-hostile-url",
+          title: "Hostile URL",
+          url: "https://attacker.invalid/listing",
+          price_in_cents: 12_500,
+          currency: "USD",
+        },
+        grailedAlgoliaActiveResponseFixture.hits[0],
+      ],
+      nbHits: 3,
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(createTextResponse(200, grailedPublicConfigHtmlFixture))
+      .mockResolvedValueOnce(
+        createJsonResponse(200, {
+          hits: [],
+          hitsPerPage: 1,
+          nbHits: 0,
+          nbPages: 0,
+          page: 0,
+        }),
+      )
+      .mockResolvedValueOnce(createJsonResponse(200, malformedResponse));
+    const provider = createGrailedProvider({
+      authorizationReference: "fixture-written-authorization",
+      fetchImpl,
+      minRequestIntervalMs: 0,
+      runtimeMode: "authorized-live",
+      scrapingAllowed: true,
+    });
+    const response = await provider.search({
+      query: { text: "" },
+      pagination: { page: 1, pageSize: 24 },
+    });
+
+    expect(response).toMatchObject({
+      listings: [
+        expect.objectContaining({
+          providerListingId: "grailed-1001-kapital-ring-coat",
+        }),
+      ],
+      status: "success",
+      warnings: [
+        {
+          code: "malformed_items_dropped",
+          message: "Dropped 2 malformed Grailed listing records.",
+          severity: "warning",
+        },
+      ],
+    });
+  });
+
   it("switches to the sold Algolia index when the market scope requests historical comps", async () => {
     const fetchImpl = vi
       .fn()
@@ -235,7 +308,7 @@ describe("createGrailedProvider", () => {
 
     expect(fetchImpl).toHaveBeenNthCalledWith(
       3,
-      "https://grailed-app-123-dsn.algolia.net/1/indexes/Listing_sold_production/query",
+      "https://GRAILED123-dsn.algolia.net/1/indexes/Listing_sold_production/query",
       expect.objectContaining({ method: "POST" }),
     );
     expect(response.status).toBe("success");
@@ -257,7 +330,7 @@ describe("createGrailedProvider", () => {
   it("refreshes credentials once after a simulated Algolia 401 and retries successfully", async () => {
     const refreshedPublicConfigHtmlFixture = grailedPublicConfigHtmlFixture
       .replace("grailed-key-123", "grailed-key-456")
-      .replace("grailed-app-123", "grailed-app-456");
+      .replace("GRAILED123", "GRAILED456");
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(createTextResponse(200, grailedPublicConfigHtmlFixture))
@@ -296,11 +369,11 @@ describe("createGrailedProvider", () => {
 
     expect(fetchImpl).toHaveBeenNthCalledWith(
       6,
-      "https://grailed-app-456-dsn.algolia.net/1/indexes/Listing_production/query",
+      "https://GRAILED456-dsn.algolia.net/1/indexes/Listing_production/query",
       expect.objectContaining({
         headers: expect.objectContaining({
           "x-algolia-api-key": "grailed-key-456",
-          "x-algolia-application-id": "grailed-app-456",
+          "x-algolia-application-id": "GRAILED456",
         }),
       }),
     );
@@ -368,7 +441,7 @@ describe("createGrailedProvider", () => {
       }
 
       if (input.includes("algolia.net/1/indexes/Listing_production/query")) {
-        const body = input.includes("grailed-app-456")
+        const body = input.includes("GRAILED456")
           ? grailedAlgoliaActiveResponseFixture
           : {
               hits: [],

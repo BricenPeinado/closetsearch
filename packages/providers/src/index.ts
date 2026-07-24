@@ -32,11 +32,8 @@ export type {
   ProviderHttpResponse,
   ResilientHttpClientOptions,
 } from "./http/resilient-http.js";
-export {
-  createEbayProvider,
-  ebayProviderCapabilities,
-} from "./ebay/index.js";
+export { createEbayProvider, ebayProviderCapabilities } from "./ebay/index.js";
 export type { EbayProviderOptions } from "./ebay/index.js";
 export { mockProvider, normalizeMockListing } from "./examples/index.js";
-export { createGrailedProvider, grailedFixtureListings, normalizeGrailedListing } from "./grailed/index.js";
-export type { GrailedListingInput, GrailedProviderOptions, GrailedProviderRuntimeMode, RawGrailedFixtureListing } from "./grailed/index.js";
+export { createGrailedProvider } from "./grailed/index.js";
+export type { GrailedProviderOptions, GrailedProviderRuntimeMode } from "./grailed/index.js";

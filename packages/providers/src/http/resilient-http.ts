@@ -17,6 +17,7 @@ export type ProviderFetch = (
     body?: string;
     headers?: Record<string, string>;
     method?: string;
+    redirect?: "error" | "follow" | "manual";
     signal?: AbortSignal;
   },
 ) => Promise<ProviderHttpResponse>;
@@ -81,11 +82,7 @@ export class ProviderHttpError extends Error {
 
 const defaultRetryableStatuses = [408, 425, 429, 500, 502, 503, 504];
 
-function normalizePositiveInteger(
-  value: number | undefined,
-  fallback: number,
-  minimum = 0,
-) {
+function normalizePositiveInteger(value: number | undefined, fallback: number, minimum = 0) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return fallback;
   }
@@ -112,21 +109,11 @@ export function parseRetryAfterMs(
 }
 
 export function createResilientHttpClient(options: ResilientHttpClientOptions) {
-  const requestTimeoutMs = normalizePositiveInteger(
-    options.requestTimeoutMs,
-    10_000,
-    1,
-  );
+  const requestTimeoutMs = normalizePositiveInteger(options.requestTimeoutMs, 10_000, 1);
   const maxRetries = normalizePositiveInteger(options.maxRetries, 2);
   const baseBackoffMs = normalizePositiveInteger(options.baseBackoffMs, 250);
-  const minRequestIntervalMs = normalizePositiveInteger(
-    options.minRequestIntervalMs,
-    0,
-  );
-  const maxRetryAfterMs = normalizePositiveInteger(
-    options.maxRetryAfterMs,
-    60_000,
-  );
+  const minRequestIntervalMs = normalizePositiveInteger(options.minRequestIntervalMs, 0);
+  const maxRetryAfterMs = normalizePositiveInteger(options.maxRetryAfterMs, 60_000);
   const maxConcurrency = normalizePositiveInteger(options.maxConcurrency, 2, 1);
   const circuitBreakerFailureThreshold = normalizePositiveInteger(
     options.circuitBreakerFailureThreshold,
@@ -140,8 +127,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
   );
   const nowImpl = options.nowImpl ?? (() => Date.now());
   const sleepImpl =
-    options.sleepImpl ??
-    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    options.sleepImpl ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   let activeRequests = 0;
   const concurrencyQueue: Array<() => void> = [];
   let nextAllowedRequestAt = 0;
@@ -155,9 +141,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
       return "closed";
     }
 
-    return nowImpl() - circuitOpenedAt >= circuitBreakerCooldownMs
-      ? "half_open"
-      : "open";
+    return nowImpl() - circuitOpenedAt >= circuitBreakerCooldownMs ? "half_open" : "open";
   }
 
   async function acquireConcurrencySlot() {
@@ -265,6 +249,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
           body: request.body,
           headers: request.headers,
           method: request.method,
+          redirect: "manual",
           signal: controller.signal,
         });
       } finally {
@@ -275,9 +260,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
     }
   }
 
-  async function request(
-    requestOptions: ProviderHttpRequest,
-  ): Promise<ProviderHttpResponse> {
+  async function request(requestOptions: ProviderHttpRequest): Promise<ProviderHttpResponse> {
     const startedAt = nowImpl();
     let attempts = 0;
     let lastError: ProviderHttpError | undefined;
@@ -292,8 +275,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
 
         try {
           const response = await fetchOnce(requestOptions);
-          const retryableStatuses =
-            requestOptions.retryableStatuses ?? defaultRetryableStatuses;
+          const retryableStatuses = requestOptions.retryableStatuses ?? defaultRetryableStatuses;
 
           if (!retryableStatuses.includes(response.status)) {
             recordSuccess();
@@ -311,10 +293,8 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
 
           const retryAfterMs = Math.min(
             maxRetryAfterMs,
-            parseRetryAfterMs(
-              response.headers?.get("retry-after"),
-              nowImpl(),
-            ) ?? baseBackoffMs * 2 ** attempt,
+            parseRetryAfterMs(response.headers?.get("retry-after"), nowImpl()) ??
+              baseBackoffMs * 2 ** attempt,
           );
           lastError = new ProviderHttpError(
             `Provider HTTP request failed with retryable status ${response.status}.`,
@@ -334,8 +314,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
           if (error instanceof ProviderHttpError) {
             lastError = error;
           } else {
-            const timedOut =
-              error instanceof Error && error.name === "AbortError";
+            const timedOut = error instanceof Error && error.name === "AbortError";
             lastError = new ProviderHttpError(
               timedOut
                 ? "Provider HTTP request timed out."
