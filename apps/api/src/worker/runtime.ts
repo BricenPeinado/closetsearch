@@ -89,10 +89,17 @@ export class WorkerRuntime {
     return new Date(this.clock.now().getTime() + this.leaseDurationMs);
   }
 
-  private retryAt(job: WorkerJob) {
-    const delay = Math.min(
+  private retryAt(job: WorkerJob, retryAfterMs?: number) {
+    const exponentialDelay = Math.min(
       this.retryMaxDelayMs,
       this.retryBaseDelayMs * 2 ** Math.max(0, job.attemptCount - 1),
+    );
+    const delay = Math.max(
+      exponentialDelay,
+      Math.min(
+        Math.max(0, retryAfterMs ?? 0),
+        this.retryMaxDelayMs,
+      ),
     );
     return new Date(this.clock.now().getTime() + delay);
   }
@@ -196,7 +203,7 @@ export class WorkerRuntime {
         errorCode: jobError.code,
         errorMessage: jobError.message,
         failedAt: this.clock.now(),
-        retryAt: this.retryAt(job),
+        retryAt: this.retryAt(job, jobError.retryAfterMs),
         terminal: jobError.terminal,
       });
       this.logger({

@@ -4,7 +4,13 @@ import {
   PostgresDataPlane,
   runPostgresMigrations,
 } from "../db/postgres/index.js";
+import { createProviderRuntime } from "../providers/registry.js";
 import { createCoreWorkerHandlers } from "./core-handlers.js";
+import { createProviderIngestionHandler } from "./ingestion.js";
+import {
+  createWorkerProviderPlan,
+  seedWorkerJobs,
+} from "./provider-plan.js";
 import { WorkerRuntime } from "./runtime.js";
 
 function integerEnv(
@@ -41,9 +47,39 @@ export async function runWorkerProcess() {
   try {
     await runPostgresMigrations(database.pool);
     const dataPlane = new PostgresDataPlane(database);
+    const providerRuntime = createProviderRuntime();
+    const providerPlan = createWorkerProviderPlan(providerRuntime);
+    const handlers = createCoreWorkerHandlers();
+
+    if (providerPlan.sources.length > 0) {
+      handlers.set(
+        "provider.ingest",
+        createProviderIngestionHandler(providerPlan.sources),
+      );
+    }
+
+    const seededJobs = await seedWorkerJobs(dataPlane, providerPlan);
+    process.stdout.write(
+      `${JSON.stringify({
+        event: "worker_jobs_seeded",
+        ...seededJobs,
+        activeProviderIds: providerPlan.sources.map(
+          (source) => source.providerId,
+        ),
+        blockedProviders: providerRuntime.statuses
+          .filter(
+            (provider) =>
+              provider.providerMode === "real" && !provider.active,
+          )
+          .map((provider) => ({
+            id: provider.id,
+            reasons: provider.reasons,
+          })),
+      })}\n`,
+    );
     const runtime = new WorkerRuntime(
       dataPlane,
-      createCoreWorkerHandlers(),
+      handlers,
       {
         concurrency: integerEnv("WORKER_CONCURRENCY", 4, 1, 32),
         leaseDurationMs: integerEnv(

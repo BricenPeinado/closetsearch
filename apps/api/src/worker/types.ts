@@ -22,6 +22,7 @@ export class WorkerJobError extends Error {
     message: string,
     readonly code: string,
     readonly terminal = false,
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "WorkerJobError";

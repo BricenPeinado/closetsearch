@@ -62,6 +62,8 @@ interface IngestionCheckpointRow extends QueryResultRow {
   last_success_at: Date | string | null;
   next_run_at: Date | string;
   consecutive_failures: number;
+  last_error_code: string | null;
+  last_error_message: string | null;
 }
 
 export interface IngestionCheckpoint {
@@ -70,6 +72,8 @@ export interface IngestionCheckpoint {
   id: string;
   ingestionScope: "active" | "refresh" | "sold" | "watchlist";
   lastSuccessAt?: Date;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
   nextRunAt: Date;
   providerId: string;
   queryKey: string;
@@ -207,7 +211,13 @@ export class JobRepository {
          schedule_interval_seconds = EXCLUDED.schedule_interval_seconds,
          max_attempts = EXCLUDED.max_attempts,
          status = CASE
-           WHEN worker_jobs.status IN ('paused', 'dead_letter')
+           WHEN worker_jobs.status IN (
+             'paused',
+             'dead_letter',
+             'running',
+             'retry_wait',
+             'queued'
+           )
              THEN worker_jobs.status
            ELSE 'queued'
          END,
@@ -589,7 +599,9 @@ export class JobRepository {
          checkpoint_version,
          last_success_at,
          next_run_at,
-         consecutive_failures
+         consecutive_failures,
+         last_error_code,
+         last_error_message
        FROM provider_ingestion_checkpoints
        WHERE provider_id = $1
          AND ingestion_scope = $2
@@ -610,6 +622,8 @@ export class JobRepository {
       lastSuccessAt: row.last_success_at
         ? toDate(row.last_success_at)
         : undefined,
+      lastErrorCode: row.last_error_code ?? undefined,
+      lastErrorMessage: row.last_error_message ?? undefined,
       nextRunAt: toDate(row.next_run_at),
       providerId: row.provider_id,
       queryKey: row.query_key,
@@ -652,6 +666,8 @@ export class JobRepository {
          ),
          next_run_at = EXCLUDED.next_run_at,
          consecutive_failures = EXCLUDED.consecutive_failures,
+         last_error_code = NULL,
+         last_error_message = NULL,
          updated_at = CURRENT_TIMESTAMP
        WHERE provider_ingestion_checkpoints.checkpoint_version = $9
        RETURNING
@@ -663,7 +679,9 @@ export class JobRepository {
          checkpoint_version,
          last_success_at,
          next_run_at,
-         consecutive_failures`,
+         consecutive_failures,
+         last_error_code,
+         last_error_message`,
       [
         id,
         input.providerId,
@@ -684,6 +702,57 @@ export class JobRepository {
         `Ingestion checkpoint ${input.providerId}/${input.ingestionScope}/${input.queryKey} was concurrently modified.`,
       );
     }
+
+    return this.getIngestionCheckpoint(
+      input.providerId,
+      input.ingestionScope,
+      input.queryKey,
+    );
+  }
+
+  async recordIngestionFailure(input: {
+    errorCode: string;
+    errorMessage: string;
+    failedAt: Date;
+    ingestionScope: IngestionCheckpoint["ingestionScope"];
+    nextRunAt: Date;
+    providerId: string;
+    queryKey: string;
+  }) {
+    await this.database.query(
+      `INSERT INTO provider_ingestion_checkpoints (
+         id,
+         provider_id,
+         ingestion_scope,
+         query_key,
+         checkpoint_version,
+         last_attempt_at,
+         next_run_at,
+         consecutive_failures,
+         last_error_code,
+         last_error_message
+       ) VALUES ($1, $2, $3, $4, 1, $5, $6, 1, $7, $8)
+       ON CONFLICT (provider_id, ingestion_scope, query_key) DO UPDATE SET
+         checkpoint_version =
+           provider_ingestion_checkpoints.checkpoint_version + 1,
+         last_attempt_at = EXCLUDED.last_attempt_at,
+         next_run_at = EXCLUDED.next_run_at,
+         consecutive_failures =
+           provider_ingestion_checkpoints.consecutive_failures + 1,
+         last_error_code = EXCLUDED.last_error_code,
+         last_error_message = EXCLUDED.last_error_message,
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        randomUUID(),
+        input.providerId,
+        input.ingestionScope,
+        input.queryKey,
+        input.failedAt,
+        input.nextRunAt,
+        input.errorCode.slice(0, 120),
+        input.errorMessage.slice(0, 2_000),
+      ],
+    );
 
     return this.getIngestionCheckpoint(
       input.providerId,

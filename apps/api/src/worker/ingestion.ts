@@ -172,16 +172,45 @@ export function createProviderIngestionHandler(
         nextRunAt,
       };
     } catch (error) {
-      await dataPlane.providers.recordHealth({
-        checkedAt: now(),
-        errorCode:
-          error instanceof WorkerJobError
-            ? error.code
-            : "provider_ingestion_failed",
+      const failedAt = now();
+      const jobError =
+        error instanceof WorkerJobError
+          ? error
+          : new WorkerJobError(
+              error instanceof Error
+                ? error.message
+                : "Provider ingestion failed.",
+              "provider_ingestion_failed",
+            );
+      const retryDelayMs = Math.max(
+        60_000,
+        Math.min(jobError.retryAfterMs ?? 60_000, 86_400_000),
+      );
+
+      await dataPlane.jobs.recordIngestionFailure({
+        errorCode: jobError.code,
+        errorMessage: jobError.message,
+        failedAt,
+        ingestionScope: payload.ingestionScope,
+        nextRunAt: new Date(failedAt.getTime() + retryDelayMs),
         providerId: payload.providerId,
+        queryKey: payload.queryKey,
+      });
+      await dataPlane.providers.recordHealth({
+        checkedAt: failedAt,
+        circuitOpenUntil:
+          jobError.code === "provider_circuit_open"
+            ? new Date(failedAt.getTime() + retryDelayMs)
+            : undefined,
+        errorCode: jobError.code,
+        providerId: payload.providerId,
+        rateLimitedUntil:
+          jobError.code === "provider_rate_limited"
+            ? new Date(failedAt.getTime() + retryDelayMs)
+            : undefined,
         state: "degraded",
       });
-      throw error;
+      throw jobError;
     }
   };
 }
