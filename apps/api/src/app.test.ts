@@ -266,12 +266,16 @@ describe("handleRequest", () => {
     const previousMode = process.env.PROVIDER_RUNTIME_MODE;
     const previousEnabled = process.env.GRAILED_PROVIDER_ENABLED;
     const previousScrapingAllowed = process.env.GRAILED_SCRAPING_ALLOWED;
+    const previousAuthorizationReference =
+      process.env.GRAILED_AUTHORIZATION_REFERENCE;
     const previousUserAgent = process.env.GRAILED_USER_AGENT;
     const previousBaseUrl = process.env.GRAILED_BASE_URL;
 
     process.env.PROVIDER_RUNTIME_MODE = "hybrid";
     process.env.GRAILED_PROVIDER_ENABLED = "true";
     process.env.GRAILED_SCRAPING_ALLOWED = "true";
+    process.env.GRAILED_AUTHORIZATION_REFERENCE =
+      "legal-approval-fixture-CS-123";
     process.env.GRAILED_USER_AGENT = "ClosetSearchBot/0.1 contact:team.com";
     process.env.GRAILED_BASE_URL = "https://secret-grailed.example/private";
 
@@ -325,6 +329,12 @@ describe("handleRequest", () => {
       else process.env.GRAILED_PROVIDER_ENABLED = previousEnabled;
       if (previousScrapingAllowed === undefined) delete process.env.GRAILED_SCRAPING_ALLOWED;
       else process.env.GRAILED_SCRAPING_ALLOWED = previousScrapingAllowed;
+      if (previousAuthorizationReference === undefined) {
+        delete process.env.GRAILED_AUTHORIZATION_REFERENCE;
+      } else {
+        process.env.GRAILED_AUTHORIZATION_REFERENCE =
+          previousAuthorizationReference;
+      }
       if (previousUserAgent === undefined) delete process.env.GRAILED_USER_AGENT;
       else process.env.GRAILED_USER_AGENT = previousUserAgent;
       if (previousBaseUrl === undefined) delete process.env.GRAILED_BASE_URL;
@@ -646,7 +656,7 @@ describe("handleRequest", () => {
     });
   });
 
-  it("returns normalized search results from /search and records observed price snapshots", async () => {
+  it("returns normalized fixture search results without using mock data for analytics", async () => {
     const snapshot = await runRequest(createRequest("GET", "/search?q=jacket"));
 
     expect(snapshot.statusCode).toBe(200);
@@ -675,7 +685,7 @@ describe("handleRequest", () => {
         riskLevel: expect.any(String),
       },
     });
-    expect(getObservedPriceSnapshots().length).toBeGreaterThan(0);
+    expect(getObservedPriceSnapshots()).toHaveLength(0);
   });
 
   it("returns paginated normalized feed results and personalizes them from the session cookie", async () => {
@@ -689,7 +699,7 @@ describe("handleRequest", () => {
         pageSize: 4,
       },
     });
-    expect(getObservedPriceSnapshots().length).toBeGreaterThan(0);
+    expect(getObservedPriceSnapshots()).toHaveLength(0);
 
     const signup = await signupAndGetSession("preflover", "mohaircoat");
 
