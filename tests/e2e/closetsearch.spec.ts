@@ -3,6 +3,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 const apiUrl = "http://127.0.0.1:4400";
 const webUrl = "http://127.0.0.1:4173";
 const password = "Correct-Horse-Battery-Staple!42";
+const persistenceDriver = process.env.PLAYWRIGHT_PERSISTENCE_DRIVER ?? "sqlite";
 
 function usernameFor(testInfo: TestInfo) {
   const stableName = testInfo.title
@@ -103,6 +104,133 @@ test("signed-in onboarding and likes persist through the API-backed UI", async (
   await expect(page.getByRole("button", { name: "Remove from likes" }).first()).toBeVisible();
 });
 
+test("signed-in watchlists persist through create, edit, and delete", async ({
+  page,
+}, testInfo) => {
+  await signUp(page, testInfo);
+
+  await page
+    .getByRole("navigation", { name: "Primary" })
+    .getByRole("link", { name: "Profile" })
+    .click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Profile" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "No watchlists yet" })).toBeVisible();
+
+  await page.locator("#watchlist-label").fill("Night jackets");
+  await page.locator("#watchlist-query").fill("archive jacket");
+  await page.locator("#watchlist-brand").fill("Kapital");
+  await page.locator("#watchlist-category").fill("outerwear");
+  await page.locator("#watchlist-listing-type").selectOption("buy_now");
+  await page.locator("#watchlist-min-price").fill("100");
+  await page.locator("#watchlist-max-price").fill("400");
+  await page.locator("#watchlist-currency").fill("USD");
+  await page.locator("#watchlist-size").fill("M");
+  await page.locator("#watchlist-condition").selectOption("good");
+  await page.getByRole("button", { name: "Save watchlist" }).click();
+
+  await expect(
+    page.getByText("Saved your watchlist. The production worker can now create in-app matches."),
+  ).toBeVisible();
+
+  let watchlistCard = page
+    .locator("article.recent-search-card")
+    .filter({ has: page.getByRole("heading", { level: 2, name: "Night jackets" }) });
+  await expect(watchlistCard).toContainText("archive jacket");
+  await expect(watchlistCard).toContainText("Kapital");
+  await expect(watchlistCard).toContainText("Up to $400");
+
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Profile" })).toBeVisible();
+
+  watchlistCard = page
+    .locator("article.recent-search-card")
+    .filter({ has: page.getByRole("heading", { level: 2, name: "Night jackets" }) });
+  await expect(watchlistCard).toContainText("archive jacket");
+  await expect(watchlistCard).toContainText("Up to $400");
+
+  await watchlistCard.getByRole("button", { name: "Edit" }).click();
+  await expect(page.locator("#watchlist-label")).toHaveValue("Night jackets");
+  await page.locator("#watchlist-max-price").fill("450");
+  await page.locator("label.info-chip").filter({ hasText: "Watchlist enabled" }).click();
+  await expect(page.getByLabel("Watchlist enabled")).not.toBeChecked();
+  await page.getByRole("button", { name: "Update watchlist" }).click();
+
+  await expect(
+    page.getByText("Updated your watchlist. The production worker will use the new criteria."),
+  ).toBeVisible();
+  watchlistCard = page
+    .locator("article.recent-search-card")
+    .filter({ has: page.getByRole("heading", { level: 2, name: "Night jackets" }) });
+  await expect(watchlistCard).toContainText("Up to $450");
+  await expect(watchlistCard).toContainText("Paused");
+
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Profile" })).toBeVisible();
+
+  watchlistCard = page
+    .locator("article.recent-search-card")
+    .filter({ has: page.getByRole("heading", { level: 2, name: "Night jackets" }) });
+  await expect(watchlistCard).toContainText("Up to $450");
+  await expect(watchlistCard).toContainText("Paused");
+  await watchlistCard.getByRole("button", { name: "Delete" }).click();
+
+  await expect(page.getByText('Deleted watchlist "Night jackets".')).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "No watchlists yet" })).toBeVisible();
+});
+
+test("signed-in free accounts remain locked out of persisted-entitlement analytics", async ({
+  page,
+}, testInfo) => {
+  await signUp(page, testInfo);
+
+  const sessionResponse = await page.request.get(`${apiUrl}/auth/me`);
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = (await sessionResponse.json()) as {
+    userId: string;
+  };
+
+  const analyticsResponse = await page.request.get(`${apiUrl}/analytics/overview`);
+  expect(analyticsResponse.ok()).toBeTruthy();
+  const analytics = (await analyticsResponse.json()) as {
+    locked: boolean;
+    message: string;
+    overview?: unknown;
+    premiumAccess?: {
+      isPremium: boolean;
+      planName: string;
+      userId: string;
+    };
+  };
+
+  expect(analytics).toMatchObject({
+    locked: true,
+    message: expect.stringContaining("active persisted entitlement"),
+    premiumAccess: {
+      isPremium: false,
+      planName: "Free",
+      userId: session.userId,
+    },
+  });
+  expect(analytics).not.toHaveProperty("overview");
+
+  await page.goto("/analytics");
+
+  await expect(page.getByRole("heading", { level: 1, name: "Premium Analytics" })).toBeVisible();
+  await expect(page.getByText("Entitlement required")).toBeVisible();
+  await expect(
+    page.getByText("Observed market analytics require an active persisted entitlement."),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Access is never inferred from a username. Development grants are explicitly non-billing and disabled in production.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Observed brand ranges" }),
+  ).toBeVisible();
+});
+
 test("a degraded provider preserves successful results and explains the partial state", async ({
   page,
 }) => {
@@ -163,4 +291,39 @@ test("revoked sessions surface the session-expired recovery state", async ({ pag
     ),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Log in again" })).toBeVisible();
+});
+
+test("PostgreSQL account deletion removes the identity and invalidates its session", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    persistenceDriver !== "postgres",
+    "The supported SQLite test path does not implement account deletion; production PostgreSQL does.",
+  );
+
+  const username = await signUp(page, testInfo);
+
+  await page
+    .getByRole("navigation", { name: "Primary" })
+    .getByRole("link", { name: "Profile" })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: "Profile" })).toBeVisible();
+
+  await page.locator("#delete-account-username").fill(username);
+  await page.getByRole("button", { name: "Permanently delete account" }).click();
+
+  await expect(page).toHaveURL("/");
+  await expect(page.getByText("Your account and its stored data were deleted.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Log in" }).first()).toBeVisible();
+
+  const sessionResponse = await page.request.get(`${apiUrl}/auth/me`);
+  expect(sessionResponse.status()).toBe(401);
+
+  await page.goto("/login");
+  await page.getByLabel("Username").fill(username);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Log in" }).click();
+
+  await expect(page.getByRole("alert")).toHaveText("Invalid username or password.");
+  await expect(page).toHaveURL(/\/login$/);
 });

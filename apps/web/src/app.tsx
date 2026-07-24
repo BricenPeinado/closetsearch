@@ -2077,7 +2077,11 @@ function SearchRoutePage({
         worker.
       </p>
       {saveFeedback ? <p className="page-description">{saveFeedback}</p> : null}
-      {saveErrorMessage ? <p className="form-error">{saveErrorMessage}</p> : null}
+      {saveErrorMessage ? (
+        <p className="form-error" role="alert">
+          {saveErrorMessage}
+        </p>
+      ) : null}
     </div>
   ) : null;
 
@@ -3615,7 +3619,11 @@ function ProfileRoutePage({
             </label>
 
             {watchlistFeedback ? <p className="page-description">{watchlistFeedback}</p> : null}
-            {watchlistErrorMessage ? <p className="form-error">{watchlistErrorMessage}</p> : null}
+            {watchlistErrorMessage ? (
+              <p className="form-error" role="alert">
+                {watchlistErrorMessage}
+              </p>
+            ) : null}
 
             <div className="search-panel__actions">
               <button className="search-form__button" disabled={isSavingWatchlist} type="submit">
@@ -3766,7 +3774,9 @@ function ProfileRoutePage({
               <p className="page-description">{notificationPreferencesFeedback}</p>
             ) : null}
             {notificationPreferencesErrorMessage ? (
-              <p className="form-error">{notificationPreferencesErrorMessage}</p>
+              <p className="form-error" role="alert">
+                {notificationPreferencesErrorMessage}
+              </p>
             ) : null}
 
             <div className="search-panel__actions">
@@ -3886,7 +3896,11 @@ function ProfileRoutePage({
             </fieldset>
 
             {settingsFeedback ? <p className="page-description">{settingsFeedback}</p> : null}
-            {settingsErrorMessage ? <p className="form-error">{settingsErrorMessage}</p> : null}
+            {settingsErrorMessage ? (
+              <p className="form-error" role="alert">
+                {settingsErrorMessage}
+              </p>
+            ) : null}
 
             <div className="search-panel__actions">
               <button className="search-form__button" disabled={isSavingSettings} type="submit">
@@ -4222,7 +4236,11 @@ function SignupRoutePage({
             />
           </label>
 
-          {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+          {errorMessage ? (
+            <p className="form-error" role="alert">
+              {errorMessage}
+            </p>
+          ) : null}
 
           <div className="search-panel__actions">
             <button className="search-form__button" disabled={isSubmitting} type="submit">
@@ -4309,7 +4327,11 @@ function LoginRoutePage({
             />
           </label>
 
-          {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+          {errorMessage ? (
+            <p className="form-error" role="alert">
+              {errorMessage}
+            </p>
+          ) : null}
 
           <div className="search-panel__actions">
             <button className="search-form__button" disabled={isSubmitting} type="submit">
@@ -4437,7 +4459,11 @@ function OnboardingRoutePage({
             />
           </label>
 
-          {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+          {errorMessage ? (
+            <p className="form-error" role="alert">
+              {errorMessage}
+            </p>
+          ) : null}
 
           <div className="search-panel__actions">
             <button className="search-form__button" disabled={isSubmitting} type="submit">
