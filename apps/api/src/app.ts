@@ -1505,7 +1505,6 @@ export function createApp() {
         logError("Unhandled API error", {
           ...requestContext,
           errorName: error instanceof Error ? error.name : "UnknownError",
-          message: error instanceof Error ? error.message : "Unknown error",
         });
 
         sendJson(request, response, 500, {

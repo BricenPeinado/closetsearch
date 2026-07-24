@@ -18,10 +18,7 @@ function getComparisonMoney(listing: Listing) {
   );
 }
 
-export function sortListingsForSearch(
-  listings: Listing[],
-  sort: SearchQuery["sort"],
-) {
+export function sortListingsForSearch(listings: Listing[], sort: SearchQuery["sort"]) {
   const sorted = [...listings];
   const comparisonCurrencies = new Set(
     sorted.map((listing) => getComparisonMoney(listing).currency.toUpperCase()),
@@ -52,8 +49,7 @@ export function sortListingsForSearch(
     default:
       sorted.sort(
         (left, right) =>
-          new Date(right.fetchedAt).getTime() -
-            new Date(left.fetchedAt).getTime() ||
+          new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime() ||
           left.id.localeCompare(right.id),
       );
       break;
@@ -78,7 +74,7 @@ function rememberAnalyticsListings(listings: Listing[]) {
     recordObservedListings(listings);
   } catch (error) {
     logWarn("Analytics snapshot recording failed", {
-      message: error instanceof Error ? error.message : "Unknown analytics snapshot error",
+      errorName: error instanceof Error ? error.name : "UnknownAnalyticsSnapshotError",
       route: "search",
     });
   }
@@ -88,7 +84,11 @@ function shouldThrowProviderUnavailable(
   providers: Array<{ status: "success" | "failure" }>,
   listings: Listing[],
 ) {
-  return listings.length === 0 && providers.length > 0 && providers.every((provider) => provider.status === "failure");
+  return (
+    listings.length === 0 &&
+    providers.length > 0 &&
+    providers.every((provider) => provider.status === "failure")
+  );
 }
 
 export async function searchListings(
@@ -98,7 +98,11 @@ export async function searchListings(
   const execution = await runProviderSearch(query, runtime);
 
   if (shouldThrowProviderUnavailable(execution.providers, execution.listings)) {
-    throw new ApiError(502, "search_unavailable", "The search request could not be completed right now.");
+    throw new ApiError(
+      502,
+      "search_unavailable",
+      "The search request could not be completed right now.",
+    );
   }
 
   const providerListings = execution.listings.map(attachRiskSignal);

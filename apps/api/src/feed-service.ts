@@ -38,7 +38,7 @@ function rememberAnalyticsListings(listings: Listing[]) {
     recordObservedListings(listings);
   } catch (error) {
     logWarn("Analytics snapshot recording failed", {
-      message: error instanceof Error ? error.message : "Unknown analytics snapshot error",
+      errorName: error instanceof Error ? error.name : "UnknownAnalyticsSnapshotError",
       route: "feed",
     });
   }
@@ -70,21 +70,15 @@ async function loadPersonalizationInputs(userId: string) {
 
   const engagementSince = new Date();
   engagementSince.setUTCDate(engagementSince.getUTCDate() - 90);
-  const [
-    engagementByListingId,
-    likedListings,
-    savedFilters,
-    savedSearches,
-    settings,
-    watchlists,
-  ] = await Promise.all([
-    dataPlane.engagement.getUserListingScores(user.id, engagementSince),
-    listPostgresLikedListings(dataPlane, user.id),
-    dataPlane.requestStore.listSavedFiltersByUserId(user.id),
-    dataPlane.requestStore.listSavedSearchesByUserId(user.id),
-    dataPlane.requestStore.getUserSettings(user.id),
-    dataPlane.requestStore.listWatchlistsByUserId(user.id),
-  ]);
+  const [engagementByListingId, likedListings, savedFilters, savedSearches, settings, watchlists] =
+    await Promise.all([
+      dataPlane.engagement.getUserListingScores(user.id, engagementSince),
+      listPostgresLikedListings(dataPlane, user.id),
+      dataPlane.requestStore.listSavedFiltersByUserId(user.id),
+      dataPlane.requestStore.listSavedSearchesByUserId(user.id),
+      dataPlane.requestStore.getUserSettings(user.id),
+      dataPlane.requestStore.listWatchlistsByUserId(user.id),
+    ]);
 
   return {
     engagementByListingId,
@@ -139,10 +133,7 @@ export async function getFeed(
     ? await loadPersonalizationInputs(query.userId)
     : undefined;
   const user = personalizationInputs?.user;
-  const listings = await applyDisplayCurrency(
-    providerListings,
-    user?.currencyPreference,
-  );
+  const listings = await applyDisplayCurrency(providerListings, user?.currencyPreference);
 
   if (personalizationInputs === undefined || user === undefined) {
     const recommendation = getMlRecommendationRuntime().rank({

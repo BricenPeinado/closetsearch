@@ -1,8 +1,5 @@
 import { createApp } from "./app.js";
-import {
-  closePersistenceRuntime,
-  getPersistenceRuntime,
-} from "./db/persistence-runtime.js";
+import { closePersistenceRuntime, getPersistenceRuntime } from "./db/persistence-runtime.js";
 import { logError, logInfo } from "./logger.js";
 import { validateStartupEnvironment } from "./startup-config.js";
 
@@ -46,7 +43,6 @@ function shutdown(signal: NodeJS.Signals) {
     if (error) {
       logError("Graceful shutdown failed", {
         errorName: error.name,
-        message: error.message,
         signal,
       });
       process.exitCode = 1;
