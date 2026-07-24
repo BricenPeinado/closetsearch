@@ -15,7 +15,6 @@ import { resetWatchlistStore } from "./watchlist-service.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
 import {
   getObservedPriceSnapshots,
-  recordObservedListings,
   resetPriceSnapshotStore,
 } from "./services/priceSnapshotService.js";
 import { resetUserStore } from "./user-service.js";
@@ -156,44 +155,6 @@ const sampleLikedListing = {
   listingType: "buy_now" as const,
   fetchedAt: "2026-07-10T12:00:00.000Z",
 };
-
-function createAnalyticsListing(overrides?: Partial<typeof sampleLikedListing> & {
-  brandName?: string;
-  category?: string;
-  id?: string;
-  priceAmount?: number;
-}) {
-  const listingId = overrides?.id ?? "mock:analytics-listing";
-  const providerListingId = overrides?.providerListingId ?? listingId.split(":").pop() ?? listingId;
-  const brandName = overrides?.brandName ?? overrides?.brand?.name ?? "Kapital";
-  const brandSlug = brandName.toLowerCase().replace(/\s+/g, "-");
-
-  return {
-    ...sampleLikedListing,
-    ...overrides,
-    id: listingId,
-    providerId: overrides?.providerId ?? "mock",
-    providerListingId,
-    source: overrides?.source ?? {
-      id: "mock",
-      name: "Mock Closet",
-    },
-    sourceUrl: overrides?.sourceUrl ?? `https://mockcloset.example/listings/${providerListingId}`,
-    title: overrides?.title ?? `${brandName} listing`,
-    brand: overrides?.brand ?? {
-      id: `brand:${brandSlug}`,
-      slug: brandSlug,
-      name: brandName,
-    },
-    imageUrl: overrides?.imageUrl ?? `https://cdn.example.com/${providerListingId}.jpg`,
-    price: overrides?.price ?? {
-      amount: overrides?.priceAmount ?? 200,
-      currency: "USD",
-    },
-    category: overrides?.category,
-    fetchedAt: overrides?.fetchedAt ?? "2026-07-16T12:00:00.000Z",
-  };
-}
 
 describe("handleRequest", () => {
   let databasePath = "";
@@ -810,106 +771,42 @@ describe("handleRequest", () => {
     });
   });
 
-  it("preserves locked analytics for free users and returns observed analytics for premium preview users", async () => {
+  it("keeps analytics locked without a persisted entitlement, regardless of username", async () => {
     const lockedSnapshot = await runRequest(createRequest("GET", "/analytics/overview"));
-    expect(JSON.parse(lockedSnapshot.body)).toMatchObject({
+    const signedOutBody = JSON.parse(lockedSnapshot.body) as Record<
+      string,
+      unknown
+    >;
+
+    expect(signedOutBody).toMatchObject({
       locked: true,
-      message: expect.stringContaining("Collector Preview"),
+      message: expect.stringContaining("persisted entitlement"),
     });
+    expect(signedOutBody).not.toHaveProperty("premiumPreviewUsername");
 
-    recordObservedListings([
-      createAnalyticsListing({ id: "mock:kapital-1", brandName: "Kapital", category: "jackets", priceAmount: 120, title: "Kapital lower-priced jacket" }),
-      createAnalyticsListing({ id: "mock:kapital-2", brandName: "Kapital", category: "jackets", priceAmount: 180 }),
-      createAnalyticsListing({ id: "mock:kapital-3", brandName: "Kapital", category: "jackets", priceAmount: 210 }),
-      createAnalyticsListing({ id: "mock:kapital-4", brandName: "Kapital", category: "jackets", priceAmount: 240 }),
-      createAnalyticsListing({ id: "mock:kapital-5", brandName: "Kapital", category: "jackets", priceAmount: 260 }),
-      createAnalyticsListing({ id: "mock:undercover-1", brandName: "Undercover", category: "tops", priceAmount: 90 }),
-      createAnalyticsListing({ id: "mock:undercover-2", brandName: "Undercover", category: "tops", priceAmount: 120 }),
-      createAnalyticsListing({ id: "mock:undercover-3", brandName: "Undercover", category: "tops", priceAmount: 150 }),
-      createAnalyticsListing({ id: "mock:undercover-4", brandName: "Undercover", category: "tops", priceAmount: 200 }),
-    ]);
-
-    const premium = await signupAndGetSession("premiumdemo", "mohaircoat");
-
-    const overviewSnapshot = await runRequest(
+    const usernameOnly = await signupAndGetSession(
+      "premiumdemo",
+      "mohaircoat",
+    );
+    const signedInSnapshot = await runRequest(
       createRequest("GET", "/analytics/overview", {
-        cookie: premium.cookie,
+        cookie: usernameOnly.cookie,
       }),
     );
-    const overviewBody = JSON.parse(overviewSnapshot.body) as {
-      locked: boolean;
-      overview?: {
-        dataQuality: { note: string; status: string };
-        observedBrandCount: number;
-        observedCategoryCount: number;
-        observedListingCount: number;
-      };
-      premiumAccess?: { isPremium: boolean; planName: string };
-      sampleData?: boolean;
-    };
+    const signedInBody = JSON.parse(signedInSnapshot.body) as Record<
+      string,
+      unknown
+    >;
 
-    expect(overviewBody).toMatchObject({
-      locked: false,
+    expect(signedInBody).toMatchObject({
+      locked: true,
       premiumAccess: {
-        isPremium: true,
-        planName: "Collector Preview",
-      },
-      sampleData: true,
-      overview: {
-        observedBrandCount: 2,
-        observedCategoryCount: 2,
-        observedListingCount: 9,
+        isPremium: false,
+        planName: "Free",
+        userId: usernameOnly.body.userId,
       },
     });
-    expect(overviewBody.overview?.dataQuality.note.toLowerCase()).toContain("observed");
-
-    const insightsSnapshot = await runRequest(
-      createRequest("GET", "/analytics/market-insights", {
-        cookie: premium.cookie,
-      }),
-    );
-    expect(JSON.parse(insightsSnapshot.body)).toMatchObject({
-      locked: false,
-      brandSummaries: expect.arrayContaining([
-        expect.objectContaining({
-          brand: "Kapital",
-          range: expect.objectContaining({
-            medianPrice: 210,
-            minPrice: 120,
-            maxPrice: 260,
-          }),
-        }),
-      ]),
-      categorySummaries: expect.arrayContaining([
-        expect.objectContaining({
-          category: "jackets",
-          range: expect.objectContaining({
-            count: 5,
-          }),
-        }),
-      ]),
-    });
-
-    const underpricedSnapshot = await runRequest(
-      createRequest("GET", "/analytics/underpriced", {
-        cookie: premium.cookie,
-      }),
-    );
-    const underpricedBody = JSON.parse(underpricedSnapshot.body) as {
-      locked: boolean;
-      signals?: Array<{ label: string; summary: string }>;
-    };
-
-    expect(underpricedBody.locked).toBe(false);
-    expect(underpricedBody.signals).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          label: "Below observed range",
-          summary: expect.stringContaining("observed"),
-        }),
-      ]),
-    );
-    expect(JSON.stringify(underpricedBody).toLowerCase()).not.toContain("profit");
+    expect(signedInBody).not.toHaveProperty("overview");
   });
 
   it("persists recent searches through authenticated API routes", async () => {

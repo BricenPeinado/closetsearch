@@ -40,16 +40,6 @@ import {
 import { addSavedFilter, getSavedFiltersByUserId, removeSavedFilter } from "./saved-filter-service.js";
 import { searchListings } from "./search-service.js";
 import { getSettingsByUserId, updateSettings } from "./user-settings-service.js";
-import {
-  analyticsUsesSampleData,
-  getAnalyticsOverview,
-  getMarketInsights,
-  getUnderpricedListingSignals,
-} from "./services/analyticsService.js";
-import {
-  getPremiumAccess,
-  getPremiumPreviewUsername,
-} from "./services/premiumAccessService.js";
 import { createUser, loginUser, saveOnboardingPreferences } from "./user-service.js";
 import {
   getAlertMatchesByUserId,
@@ -67,6 +57,8 @@ import {
 import { handleEngagementRoute } from "./routes/engagement-routes.js";
 import { handleOperationsRoute } from "./routes/operations-routes.js";
 import { handleBrandRoute } from "./routes/brand-routes.js";
+import { handleAnalyticsRoute } from "./routes/analytics-routes.js";
+import { handleEntitlementRoute } from "./routes/entitlement-routes.js";
 
 const requestIdHeaderName = "x-request-id";
 const authRateLimiter = new FixedWindowRateLimiter({
@@ -1063,93 +1055,6 @@ async function handlePatchSettings(
   });
 }
 
-function getAnalyticsUser(request: IncomingMessage) {
-  return getOptionalAuthContext(request)?.user;
-}
-
-function sendLockedAnalyticsResponse(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-  userId?: string,
-) {
-  sendJson(request, response, 200, {
-    locked: true,
-    message:
-      "Observed pricing context is part of Collector Preview. Brand ranges, category ranges, and cautious under-market signals use only listings ClosetSearch has observed.",
-    premiumAccess: userId
-      ? {
-          userId,
-          isPremium: false,
-          planName: "Free",
-        }
-      : undefined,
-    premiumPreviewUsername: getPremiumPreviewUsername(),
-  });
-}
-
-function handleAnalyticsOverview(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const user = getAnalyticsUser(request);
-  const premiumAccess = getPremiumAccess(user);
-
-  if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(request, response, user?.id);
-    return;
-  }
-
-  sendJson(request, response, 200, {
-    locked: false,
-    premiumAccess,
-    overview: getAnalyticsOverview(),
-    sampleData: analyticsUsesSampleData(),
-  });
-}
-
-function handleMarketInsights(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const user = getAnalyticsUser(request);
-  const premiumAccess = getPremiumAccess(user);
-
-  if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(request, response, user?.id);
-    return;
-  }
-
-  const insights = getMarketInsights();
-
-  sendJson(request, response, 200, {
-    locked: false,
-    premiumAccess,
-    brandSummaries: insights.brandSummaries,
-    categorySummaries: insights.categorySummaries,
-    sampleData: analyticsUsesSampleData(),
-  });
-}
-
-function handleUnderpricedSignals(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const user = getAnalyticsUser(request);
-  const premiumAccess = getPremiumAccess(user);
-
-  if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(request, response, user?.id);
-    return;
-  }
-
-  sendJson(request, response, 200, {
-    locked: false,
-    premiumAccess,
-    signals: getUnderpricedListingSignals(),
-    sampleData: analyticsUsesSampleData(),
-  });
-}
-
 function getErrorHeaders(error: { code?: string }) {
   if (error.code === "session_expired" || error.code === "unauthenticated") {
     return {
@@ -1183,6 +1088,19 @@ export async function handleRequest(
       response,
       engagementRoute.statusCode,
       engagementRoute.body,
+    );
+    return;
+  }
+
+  const entitlementRoute = await handleEntitlementRoute(request, requestUrl);
+
+  if (entitlementRoute) {
+    sendJson(
+      request,
+      response,
+      entitlementRoute.statusCode,
+      entitlementRoute.body,
+      entitlementRoute.headers,
     );
     return;
   }
@@ -1265,18 +1183,16 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "GET" && requestUrl.pathname === "/analytics/overview") {
-    handleAnalyticsOverview(request, response);
-    return;
-  }
+  const analyticsRoute = await handleAnalyticsRoute(request, requestUrl);
 
-  if (method === "GET" && requestUrl.pathname === "/analytics/market-insights") {
-    handleMarketInsights(request, response);
-    return;
-  }
-
-  if (method === "GET" && requestUrl.pathname === "/analytics/underpriced") {
-    handleUnderpricedSignals(request, response);
+  if (analyticsRoute) {
+    sendJson(
+      request,
+      response,
+      analyticsRoute.statusCode,
+      analyticsRoute.body,
+      analyticsRoute.headers,
+    );
     return;
   }
 
