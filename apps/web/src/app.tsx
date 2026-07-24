@@ -45,6 +45,14 @@ import { mergeUniqueListings } from "./listing-pagination";
 import { ListingCard, type ListingCardEngagementContext } from "./components/listing-card";
 import { InfiniteScrollSentinel } from "./components/infinite-scroll-sentinel";
 import { ScrollPositionRestoration } from "./components/scroll-position-restoration";
+import { AccountSecurityPanel } from "./components/account-security";
+import {
+  AccountExportPage,
+  EmailVerificationPage,
+  PasswordResetCompletePage,
+  PasswordResetRequestPage,
+} from "./components/account-action-pages";
+import { AlertInboxPage } from "./components/alert-inbox";
 import {
   createEngagementId,
   isListingEngagementEligible,
@@ -71,6 +79,7 @@ const primaryNavigationItems = [
   { label: "Search", path: "/search" },
   { label: "Brands", path: "/brands" },
   { label: "Analytics", path: "/analytics" },
+  { label: "Alerts", path: "/alerts" },
   { label: "Profile", path: "/profile" },
 ] as const;
 const betaFeedbackUrl = "https://github.com/BricenPeinado/closetsearch/issues/new/choose";
@@ -2007,7 +2016,9 @@ function SearchRoutePage({
         },
         searchQuery: values.query.trim() || undefined,
       });
-      setSaveFeedback("Saved this search as a watchlist. Alert delivery will come later.");
+      setSaveFeedback(
+        "Saved this search as a watchlist. The PostgreSQL worker can now create in-app matches.",
+      );
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
         onAuthFailure();
@@ -2062,7 +2073,8 @@ function SearchRoutePage({
         )}
       </div>
       <p className="page-description">
-        Watchlists save what you want to track. Alert delivery will come in a later milestone.
+        Watchlists save what you want to track. In-app matches require the production PostgreSQL
+        worker.
       </p>
       {saveFeedback ? <p className="page-description">{saveFeedback}</p> : null}
       {saveErrorMessage ? <p className="form-error">{saveErrorMessage}</p> : null}
@@ -2403,8 +2415,8 @@ function AnalyticsRoutePage({ session }: { session: AuthResponse | null }) {
           </div>
 
           <p className="analytics-note">
-            Access is never inferred from a username. Development grants are
-            explicitly non-billing and disabled in production.
+            Access is never inferred from a username. Development grants are explicitly non-billing
+            and disabled in production.
           </p>
         </section>
       </AnalyticsPage>
@@ -2648,9 +2660,8 @@ function BetaInfoRoutePage() {
             <h2>Beta privacy and data use</h2>
             <p>
               ClosetSearch stores account data such as usernames, onboarding preferences, likes,
-              saved searches, saved filters, watchlists, notification preference shell data, and
-              basic settings. Observed listing snapshots are also stored to support cautious
-              analytics.
+              saved searches, saved filters, watchlists, notification preferences, and basic
+              settings. Observed listing snapshots are also stored to support cautious analytics.
             </p>
           </div>
         </div>
@@ -2671,10 +2682,10 @@ function BetaInfoRoutePage() {
             </p>
           </article>
           <article className="recent-search-card">
-            <h2>Watchlist delivery is inactive</h2>
+            <h2>Alert delivery has explicit dependencies</h2>
             <p>
-              Watchlists save what you want to track, but email, push, and SMS delivery are not
-              active in this beta yet.
+              The production PostgreSQL worker can create in-app alerts. Email requires a configured
+              provider and verified address; push and SMS are unavailable.
             </p>
           </article>
         </div>
@@ -2713,9 +2724,11 @@ function BetaInfoRoutePage() {
 }
 
 function ProfileRoutePage({
+  onAccountDeleted,
   onAuthFailure,
   session,
 }: {
+  onAccountDeleted: () => void;
   onAuthFailure: () => void;
   session: AuthResponse | null;
 }) {
@@ -3115,8 +3128,8 @@ function ProfileRoutePage({
       }));
       setWatchlistFeedback(
         editingWatchlistId
-          ? "Updated your watchlist. Alert delivery is still not active yet."
-          : "Saved your watchlist. Alert delivery will come in a later milestone.",
+          ? "Updated your watchlist. The production worker will use the new criteria."
+          : "Saved your watchlist. The production worker can now create in-app matches.",
       );
 
       if (isCreatingWatchlist) {
@@ -3193,7 +3206,7 @@ function ProfileRoutePage({
         smsEnabled: response.notificationPreferences.smsEnabled,
       });
       setNotificationPreferencesFeedback(
-        "Saved your notification preference shell. Email, push, and SMS delivery are still inactive.",
+        "Saved notification preferences. In-app processing requires the PostgreSQL worker; email requires a configured provider and verified address. Push and SMS remain unavailable.",
       );
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
@@ -3256,6 +3269,12 @@ function ProfileRoutePage({
           </p>
         </article>
       </section>
+
+      <AccountSecurityPanel
+        onAccountDeleted={onAccountDeleted}
+        onAuthFailure={onAuthFailure}
+        username={session.user.username}
+      />
 
       {collectionsState.status === "loading" ? (
         <StateCard body="Loading your saved account data." title="Fetching profile" />
@@ -3384,11 +3403,14 @@ function ProfileRoutePage({
             <div>
               <h2>Watchlists</h2>
               <p>
-                Watchlists save what you want to track. Alert delivery will come in a later
-                milestone.
+                The production PostgreSQL worker matches new and changed listings against enabled
+                watchlists and adds results to your in-app inbox.
               </p>
-              <p>No email or push notifications are sent yet.</p>
+              <p>Email requires configuration and verification. Push and SMS are unavailable.</p>
             </div>
+            <Link className="secondary-button link-button" to="/alerts">
+              Open alert inbox
+            </Link>
           </div>
 
           <form className="account-form" onSubmit={handleSaveWatchlist}>
@@ -3646,7 +3668,7 @@ function ProfileRoutePage({
             </div>
           ) : (
             <StateCard
-              body="Add a watched search, brand, or price range now. Alert delivery is intentionally deferred."
+              body="Add a watched search, brand, or price range. The production worker will create in-app alerts for matching listings."
               title="No watchlists yet"
             />
           )}
@@ -3655,8 +3677,8 @@ function ProfileRoutePage({
             <div>
               <h2>Notification preferences</h2>
               <p>
-                These settings are saved as a shell for a later milestone. Email, push, and SMS
-                delivery are not active yet.
+                In-app delivery runs with the production PostgreSQL worker. Email requires a
+                configured provider and verified address. Push and SMS are unavailable.
               </p>
             </div>
           </div>
@@ -3678,17 +3700,17 @@ function ProfileRoutePage({
 
             <label className="info-chip">
               <input checked={notificationPreferencesForm.emailEnabled} disabled type="checkbox" />
-              Email (coming later)
+              Email (requires configured delivery)
             </label>
 
             <label className="info-chip">
               <input checked={notificationPreferencesForm.pushEnabled} disabled type="checkbox" />
-              Push (coming later)
+              Push (unavailable)
             </label>
 
             <label className="info-chip">
               <input checked={notificationPreferencesForm.smsEnabled} disabled type="checkbox" />
-              SMS (coming later)
+              SMS (unavailable)
             </label>
 
             <label className="field-group" htmlFor="notification-frequency">
@@ -3704,6 +3726,7 @@ function ProfileRoutePage({
                 value={notificationPreferencesForm.frequency}
               >
                 <option value="instant">Instant</option>
+                <option value="hourly">Hourly</option>
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
               </select>
@@ -4191,8 +4214,9 @@ function SignupRoutePage({
             <span>Password</span>
             <input
               id="signup-password"
+              minLength={12}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="At least 8 characters"
+              placeholder="At least 12 characters"
               type="password"
               value={password}
             />
@@ -4293,6 +4317,9 @@ function LoginRoutePage({
             </button>
             <Link className="secondary-button link-button" to="/signup">
               Need an account?
+            </Link>
+            <Link className="secondary-button link-button" to="/forgot-password">
+              Forgot password?
             </Link>
           </div>
         </form>
@@ -4467,6 +4494,22 @@ export function AppLayout() {
     );
   }
 
+  function handleAccountDeleted() {
+    setSession(null);
+    setIsSessionLoading(false);
+    setSessionNotice("Your account and its stored data were deleted.");
+
+    startTransition(() => {
+      navigate("/");
+    });
+  }
+
+  function handlePasswordReset() {
+    setSession(null);
+    setIsSessionLoading(false);
+    setSessionNotice("Your password was updated and all sessions were revoked. Log in again.");
+  }
+
   function handleLogout() {
     void sendJson<{ success: boolean }>("/auth/logout", "POST", {})
       .catch(() => undefined)
@@ -4574,8 +4617,18 @@ export function AppLayout() {
           />
           <Route element={<AnalyticsRoutePage session={session} />} path="/analytics" />
           <Route
-            element={<ProfileRoutePage onAuthFailure={handleSessionExpired} session={session} />}
+            element={
+              <ProfileRoutePage
+                onAccountDeleted={handleAccountDeleted}
+                onAuthFailure={handleSessionExpired}
+                session={session}
+              />
+            }
             path="/profile"
+          />
+          <Route
+            element={<AlertInboxPage onAuthFailure={handleSessionExpired} session={session} />}
+            path="/alerts"
           />
           <Route element={<BetaInfoRoutePage />} path="/beta" />
           <Route
@@ -4586,6 +4639,13 @@ export function AppLayout() {
             element={<LoginRoutePage onAuthSuccess={handleSessionChange} session={session} />}
             path="/login"
           />
+          <Route element={<PasswordResetRequestPage />} path="/forgot-password" />
+          <Route
+            element={<PasswordResetCompletePage onPasswordReset={handlePasswordReset} />}
+            path="/reset-password"
+          />
+          <Route element={<EmailVerificationPage />} path="/verify-email" />
+          <Route element={<AccountExportPage />} path="/account/export" />
           <Route
             element={
               <OnboardingRoutePage
@@ -4606,8 +4666,9 @@ export function AppLayout() {
         <section className="state-card">
           <h2>Constrained beta</h2>
           <p>
-            Observed-data analytics only. Watchlist delivery is not active yet. Privacy, data use,
-            known limits, and beta feedback guidance are available in the beta information page.
+            Observed-data analytics only. In-app alerts require the production PostgreSQL worker.
+            Privacy, data use, known limits, and beta feedback guidance are available in the beta
+            information page.
           </p>
           <div className="inline-actions">
             <Link className="secondary-button link-button" to="/beta">

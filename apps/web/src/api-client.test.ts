@@ -7,10 +7,7 @@ afterEach(() => {
 
 describe("api-client", () => {
   it("normalizes network failures into a safe retryable error", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("fetch failed")),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
 
     await expect(fetchJson("/health")).rejects.toMatchObject({
       code: "network_error",
@@ -71,5 +68,26 @@ describe("api-client", () => {
       message: "Your session expired. Please log in again.",
       status: 401,
     } satisfies Partial<ApiClientError>);
+  });
+
+  it("sends account email identity updates with credentials and JSON", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ identity: { email: "user@example.com" } }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendJson("/me/email", "PUT", { email: "user@example.com" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/me/email"),
+      expect.objectContaining({
+        body: JSON.stringify({ email: "user@example.com" }),
+        credentials: "include",
+        method: "PUT",
+      }),
+    );
   });
 });

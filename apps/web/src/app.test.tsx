@@ -15,10 +15,15 @@ describe("AppLayout", () => {
     { path: "/search", title: "Search" },
     { path: "/recent-searches", title: "Recent Searches" },
     { path: "/analytics", title: "Premium Analytics" },
+    { path: "/alerts", title: "Alerts" },
     { path: "/beta", title: "Beta Information" },
     { path: "/profile", title: "Profile" },
     { path: "/signup", title: "Create Your Account" },
     { path: "/login", title: "Log In" },
+    { path: "/forgot-password", title: "Reset your password" },
+    { path: "/reset-password?token=reset-token", title: "Choose a new password" },
+    { path: "/verify-email?token=verify-token", title: "Verify your email" },
+    { path: "/account/export?token=export-token", title: "Download account export" },
     { path: "/onboarding", title: "Tell us what you like" },
     { path: "/brands", title: "Brands" },
     { path: "/brands/kapital", title: "Brand Profile" },
@@ -45,7 +50,7 @@ describe("AppLayout", () => {
 
     expect(html).toContain("Log in to save searches, filters, and watchlists.");
     expect(html).toContain(
-      "Watchlists save what you want to track. Alert delivery will come in a later milestone.",
+      "Watchlists save what you want to track. In-app matches require the production PostgreSQL",
     );
   });
 
@@ -71,7 +76,7 @@ describe("AppLayout", () => {
 
     expect(html).toContain("Beta privacy and data use");
     expect(html).toContain("Observed analytics only");
-    expect(html).toContain("Watchlist delivery is inactive");
+    expect(html).toContain("Alert delivery has explicit dependencies");
     expect(html).toContain("Beta feedback");
     expect(html).toContain("Constrained beta");
   });
