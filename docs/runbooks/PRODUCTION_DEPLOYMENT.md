@@ -20,6 +20,8 @@ mock inventory.
 - `scripts/production-smoke-test.mjs`
 - `scripts/postgres-backup.sh`
 - `scripts/postgres-restore.sh`
+- `scripts/build-sites.mjs`
+- `sites/worker.mjs`
 
 API, worker, web, and the one-shot migration job must use reviewed immutable
 images from the same compatible release.
@@ -45,6 +47,28 @@ Endpoints:
 
 The example disables mock inventory. Feed/search may be unavailable without
 provider authorization; that is the expected honest state.
+
+## Sites web deployment
+
+Sites can host the React web artifact, but it does not replace the separate
+Node API, PostgreSQL database, or ingestion worker. The Sites build embeds
+`/api` as the web API base and its worker proxies that path to the runtime
+`CLOSETSEARCH_API_ORIGIN`.
+
+```sh
+corepack pnpm build:sites
+corepack pnpm test:sites
+```
+
+Set `CLOSETSEARCH_API_ORIGIN` in Sites to the reviewed HTTPS API origin, then
+save and deploy a new Sites version so the environment revision is applied.
+Until it is configured, the edge proxy returns an explicit `503` and states
+that mock inventory is disabled. Do not set it to a fixture, local, or
+unreviewed API.
+
+The deployable layout is `dist/server/index.js` plus `dist/client`. It includes
+SPA route restoration, security headers, immutable caching for hashed assets,
+an edge liveness endpoint at `/health/live`, and no-store API proxy responses.
 
 Stop without deleting volumes:
 

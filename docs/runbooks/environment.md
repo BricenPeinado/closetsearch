@@ -183,6 +183,17 @@ as the API.
 
 Changing either requires a new web artifact.
 
+The Sites build always defaults `VITE_API_BASE_URL` to the same-origin `/api`
+edge route. Configure the following runtime value in Sites rather than in a
+committed environment file:
+
+| Variable                  | Default | Notes                                                  |
+| ------------------------- | ------- | ------------------------------------------------------ |
+| `CLOSETSEARCH_API_ORIGIN` | none    | HTTPS Node API origin proxied by the Sites edge worker |
+
+When this value is absent or invalid, the Sites edge returns `503` and never
+substitutes mock inventory.
+
 ## Smoke and backup
 
 Smoke:
