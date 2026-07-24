@@ -97,10 +97,7 @@ export function touchAuthSession(sessionId: string, lastSeenAt: string) {
     .run(lastSeenAt, sessionId);
 }
 
-export function revokeAuthSessionByTokenHash(
-  sessionTokenHash: string,
-  revokedAt: string,
-) {
+export function revokeAuthSessionByTokenHash(sessionTokenHash: string, revokedAt: string) {
   const result = getDatabase()
     .prepare(
       `UPDATE auth_sessions

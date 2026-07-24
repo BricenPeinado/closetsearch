@@ -1,165 +1,91 @@
-# Pagination And Caching
+# Pagination, Deduplication, and Caching
 
-## Overview
+## API contract
 
-Milestone 13 connects feed and search to normalized provider-backed pagination without exposing provider-specific response shapes to the web app.
+Feed and search return normalized:
 
-Current behavior:
+- `page`, `pageSize`, `hasMore`
+- optional `nextPage`
+- optional opaque `nextCursor`
+- optional `totalCount` when it is safe to compute
+- per-provider result/failure/freshness/cache summaries
 
-- feed and search both return a shared frontend-facing pagination object
-- the API can continue pagination with either a normalized `nextPage` or an opaque `nextCursor`
-- the current web UX uses load-more, not infinite scroll
-- duplicate listings are removed conservatively across repeated batches, pages, and provider combinations
-- the mock provider still remains available for tests, local development, and fallback paths
-- short-lived in-memory caching reduces repeated provider requests for identical search batches
+The cursor contains versioned query identity, page size, stable page number,
+per-provider page/cursor/exhaustion/total state, and bounded seen dedupe keys.
+Clients must treat it as opaque.
 
-## Normalized Pagination Shape
+## Deterministic merge
 
-Feed and search responses now return:
+Each provider advances independently. The orchestrator can fetch bounded
+additional provider pages when duplicates would otherwise underfill the page.
+Listings receive deterministic tie-breaks from provider ID, provider listing ID,
+and normalized listing ID.
 
-- `pagination.page`
-- `pagination.pageSize`
-- `pagination.hasMore`
-- `pagination.nextPage` optional
-- `pagination.nextCursor` optional
-- `pagination.totalCount` optional when the provider layer can determine it safely
+Price sorts do not numerically mix currencies. Currency is the primary
+partition; amount and stable identity break ties within a currency.
 
-Shared type location:
+## Deduplication
 
-- `packages/shared/src/domain/pagination.ts`
+The API uses:
 
-The frontend only sees this normalized shape. Raw provider pagination fields stay inside the provider and API orchestration layers.
+1. stable `providerId + providerListingId`
+2. a conservative canonical fingerprint only when title, canonical brand,
+   category/size, exact price/currency, condition, and image identity are
+   sufficiently complete
 
-## Provider Boundary
+The web also prevents a card already rendered on a prior page from being added
+again. The fingerprint is deliberately conservative: uncertain distinct
+listings remain separate.
 
-Provider pagination is represented separately inside the provider package:
+## Cache
 
-- `ProviderSearchRequest.pagination` carries provider-facing page or cursor input
-- `ProviderSearchResult.pagination` carries provider-facing page or cursor output
+Provider batch cache values are sanitized normalized successes only:
 
-Current provider behavior:
+- fresh TTL: 15 seconds
+- stale-while-revalidate window: 60 seconds
+- failures are not cached as successful data
+- stale responses carry stale/cache metadata
+- cache is process-local and disappears on restart
 
-- mock provider supports page-style pagination and returns normalized metadata
-- Grailed currently behaves as a page-based provider path
-- provider-native cursors are supported by the orchestrator contract, but the current real provider path does not use them yet
+The cache is a provider-protection/performance layer, not durable catalog
+storage. In PostgreSQL mode the API persists sanitized normalized results before
+returning feed/search, so immediately displayed cards can accept durable events
+and likes. Scheduled worker ingestion remains the independent, resumable source
+for systematic listing lifecycle, price history, stale maintenance, and
+watchlist coverage.
 
-## Feed Behavior
+## Web behavior
 
-Feed requests start from:
+- search/filter/sort state persists in the URL
+- changing a query/filter/sort resets continuation
+- an IntersectionObserver sentinel requests the next page
+- an accessible Load More control remains available
+- page merges prevent duplicate cards
+- scroll position is restored on return navigation
+- a next-page failure keeps existing results and shows a retry state
+- empty, partial, provider-limited, stale, and session-expired states are
+  distinct
 
-- `GET /feed?page=1&pageSize=12` for the initial page
+## Failure behavior
 
-Load-more behavior:
+One provider failure does not erase successful results. The response includes the
+failed provider, reason, retryability, and degraded state. If every real provider
+fails in production, the request fails/degrades explicitly; mock inventory is
+never substituted.
 
-- the web app prefers `nextCursor` when present
-- otherwise it falls back to `nextPage`
-- if a provider omits pagination metadata, the API falls back to `hasMore: false` instead of crashing
-- if all active providers fail and no listings are available, the API returns a recoverable `feed_unavailable` error
-- feed personalization still runs after the provider page is fetched, so ranking is page-local rather than globally re-ranked across the entire provider corpus
+Unsupported filters are capability failures, not silently ignored inputs.
 
-## Search Behavior
+## Operational limits
 
-Search requests start from:
+- cursor size can grow with bounded seen keys across a long session
+- process-local cache is not shared between API replicas
+- each API process owns one long-lived provider runtime; provider concurrency,
+  pacing, circuit, credential, and cache state is not shared across replicas
+- feed ranking is applied to the currently assembled candidate page rather than
+  every listing in the durable catalog
+- provider native behavior can change; fixture tests and health metrics must be
+  reviewed after adapter updates
 
-- `GET /search?...&pageSize=24` for the first page
-
-Load-more behavior:
-
-- the original normalized query, filters, and sort stay stable across pagination
-- the web app sends the same search params and adds `cursor` or `page` for the next batch
-- changing query, filter, or sort resets pagination by creating a fresh first-page request
-- empty state only renders when the first page has no listings
-- later-page failures surface a retryable load-more error state instead of wiping the existing results
-- recent searches are only saved after a successful first-page response
-
-## Dedupe Strategy
-
-Dedupe is conservative and happens in both the API and web layers.
-
-API dedupe order:
-
-- `providerId + providerListingId`
-- `source.id + sourceUrl` fallback
-- normalized `title + brand.slug + price.amount + price.currency + imageUrl` fallback hashed into a short internal key
-
-Web dedupe order when merging pages:
-
-- `providerId + providerListingId`
-- `source.id + sourceUrl` fallback
-- `listing.id` final fallback
-
-This removes duplicate cards across:
-
-- repeated provider batches
-- repeated load-more requests
-- overlapping provider pages
-- mock plus real fallback combinations
-
-The dedupe is intentionally conservative and does not attempt fuzzy duplicate matching across distinct listings.
-
-## Cache Strategy
-
-The provider orchestrator has a short-lived in-memory batch cache.
-
-Current settings:
-
-- TTL constant: `PROVIDER_SEARCH_CACHE_TTL_MS = 15_000`
-- location: `apps/api/src/providers/orchestrator.ts`
-
-Cache key inputs include:
-
-- normalized provider query
-- requested page size
-- provider id and mode
-- provider page or cursor input
-
-Cache behavior:
-
-- only successful provider batches are cached
-- failures are not cached aggressively
-- expired entries are removed opportunistically during reads
-- the cache is process-local and disappears on restart
-- cached batches are sanitized before storage so provider-only raw fields do not leak upward
-
-## Provider-Specific Caveats
-
-Mock provider:
-
-- deterministic page-based pagination used by tests and local fallback paths
-
-Grailed:
-
-- current path is page-based rather than cursor-based
-- pagination metadata is normalized at the provider boundary before reaching the API response
-- live behavior still depends on the marketplace returning stable page results under the approved request profile
-
-## Known Limitations
-
-- the current web UX is load-more only; infinite scroll was not added in this pass
-- `totalCount` is only returned when the provider layer can determine it safely across active providers
-- the opaque API cursor stores provider progress and seen dedupe keys, so cursor size can grow across longer pagination sessions
-- feed personalization is applied after each fetched page, not as a full cross-page rerank
-- the in-memory cache is per-process and not shared across server instances
-- current real-provider pagination is page-oriented; provider-native cursor behavior remains future-facing contract support
-
-## Tests Added
-
-Coverage for this pass lives primarily in:
-
-- `apps/api/src/pagination.test.ts`
-- `apps/api/src/providers/orchestrator.test.ts`
-- updated provider tests in `packages/providers/src/examples/mock-provider.test.ts` and `packages/providers/src/grailed/provider.test.ts`
-- updated API contract tests in `apps/api/src/app.test.ts`
-
-These tests cover normalized pagination, next-page flow, dedupe, cache reuse, stale-cursor reset behavior, recoverable failures, and mock fallback.
-
-## Future Milestones
-
-This pass does not add:
-
-- database-backed cursor or cache persistence
-- globally merged ranking across deep multi-provider pagination
-- infinite scroll
-- new marketplace providers
-
-Milestone 14 should focus on persistence primitives that can later support longer-lived caches, saved searches, and more durable pagination/session state.
+Tests cover per-provider continuation, stable tie-breaks, cross-page/provider
+dedupe, stale cursor/query rejection, cache fresh/stale behavior, partial
+failure, timeout/rate-limit/circuit behavior, and frontend merge/loading states.

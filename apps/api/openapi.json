@@ -1,0 +1,3733 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ClosetSearch HTTP API",
+    "version": "0.1.0",
+    "description": "Contract for the HTTP routes implemented by apps/api/src/app.ts and its domain route modules. All responses include X-Request-ID. JSON request bodies are limited to 64 KiB by default (configurable with HTTP_BODY_LIMIT_BYTES). Browser requests using PUT, POST, PATCH, or DELETE must pass the configured same-origin CSRF check. Cookie-authenticated routes derive identity exclusively from the session cookie; request bodies and legacy URL suffixes never select the acting user. Account-security and durable alert-inbox routes require PostgreSQL. Billing webhooks and delivery-attempt APIs are intentionally absent because they are not wired to HTTP routes in the current implementation."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "description": "Local API"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Operations"
+    },
+    {
+      "name": "Authentication"
+    },
+    {
+      "name": "Discovery"
+    },
+    {
+      "name": "Providers"
+    },
+    {
+      "name": "Brands"
+    },
+    {
+      "name": "Saved features"
+    },
+    {
+      "name": "Engagement"
+    },
+    {
+      "name": "Analytics"
+    },
+    {
+      "name": "Entitlements"
+    },
+    {
+      "name": "Alerts"
+    },
+    {
+      "name": "Account"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Basic process health",
+        "tags": ["Operations"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/HealthOk"
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "summary": "Liveness probe",
+        "tags": ["Operations"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/LivenessOk"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Database and provider readiness probe",
+        "tags": ["Operations"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Readiness"
+          },
+          "503": {
+            "$ref": "#/components/responses/Readiness"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "summary": "Prometheus metrics",
+        "tags": ["Operations"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Metrics"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/operations/status": {
+      "get": {
+        "operationId": "getOperationsStatus",
+        "summary": "Durable worker, ingestion, and provider status",
+        "description": "Reads operational state from PostgreSQL without exposing job payloads, continuation cursors, provider metadata, credentials, or error messages.",
+        "tags": ["Operations"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/OperationsStatus"
+          },
+          "503": {
+            "$ref": "#/components/responses/OperationsStatusUnavailable"
+          }
+        }
+      }
+    },
+    "/providers/health": {
+      "get": {
+        "operationId": "getProviderHealth",
+        "summary": "Configured provider runtime status",
+        "description": "Reports configuration and capability state without returning credentials or secrets.",
+        "tags": ["Providers"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProviderHealth"
+          }
+        }
+      }
+    },
+    "/auth/signup": {
+      "post": {
+        "operationId": "signUp",
+        "summary": "Create an account and session",
+        "tags": ["Authentication", "Account"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/AuthCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "operationId": "logIn",
+        "summary": "Authenticate and create a session",
+        "tags": ["Authentication"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AuthOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/verify-email": {
+      "post": {
+        "operationId": "verifyEmail",
+        "summary": "Redeem a one-time email verification token",
+        "description": "Available when PostgreSQL is the active persistence driver. Invalid and expired tokens use the same safe error response.",
+        "tags": ["Authentication", "Account"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ObjectOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/auth/password-reset/request": {
+      "post": {
+        "operationId": "requestPasswordReset",
+        "summary": "Request a password-reset email",
+        "description": "Always returns the same accepted response for valid, invalid, unknown, and unverified email addresses to prevent account enumeration. Available when PostgreSQL is active; actual mail requires a configured sender.",
+        "tags": ["Authentication", "Account"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/ObjectAccepted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/auth/password-reset/complete": {
+      "post": {
+        "operationId": "completePasswordReset",
+        "summary": "Redeem a password-reset token and set a new password",
+        "description": "Consumes the token once, revokes the user's sessions, invalidates other reset tokens, and clears the caller's session cookie. Available when PostgreSQL is active.",
+        "tags": ["Authentication", "Account"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordResetComplete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SessionClearingObjectOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "getCurrentSession",
+        "summary": "Resolve the current session",
+        "tags": ["Authentication", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CurrentUser"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "logOut",
+        "summary": "Revoke the current session if present",
+        "tags": ["Authentication"],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/auth/logout-all": {
+      "post": {
+        "operationId": "logOutAll",
+        "summary": "Revoke every session for the authenticated user",
+        "tags": ["Authentication", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/users/onboarding": {
+      "post": {
+        "operationId": "saveOnboarding",
+        "summary": "Save onboarding preferences",
+        "tags": ["Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ObjectOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          }
+        }
+      }
+    },
+    "/me/email": {
+      "put": {
+        "operationId": "setMyEmail",
+        "summary": "Set or replace the authenticated user's email identity",
+        "description": "Available when PostgreSQL is active. Replacing an address invalidates outstanding account-action tokens; an address cannot belong to multiple users.",
+        "tags": ["Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ObjectOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/email/verification": {
+      "post": {
+        "operationId": "requestMyEmailVerification",
+        "summary": "Request verification of the authenticated user's email",
+        "description": "Available when PostgreSQL is active. The current handler requires a JSON object body; `{}` is sufficient. Delivery requires a configured sender.",
+        "tags": ["Authentication", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/ObjectAccepted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/account-export": {
+      "post": {
+        "operationId": "requestMyAccountExport",
+        "summary": "Request a one-time account-export link",
+        "description": "Requires a verified email and PostgreSQL. The current handler requires a JSON object body; `{}` is sufficient. Responses are not cacheable.",
+        "tags": ["Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/ObjectAccepted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/account/export": {
+      "post": {
+        "operationId": "redeemAccountExport",
+        "summary": "Redeem a one-time account-export token",
+        "description": "Returns a privacy export exactly once with Cache-Control: no-store. Available when PostgreSQL is active.",
+        "tags": ["Account"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SensitiveObjectOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me": {
+      "delete": {
+        "operationId": "deleteMyAccount",
+        "summary": "Delete the authenticated user's account",
+        "description": "Requires exact case-insensitive username confirmation. Deletes through schema-defined cascades and clears the session cookie. Available when PostgreSQL is active.",
+        "tags": ["Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SessionClearingObjectOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/feed": {
+      "get": {
+        "operationId": "getFeed",
+        "summary": "Fetch a deterministically paginated discovery feed",
+        "description": "Authentication is optional. A valid session enables personalization; signed-out callers receive the non-personalized feed.",
+        "tags": ["Discovery"],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 24,
+              "default": 12
+            }
+          },
+          {
+            "name": "debugPersonalization",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FeedOk"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          }
+        }
+      }
+    },
+    "/search": {
+      "get": {
+        "operationId": "searchListings",
+        "summary": "Search normalized marketplace listings",
+        "description": "At least one query or supported filter must be present. Comma-separated parameters are normalized by the API.",
+        "tags": ["Discovery"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Comma-separated provider IDs. The legacy alias `sources` is also accepted.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listingType",
+            "in": "query",
+            "description": "Comma-separated listing types. The aliases `listingTypes` and `fixed_price` are accepted.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "brands",
+            "in": "query",
+            "description": "Comma-separated canonical brand slugs.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "categories",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sizes",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "conditions",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "marketScope",
+            "in": "query",
+            "description": "The legacy alias `market` is also accepted.",
+            "schema": {
+              "type": "string",
+              "enum": ["active", "sold"]
+            }
+          },
+          {
+            "name": "minPrice",
+            "in": "query",
+            "description": "Minimum price in major units of `currency`.",
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "maxPrice",
+            "in": "query",
+            "description": "Maximum price in major units of `currency`.",
+            "schema": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 3
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/SearchSort"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 48,
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SearchOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          }
+        }
+      }
+    },
+    "/brands": {
+      "get": {
+        "operationId": "listBrands",
+        "summary": "List canonical brands",
+        "tags": ["Brands"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Optional case-insensitive brand, alias, or tag search.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/BrandList"
+          }
+        }
+      }
+    },
+    "/brands/{slug}": {
+      "get": {
+        "operationId": "getBrand",
+        "summary": "Get one canonical brand",
+        "tags": ["Brands"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/BrandDetail"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/events": {
+      "post": {
+        "operationId": "recordEngagementEvent",
+        "summary": "Record one durable client-originated engagement event",
+        "description": "Requires PostgreSQL. The opaque privacy-session identifier is hashed before persistence. An authenticated user is associated only from the session cookie. Duplicate event IDs are accepted idempotently.",
+        "tags": ["Engagement"],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "parameters": [
+          {
+            "name": "X-Privacy-Session-ID",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngagementEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/EventAccepted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/analytics/overview": {
+      "get": {
+        "operationId": "getAnalyticsOverview",
+        "summary": "Get premium observed-market analytics overview",
+        "description": "Returns HTTP 200 with `locked: true` when no active persisted entitlement is available.",
+        "tags": ["Analytics"],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Analytics"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/analytics/market-insights": {
+      "get": {
+        "operationId": "getMarketInsights",
+        "summary": "Get premium observed comparable ranges",
+        "description": "Returns HTTP 200 with `locked: true` when no active persisted entitlement is available. Sold observations are preferred when available; asking-price fallback remains labeled.",
+        "tags": ["Analytics"],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Analytics"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/analytics/underpriced": {
+      "get": {
+        "operationId": "getObservedPriceSignals",
+        "summary": "Get premium observed asking-price signals",
+        "description": "Returns HTTP 200 with `locked: true` when unavailable. These are observed asking-price comparisons, not profit or investment claims.",
+        "tags": ["Analytics"],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {}
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Analytics"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/likes": {
+      "get": {
+        "operationId": "listMyLikes",
+        "summary": "List the authenticated user's likes",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Likes"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMyLike",
+        "summary": "Like a listing",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LikeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMyLike",
+        "summary": "Unlike a listing",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LikeDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/likes": {
+      "description": "Deprecated alias of /me/likes. Identity remains session-derived.",
+      "get": {
+        "operationId": "listLikesLegacy",
+        "deprecated": true,
+        "summary": "List likes using the legacy alias",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Likes"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createLikeLegacy",
+        "deprecated": true,
+        "summary": "Like using the legacy alias",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LikeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteLikeLegacy",
+        "deprecated": true,
+        "summary": "Unlike using the legacy alias",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LikeDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/recent-searches": {
+      "get": {
+        "operationId": "listRecentSearches",
+        "summary": "List the authenticated user's recent searches",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/RecentSearches"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createRecentSearch",
+        "summary": "Record a recent search",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchHistoryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clearRecentSearches",
+        "summary": "Clear all recent searches for the authenticated user",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/saved-searches": {
+      "get": {
+        "operationId": "listMySavedSearches",
+        "summary": "List saved searches",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SavedSearches"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMySavedSearch",
+        "summary": "Save a search",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchHistoryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMySavedSearch",
+        "summary": "Delete a saved search by id or params",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedSearchDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/saved-searches": {
+      "description": "Deprecated alias of /me/saved-searches. Identity remains session-derived.",
+      "get": {
+        "operationId": "listSavedSearchesLegacy",
+        "deprecated": true,
+        "summary": "List saved searches using the legacy alias",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SavedSearches"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSavedSearchLegacy",
+        "deprecated": true,
+        "summary": "Save a search using the legacy alias",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchHistoryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSavedSearchLegacy",
+        "deprecated": true,
+        "summary": "Delete a saved search using the legacy alias",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedSearchDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/saved-filters": {
+      "get": {
+        "operationId": "listMySavedFilters",
+        "summary": "List saved filters",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SavedFilters"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMySavedFilter",
+        "summary": "Save a filter",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedFilterCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMySavedFilter",
+        "summary": "Delete a saved filter",
+        "tags": ["Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/watchlists": {
+      "get": {
+        "operationId": "listMyWatchlists",
+        "summary": "List watchlists",
+        "tags": ["Saved features", "Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Watchlists"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMyWatchlist",
+        "summary": "Create a watchlist",
+        "description": "At least one meaningful watch criterion is required.",
+        "tags": ["Saved features", "Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMyWatchlistFromBody",
+        "summary": "Delete a watchlist using a body id",
+        "tags": ["Saved features", "Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdDelete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/watchlists/{watchlistId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WatchlistId"
+        }
+      ],
+      "patch": {
+        "operationId": "updateMyWatchlist",
+        "summary": "Update a watchlist",
+        "tags": ["Saved features", "Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ObjectOk"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMyWatchlist",
+        "summary": "Delete a watchlist",
+        "tags": ["Saved features", "Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationOk"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/notification-preferences": {
+      "get": {
+        "operationId": "getMyNotificationPreferences",
+        "summary": "Get alert notification preferences",
+        "tags": ["Alerts", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/NotificationPreferences"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateMyNotificationPreferences",
+        "summary": "Update alert notification preferences",
+        "description": "Push and SMS preferences can be stored but those delivery channels are not implemented. Email delivery also requires external provider configuration and a verified address.",
+        "tags": ["Alerts", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPreferencesPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/NotificationPreferences"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/alert-matches": {
+      "get": {
+        "operationId": "listMyAlertMatches",
+        "summary": "List watchlist matches using the compatibility envelope",
+        "description": "With PostgreSQL, the response maps the active in-app inbox to the legacy `alertMatches` field and reports deliveryActive=true. The explicit local/test SQLite path returns foundation records with deliveryActive=false.",
+        "tags": ["Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AlertMatches"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/alerts": {
+      "get": {
+        "operationId": "listMyAlerts",
+        "summary": "List the durable in-app alert inbox",
+        "description": "Available when PostgreSQL is the active persistence driver.",
+        "tags": ["Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AlertInbox"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/alerts/seen": {
+      "post": {
+        "operationId": "markMyAlertSeen",
+        "summary": "Mark an in-app alert as seen",
+        "description": "Available when PostgreSQL is the active persistence driver.",
+        "tags": ["Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AlertAction"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/alerts/dismiss": {
+      "post": {
+        "operationId": "dismissMyAlert",
+        "summary": "Dismiss an in-app alert",
+        "description": "Available when PostgreSQL is the active persistence driver.",
+        "tags": ["Alerts"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/AlertAction"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/settings": {
+      "get": {
+        "operationId": "getMySettings",
+        "summary": "Get account display and discovery settings",
+        "tags": ["Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UserSettings"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateMySettings",
+        "summary": "Update account display and discovery settings",
+        "tags": ["Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserSettingsPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/UserSettings"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/admin/development-entitlements": {
+      "post": {
+        "operationId": "grantDevelopmentEntitlement",
+        "summary": "Grant a non-production development entitlement",
+        "description": "Requires PostgreSQL, an authenticated verified admin identity, and ENTITLEMENT_ADMIN_DEVELOPMENT_ENABLED=true. Always returns 403 in production and does not represent billing.",
+        "tags": ["Entitlements"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevelopmentEntitlementGrant"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ObjectCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "closetsearch_session",
+        "description": "Opaque, HttpOnly session cookie. The cookie name is configurable with AUTH_SESSION_COOKIE_NAME; production cookies are Secure by default."
+      }
+    },
+    "headers": {
+      "RequestId": {
+        "description": "Opaque request correlation identifier generated by the API.",
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds before retrying a rate-limited request.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "SetCookie": {
+        "description": "Creates or clears the opaque session cookie.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "parameters": {
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "description": "Opaque deterministic cross-provider continuation cursor.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        }
+      },
+      "WatchlistId": {
+        "name": "watchlistId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error", "message"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Stable machine-readable error code."
+          },
+          "message": {
+            "type": "string",
+            "description": "Safe user-facing error message."
+          }
+        }
+      },
+      "Credentials": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 1,
+            "writeOnly": true
+          }
+        }
+      },
+      "EmptyObject": {
+        "type": "object",
+        "maxProperties": 0,
+        "additionalProperties": false
+      },
+      "EmailInput": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "TokenInput": {
+        "type": "object",
+        "required": ["token"],
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true
+          }
+        }
+      },
+      "PasswordResetComplete": {
+        "type": "object",
+        "required": ["token", "password"],
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "writeOnly": true
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 128,
+            "writeOnly": true
+          }
+        }
+      },
+      "AccountDelete": {
+        "type": "object",
+        "required": ["confirmationUsername"],
+        "properties": {
+          "confirmationUsername": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "description": "The acting user ID is always session-derived."
+      },
+      "OnboardingRequest": {
+        "type": "object",
+        "properties": {
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "favoriteBrands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "priceRange": {
+                "type": "string"
+              }
+            }
+          },
+          "currencyPreference": {
+            "type": "string"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "required": ["id", "username", "onboardingPreferences", "currencyPreference", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "onboardingPreferences": {
+            "type": "object",
+            "required": ["favoriteBrands", "categories", "priceRange"],
+            "properties": {
+              "favoriteBrands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "priceRange": {
+                "type": "string"
+              }
+            }
+          },
+          "currencyPreference": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "required": ["userId", "user"],
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "Money": {
+        "type": "object",
+        "required": ["amount", "currency"],
+        "properties": {
+          "amount": {
+            "type": "number"
+          },
+          "amountMinor": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "fractionDigits": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Brand": {
+        "type": "object",
+        "required": ["id", "slug", "name"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Listing": {
+        "type": "object",
+        "required": [
+          "id",
+          "providerId",
+          "providerListingId",
+          "source",
+          "sourceUrl",
+          "title",
+          "brand",
+          "imageUrl",
+          "price",
+          "listingType",
+          "fetchedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable normalized public listing ID."
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "providerListingId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "dataOrigin": {
+                "type": "string",
+                "enum": [
+                  "mock",
+                  "official_api",
+                  "partner_api",
+                  "documented_feed",
+                  "authorized_scraping"
+                ]
+              },
+              "isMock": {
+                "type": "boolean"
+              },
+              "marketplaceId": {
+                "type": "string"
+              }
+            }
+          },
+          "sourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "brand": {
+            "$ref": "#/components/schemas/Brand"
+          },
+          "imageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "price": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "pricing": {
+            "type": "object",
+            "required": ["original"],
+            "properties": {
+              "original": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "comparison": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "display": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "shipping": {
+                "$ref": "#/components/schemas/Money"
+              },
+              "landed": {
+                "$ref": "#/components/schemas/Money"
+              }
+            }
+          },
+          "category": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "condition": {
+            "type": "string",
+            "enum": ["new_with_tags", "new_without_tags", "excellent", "good", "fair", "unknown"]
+          },
+          "listingType": {
+            "type": "string",
+            "enum": ["auction", "buy_now", "unknown"]
+          },
+          "fetchedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "analyticsEligibility": {
+            "type": "object",
+            "required": ["eligible"],
+            "properties": {
+              "eligible": {
+                "type": "boolean"
+              },
+              "exclusionReasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "freshness": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["fresh", "stale", "unknown"]
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["active", "sold", "stale", "removed", "unavailable", "unknown"]
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "Pagination": {
+        "type": "object",
+        "required": ["page", "pageSize", "hasMore"],
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextPage": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "totalCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "ProviderSummary": {
+        "type": "object",
+        "required": ["providerId", "providerName", "status", "resultCount"],
+        "properties": {
+          "providerId": {
+            "type": "string"
+          },
+          "providerName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["success", "failure"]
+          },
+          "resultCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "cacheStatus": {
+            "type": "string",
+            "enum": ["miss", "fresh", "stale"]
+          },
+          "latencyMs": {
+            "type": "number",
+            "minimum": 0
+          },
+          "failure": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "FeedResponse": {
+        "type": "object",
+        "required": ["isPersonalized", "listings", "pagination"],
+        "properties": {
+          "isPersonalized": {
+            "type": "boolean"
+          },
+          "listings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Listing"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderSummary"
+            }
+          },
+          "personalizationSummary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "debugPersonalization": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": ["query", "listings", "pagination", "providers"],
+        "properties": {
+          "query": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "listings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Listing"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderSummary"
+            }
+          }
+        }
+      },
+      "SearchSort": {
+        "type": "string",
+        "enum": ["relevance", "price_asc", "price_desc", "newest"],
+        "default": "relevance"
+      },
+      "LikeCreate": {
+        "type": "object",
+        "required": ["listingId", "source"],
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "listing": {
+            "$ref": "#/components/schemas/Listing"
+          }
+        }
+      },
+      "LikeDelete": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "listingId": {
+            "type": "string"
+          }
+        },
+        "anyOf": [
+          {
+            "required": ["id"]
+          },
+          {
+            "required": ["listingId"]
+          }
+        ]
+      },
+      "SearchHistoryCreate": {
+        "type": "object",
+        "required": ["label", "description", "params"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "params": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "SavedSearchDelete": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "params": {
+            "type": "string"
+          }
+        },
+        "anyOf": [
+          {
+            "required": ["id"]
+          },
+          {
+            "required": ["params"]
+          }
+        ]
+      },
+      "SavedFilterCreate": {
+        "type": "object",
+        "required": ["label"],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "queryText": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "listingType": {
+            "type": "string",
+            "enum": ["auction", "buy_now", "fixed_price"]
+          },
+          "minPrice": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxPrice": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sortMode": {
+            "$ref": "#/components/schemas/SearchSort"
+          }
+        }
+      },
+      "IdDelete": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "WatchlistInput": {
+        "type": "object",
+        "description": "At least one of queryText, brand, category, source, listingType, min/max price, size, or condition must be present when creating.",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "queryText": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "listingType": {
+            "type": "string",
+            "enum": ["auction", "buy_now", "fixed_price"]
+          },
+          "minPriceAmount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxPriceAmount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "priceCurrency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "condition": {
+            "type": "string",
+            "enum": ["new_with_tags", "new_without_tags", "excellent", "good", "fair", "unknown"]
+          },
+          "size": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "NotificationPreferencesPatch": {
+        "type": "object",
+        "properties": {
+          "emailEnabled": {
+            "type": "boolean"
+          },
+          "pushEnabled": {
+            "type": "boolean"
+          },
+          "smsEnabled": {
+            "type": "boolean"
+          },
+          "inAppEnabled": {
+            "type": "boolean"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": ["instant", "daily", "weekly"]
+          },
+          "quietHoursStart": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(?:[01]\\\\d|2[0-3]):[0-5]\\\\d$"
+          },
+          "quietHoursEnd": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^(?:[01]\\\\d|2[0-3]):[0-5]\\\\d$"
+          }
+        }
+      },
+      "UserSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "preferredCurrency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "defaultSortMode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SearchSort"
+              }
+            ],
+            "nullable": true
+          },
+          "preferredSources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "EngagementEvent": {
+        "type": "object",
+        "required": ["eventId", "eventType", "occurredAt"],
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "conversion",
+              "filter_apply",
+              "hide",
+              "like",
+              "listing_open",
+              "listing_view",
+              "recommendation_impression",
+              "recommendation_request",
+              "saved_filter",
+              "saved_search",
+              "search_submit",
+              "unlike",
+              "watchlist_create"
+            ]
+          },
+          "listingId": {
+            "type": "string",
+            "description": "Normalized provider:source-listing-id public ID. Required for listing event types."
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rankedPosition": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "viewportDurationMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "description": "Required for listing_view."
+          },
+          "searchQuery": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Hashed before persistence."
+          },
+          "properties": {
+            "type": "object",
+            "maxProperties": 20,
+            "description": "Bounded metadata. Direct identifiers and secret-like keys are rejected.",
+            "additionalProperties": true
+          }
+        }
+      },
+      "DevelopmentEntitlementGrant": {
+        "type": "object",
+        "required": ["targetUserId"],
+        "properties": {
+          "targetUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "featureKey": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "description": "Actor identity cannot be supplied in the body."
+      },
+      "AlertAction": {
+        "type": "object",
+        "required": ["alertMatchId"],
+        "properties": {
+          "alertMatchId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "description": "User identity is derived from the authenticated session."
+      }
+    },
+    "responses": {
+      "HealthOk": {
+        "description": "Process is healthy.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["service", "status", "timestamp"],
+              "properties": {
+                "service": {
+                  "type": "string",
+                  "enum": ["closetsearch-api"]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["ok"]
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "LivenessOk": {
+        "description": "Process is alive.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["service", "status", "timestamp"],
+              "properties": {
+                "service": {
+                  "type": "string",
+                  "enum": ["closetsearch-api"]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["alive"]
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Readiness": {
+        "description": "Ready (200) or not ready (503).",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["service", "status", "timestamp", "checks"],
+              "properties": {
+                "service": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["ready", "not_ready"]
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "checks": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "Metrics": {
+        "description": "Prometheus text exposition.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "OperationsStatus": {
+        "description": "Current PostgreSQL-backed operational status.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["checkpoints", "jobs", "providers", "status", "timestamp"],
+              "properties": {
+                "checkpoints": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "consecutiveFailures",
+                      "ingestionScope",
+                      "nextRunAt",
+                      "providerId"
+                    ],
+                    "properties": {
+                      "consecutiveFailures": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "ingestionScope": {
+                        "type": "string",
+                        "enum": ["active", "refresh", "sold", "watchlist"]
+                      },
+                      "lastErrorCode": {
+                        "type": "string"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "nextRunAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "providerId": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "jobs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "attemptCount",
+                      "consecutiveFailures",
+                      "enabled",
+                      "jobType",
+                      "nextRunAt",
+                      "status"
+                    ],
+                    "properties": {
+                      "attemptCount": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "consecutiveFailures": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "jobType": {
+                        "type": "string"
+                      },
+                      "lastErrorCode": {
+                        "type": "string"
+                      },
+                      "lastFailedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lastStartedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lastSucceededAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "nextRunAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "dead_letter",
+                          "paused",
+                          "queued",
+                          "retry_wait",
+                          "running",
+                          "succeeded"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "providers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["consecutiveFailures", "lastCheckedAt", "providerId", "state"],
+                    "properties": {
+                      "circuitOpenUntil": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "consecutiveFailures": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "errorCode": {
+                        "type": "string"
+                      },
+                      "lastCheckedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "lastSuccessAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "latencyMs": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "providerId": {
+                        "type": "string"
+                      },
+                      "rateLimitedUntil": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["blocked", "degraded", "disabled", "healthy", "unavailable"]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["degraded", "ok"]
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "OperationsStatusUnavailable": {
+        "description": "PostgreSQL operational state is unavailable.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["reason", "status", "timestamp"],
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "enum": ["operations_state_unavailable"]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["unavailable"]
+                },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "ProviderHealth": {
+        "description": "Provider runtime status.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "allowMockFallback",
+                "maxProvidersPerRequest",
+                "providerRuntimeMode",
+                "providers",
+                "requestTimeoutMs"
+              ],
+              "properties": {
+                "allowMockFallback": {
+                  "type": "boolean"
+                },
+                "maxProvidersPerRequest": {
+                  "type": "integer"
+                },
+                "providerRuntimeMode": {
+                  "type": "string",
+                  "enum": ["mock", "hybrid", "real"]
+                },
+                "providers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "requestTimeoutMs": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AuthOk": {
+        "description": "Authenticated.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Set-Cookie": {
+            "$ref": "#/components/headers/SetCookie"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AuthResponse"
+            }
+          }
+        }
+      },
+      "AuthCreated": {
+        "description": "Account and session created.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Set-Cookie": {
+            "$ref": "#/components/headers/SetCookie"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AuthResponse"
+            }
+          }
+        }
+      },
+      "CurrentUser": {
+        "description": "Current authenticated user.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["user", "userId"],
+              "properties": {
+                "user": {
+                  "$ref": "#/components/schemas/User"
+                },
+                "userId": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "FeedOk": {
+        "description": "Feed response. Provider partial failures remain visible in `providers`.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/FeedResponse"
+            }
+          }
+        }
+      },
+      "SearchOk": {
+        "description": "Search response. Provider partial failures remain visible in `providers`.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SearchResponse"
+            }
+          }
+        }
+      },
+      "BrandList": {
+        "description": "Canonical brand list.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["brands", "total"],
+              "properties": {
+                "brands": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Brand"
+                  }
+                },
+                "query": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "BrandDetail": {
+        "description": "Canonical brand.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["brand"],
+              "properties": {
+                "brand": {
+                  "$ref": "#/components/schemas/Brand"
+                }
+              }
+            }
+          }
+        }
+      },
+      "EventAccepted": {
+        "description": "Event accepted, including an idempotent duplicate.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["accepted", "duplicate", "eventId"],
+              "properties": {
+                "accepted": {
+                  "type": "boolean"
+                },
+                "duplicate": {
+                  "type": "boolean"
+                },
+                "eventId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Analytics": {
+        "description": "Locked entitlement response or an observed-data analytics payload.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["locked"],
+              "properties": {
+                "locked": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "premiumAccess": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "Likes": {
+        "description": "Likes and resolved listing snapshots.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["likedListings", "likes", "userId"],
+              "properties": {
+                "likedListings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "likes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "userId": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RecentSearches": {
+        "$ref": "#/components/responses/ObjectOk"
+      },
+      "SavedSearches": {
+        "$ref": "#/components/responses/ObjectOk"
+      },
+      "SavedFilters": {
+        "$ref": "#/components/responses/ObjectOk"
+      },
+      "Watchlists": {
+        "$ref": "#/components/responses/ObjectOk"
+      },
+      "NotificationPreferences": {
+        "$ref": "#/components/responses/ObjectOk"
+      },
+      "AlertMatches": {
+        "description": "Compatibility alert-match envelope. Delivery state depends on the active persistence driver.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["alertMatches", "deliveryActive", "message", "userId"],
+              "properties": {
+                "alertMatches": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "deliveryActive": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AlertInbox": {
+        "description": "Durable in-app alert inbox.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["alerts", "unseenCount", "userId"],
+              "properties": {
+                "alerts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "unseenCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "userId": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AlertAction": {
+        "description": "Alert state updated.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["alertMatchId", "state"],
+              "properties": {
+                "alertMatchId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["seen", "dismissed"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "UserSettings": {
+        "$ref": "#/components/responses/ObjectOk"
+      },
+      "ObjectOk": {
+        "description": "Successful JSON object response.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "ObjectCreated": {
+        "description": "JSON object created.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "ObjectAccepted": {
+        "description": "Request accepted for asynchronous or externally delivered completion.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "SensitiveObjectOk": {
+        "description": "Successful sensitive JSON response with Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "SessionClearingObjectOk": {
+        "description": "Successful JSON response that clears the session cookie and uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Set-Cookie": {
+            "$ref": "#/components/headers/SetCookie"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "MutationOk": {
+        "description": "Mutation completed.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Malformed JSON, invalid body, invalid query, or CSRF-safe request validation failure.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, invalid, revoked, or expired session.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Set-Cookie": {
+            "$ref": "#/components/headers/SetCookie"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Forbidden by CSRF, authorization, environment, or feature configuration.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Resource conflicts with an existing record.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Request body exceeds the configured limit.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit exceeded.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "Required persistence or service dependency is unavailable.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "All configured providers failed the request.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

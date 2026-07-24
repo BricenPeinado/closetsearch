@@ -19,7 +19,7 @@ describe("normalizeMockListing", () => {
       indexedAt: "2026-05-04T11:00:00.000Z",
     });
 
-    expect(listing).toEqual({
+    expect(listing).toMatchObject({
       id: "mock:raw-123",
       providerId: "mock",
       providerListingId: "raw-123",
@@ -67,9 +67,9 @@ describe("mockProvider", () => {
     }
 
     expect(response.listings.length).toBeGreaterThan(0);
-    expect(response.listings.every((listing) => listing.title.toLowerCase().includes("jacket"))).toBe(
-      true,
-    );
+    expect(
+      response.listings.every((listing) => listing.title.toLowerCase().includes("jacket")),
+    ).toBe(true);
     expect(response.listings[0]).toMatchObject({
       providerId: "mock",
       source: {

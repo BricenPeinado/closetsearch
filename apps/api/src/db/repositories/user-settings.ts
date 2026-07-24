@@ -86,16 +86,14 @@ export function upsertUserSettings(input: UpdateUserSettingsInput) {
       ? null
       : typeof input.displayName === "string"
         ? input.displayName.trim() || null
-        : existingSettings.displayName ?? null;
+        : (existingSettings.displayName ?? null);
   const defaultSortMode =
     input.defaultSortMode === null
       ? null
-      : input.defaultSortMode ?? existingSettings.defaultSortMode ?? null;
+      : (input.defaultSortMode ?? existingSettings.defaultSortMode ?? null);
   const preferredSources =
     input.preferredSources !== undefined
-      ? input.preferredSources
-          .map((entry) => entry.trim())
-          .filter(Boolean)
+      ? input.preferredSources.map((entry) => entry.trim()).filter(Boolean)
       : existingSettings.preferredSources;
 
   getDatabase()

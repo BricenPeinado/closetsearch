@@ -19,13 +19,25 @@ export type {
   UnderpricedListingSignal,
 } from "./analytics.js";
 export type { Brand } from "./brand.js";
+export { CANONICAL_BRANDS, resolveCanonicalBrand } from "./brand-registry.js";
 export type { FeedQuery, FeedResponse } from "./feed.js";
 export type {
+  ConvertedMoney,
   Listing,
+  ListingAnalyticsEligibility,
+  ListingAttribution,
+  ListingAvailabilityStatus,
   ListingCondition,
+  ListingDataOrigin,
+  ListingFreshness,
+  ListingFreshnessStatus,
+  ListingImage,
+  ListingLifecycle,
   ListingMarketMetrics,
   ListingMarketStatus,
+  ListingPricing,
   ListingSeller,
+  ListingShipping,
   ListingSource,
   ListingType,
   Money,
@@ -34,9 +46,15 @@ export type {
 export type { PaginationInfo } from "./pagination.js";
 export type {
   FeedPersonalizationDebug,
+  FeedRecommendationMetadata,
   PersonalizationSummary,
+  RankedRecommendationMetadata,
+  RecommendationFallbackReason,
+  RecommendationRankingStrategy,
   RecommendationReason,
+  RecommendationRolloutMode,
   RecommendationScoreBreakdown,
+  RecommendationShadowMetadata,
 } from "./recommendation.js";
 export type { RiskLevel, RiskSignal, RiskSignalCategory } from "./risk.js";
 export type {

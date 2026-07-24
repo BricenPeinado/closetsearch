@@ -1,7 +1,4 @@
-import type {
-  DeleteSavedSearchInput,
-  PersistSearchHistoryInput,
-} from "@closetsearch/shared";
+import type { DeleteSavedSearchInput, PersistSearchHistoryInput } from "@closetsearch/shared";
 import {
   clearSavedSearches,
   deleteSavedSearch,

@@ -1,5 +1,7 @@
 import {
+  createEbayProvider,
   createGrailedProvider,
+  ebayProviderCapabilities,
   mockProvider,
   type Provider,
   type ProviderCapabilities,
@@ -13,7 +15,7 @@ import {
 
 export type RegisteredProviderMode = "mock" | "real";
 export type ProviderImplementationStatus = "available" | "planned";
-export type ProviderHealthMode = "disabled" | "fixture" | "authorized-live";
+export type ProviderHealthMode = "disabled" | "fixture" | "authorized-live" | "official-api";
 
 export interface ProviderDefinition {
   capabilities?: ProviderCapabilities;
@@ -45,6 +47,7 @@ export interface ProviderStatus {
   providerMode: RegisteredProviderMode;
   reasons: string[];
   requiredEnvVars?: string[];
+  authorizationReferencePresent?: boolean;
   scrapingAllowed?: boolean;
 }
 
@@ -62,11 +65,27 @@ export interface ProviderRuntime {
 }
 
 const grailedCapabilities: ProviderCapabilities = {
+  dataOrigin: "authorized_scraping",
+  paginationModel: "page",
+  requiresAttribution: true,
+  supportsActiveListings: true,
+  supportsAttribution: true,
+  supportsBrandFilter: false,
+  supportsCategoryFilter: false,
+  supportsChangeFeed: false,
+  supportsConditionFilter: false,
   supportsPagination: true,
   supportsPagePagination: true,
   supportsCursorPagination: false,
   supportsPriceRange: false,
+  supportsSearch: true,
+  supportsSellerMetadata: true,
+  supportsShipping: false,
+  supportsSizeFilter: false,
+  supportsSoldListings: true,
+  supportsWebhooks: false,
   supportedListingTypes: ["auction", "buy_now", "unknown"],
+  supportedMarketStatuses: ["active", "sold"],
   supportedSortModes: ["relevance", "newest"],
 };
 
@@ -88,25 +107,65 @@ const defaultProviderDefinitions: ProviderDefinition[] = [
     requiredEnvVars: [
       "GRAILED_PROVIDER_ENABLED",
       "GRAILED_SCRAPING_ALLOWED",
+      "GRAILED_AUTHORIZATION_REFERENCE",
       "GRAILED_BASE_URL",
       "GRAILED_REQUEST_TIMEOUT_MS",
       "GRAILED_MIN_REQUEST_INTERVAL_MS",
       "GRAILED_MAX_RESULTS_PER_SEARCH",
+      "GRAILED_MAX_CONCURRENCY",
+      "GRAILED_MAX_RETRIES",
+      "GRAILED_BASE_BACKOFF_MS",
+      "GRAILED_MAX_RETRY_AFTER_MS",
+      "GRAILED_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+      "GRAILED_CIRCUIT_BREAKER_COOLDOWN_MS",
       "GRAILED_USER_AGENT",
     ],
     createProvider: (config) =>
       createGrailedProvider({
+        authorizationReference: config.providers.grailed.authorizationReference,
+        baseBackoffMs: config.providers.grailed.baseBackoffMs,
         baseUrl: config.providers.grailed.baseUrl,
-        fetchImpl:
-          typeof fetch === "function"
-            ? ((input, init) => fetch(input, init))
-            : undefined,
+        circuitBreakerCooldownMs: config.providers.grailed.circuitBreakerCooldownMs,
+        circuitBreakerFailureThreshold: config.providers.grailed.circuitBreakerFailureThreshold,
+        fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
+        maxConcurrency: config.providers.grailed.maxConcurrency,
+        maxRetries: config.providers.grailed.maxRetries,
+        maxRetryAfterMs: config.providers.grailed.maxRetryAfterMs,
         maxResultsPerSearch: config.providers.grailed.maxResultsPerSearch,
         minRequestIntervalMs: config.providers.grailed.minRequestIntervalMs,
         requestTimeoutMs: config.providers.grailed.requestTimeoutMs,
         runtimeMode: "authorized-live",
         scrapingAllowed: config.providers.grailed.scrapingAllowed,
         userAgent: config.providers.grailed.userAgent,
+      }),
+  },
+  {
+    id: "ebay",
+    displayName: "eBay",
+    mode: "real",
+    implementationStatus: "available",
+    capabilities: ebayProviderCapabilities,
+    requiredEnvVars: [
+      "EBAY_PROVIDER_ENABLED",
+      "EBAY_CLIENT_ID",
+      "EBAY_CLIENT_SECRET",
+      "EBAY_MARKETPLACE_ID",
+    ],
+    createProvider: (config) =>
+      createEbayProvider({
+        affiliateCampaignId: config.providers.ebay.affiliateCampaignId,
+        affiliateReferenceId: config.providers.ebay.affiliateReferenceId,
+        apiBaseUrl: config.providers.ebay.apiBaseUrl,
+        clientId: config.providers.ebay.clientId,
+        clientSecret: config.providers.ebay.clientSecret,
+        fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
+        identityBaseUrl: config.providers.ebay.identityBaseUrl,
+        marketplaceId: config.providers.ebay.marketplaceId,
+        maxConcurrency: config.providers.ebay.maxConcurrency,
+        maxRetries: config.providers.ebay.maxRetries,
+        minRequestIntervalMs: config.providers.ebay.minRequestIntervalMs,
+        oauthScope: config.providers.ebay.oauthScope,
+        requestTimeoutMs: config.providers.ebay.requestTimeoutMs,
       }),
   },
 ];
@@ -117,6 +176,7 @@ function getProviderToggle(
 ): ProviderToggleConfig {
   if (providerId === "mock") return config.providers.mock;
   if (providerId === "grailed") return config.providers.grailed;
+  if (providerId === "ebay") return config.providers.ebay;
   return { enabled: false, configured: false };
 }
 
@@ -161,11 +221,18 @@ export function createProviderRuntime(
           ? definition.mode === "real"
           : definition.mode === "mock";
     const requiresAuthorization = definition.id === "grailed";
-    const hasAuthorization = !requiresAuthorization || toggle.scrapingAllowed === true;
+    const hasAuthorization =
+      !requiresAuthorization ||
+      (toggle.scrapingAllowed === true && Boolean(toggle.authorizationReference));
 
     if (!toggle.enabled) reasons.push("disabled");
     if (!toggle.configured) reasons.push("missing_configuration");
-    if (requiresAuthorization && !hasAuthorization) reasons.push("scraping_not_authorized");
+    if (requiresAuthorization && toggle.scrapingAllowed !== true) {
+      reasons.push("scraping_not_authorized");
+    }
+    if (requiresAuthorization && !toggle.authorizationReference) {
+      reasons.push("authorization_reference_missing");
+    }
     if (!definition.createProvider) reasons.push("implementation_pending");
     if (!isSelectedByMode) reasons.push("mode_excluded");
 
@@ -194,13 +261,15 @@ export function createProviderRuntime(
         failure = createPreflightFailure(
           definition,
           "unavailable",
-          "The " + definition.displayName + " provider is enabled but missing required runtime configuration.",
+          "The " +
+            definition.displayName +
+            " provider is enabled but missing required runtime configuration.",
         );
       } else if (requiresAuthorization && !hasAuthorization) {
         failure = createPreflightFailure(
           definition,
           "authorization_required",
-          "The Grailed provider is enabled but GRAILED_SCRAPING_ALLOWED=true has not been set alongside documented written permission.",
+          "The Grailed provider is enabled but both GRAILED_SCRAPING_ALLOWED=true and GRAILED_AUTHORIZATION_REFERENCE are required.",
         );
       } else if (!definition.createProvider) {
         failure = createPreflightFailure(
@@ -223,7 +292,9 @@ export function createProviderRuntime(
       mode: canActivate
         ? definition.mode === "mock"
           ? "fixture"
-          : "authorized-live"
+          : definition.id === "ebay"
+            ? "official-api"
+            : "authorized-live"
         : "disabled",
       enabled: toggle.enabled,
       configured: toggle.configured,
@@ -232,6 +303,8 @@ export function createProviderRuntime(
       requiredEnvVars: definition.requiredEnvVars,
       capabilities: definition.capabilities,
       reasons,
+      authorizationReferencePresent:
+        definition.id === "grailed" ? Boolean(toggle.authorizationReference) : undefined,
       scrapingAllowed: definition.id === "grailed" ? toggle.scrapingAllowed : undefined,
       lastErrorCategory,
     });

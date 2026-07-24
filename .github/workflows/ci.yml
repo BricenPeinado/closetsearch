@@ -1,0 +1,273 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      staging_api_base_url:
+        description: HTTPS API origin for the authorized staging deployment
+        required: true
+        type: string
+      expected_provider_ids:
+        description: Comma-separated real provider IDs expected to be active
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24.5.0
+  PNPM_VERSION: 10.0.0
+
+jobs:
+  quality:
+    name: Workspace quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Install frozen workspace
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Validate infrastructure contracts
+        run: node scripts/validate-infrastructure.mjs
+
+      - name: Check formatting
+        run: corepack pnpm format:check
+
+      - name: Lint
+        run: corepack pnpm lint
+
+      - name: Typecheck
+        run: corepack pnpm typecheck
+
+      - name: Build
+        run: corepack pnpm build
+
+      - name: Unit and contract tests
+        run: corepack pnpm test
+
+      - name: Dependency vulnerability gate
+        run: corepack pnpm deps:check
+
+  postgres:
+    name: PostgreSQL migration and recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: closetsearch_ci
+          POSTGRES_PASSWORD: closetsearch_ci_password
+          POSTGRES_USER: closetsearch_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U closetsearch_ci -d closetsearch_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://closetsearch_ci:closetsearch_ci_password@127.0.0.1:5432/closetsearch_ci
+      POSTGRES_INTEGRATION_DATABASE_URL: postgresql://closetsearch_ci:closetsearch_ci_password@127.0.0.1:5432/closetsearch_ci
+      POSTGRES_ALLOW_INSECURE: "true"
+      POSTGRES_SSL_MODE: disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Install frozen workspace
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Migrate a clean PostgreSQL database
+        run: corepack pnpm db:migrate
+
+      - name: Run repository and worker integration tests
+        run: corepack pnpm test:integration
+
+      - name: Create engine-level backup
+        env:
+          BACKUP_DIR: ${{ runner.temp }}/closetsearch-backups
+          BACKUP_REQUIRE_ENCRYPTION: "false"
+          BACKUP_RETENTION_DAYS: "14"
+        run: sh scripts/postgres-backup.sh
+
+      - name: Create isolated restore target
+        run: psql "$DATABASE_URL" --no-psqlrc --set=ON_ERROR_STOP=1 --command="CREATE DATABASE closetsearch_restore_ci"
+
+      - name: Restore and verify backup
+        env:
+          RESTORE_CONFIRMATION: restore:closetsearch_restore_ci
+          RESTORE_DATABASE_URL: postgresql://closetsearch_ci:closetsearch_ci_password@127.0.0.1:5432/closetsearch_restore_ci
+          RESTORE_TARGET_DATABASE: closetsearch_restore_ci
+        run: |
+          backup_path=$(find "${{ runner.temp }}/closetsearch-backups" -type f -name 'closetsearch-*.dump' -print -quit)
+          test -n "$backup_path"
+          sh scripts/postgres-restore.sh "$backup_path"
+          expected_migrations=$(find apps/api/src/db/postgres/migrations -type f -name '*.sql' | wc -l | tr -d ' ')
+          restored_migrations=$(psql "$RESTORE_DATABASE_URL" --no-psqlrc --tuples-only --no-align --command='SELECT COUNT(*) FROM postgres_schema_migrations')
+          test "$restored_migrations" = "$expected_migrations"
+
+  e2e:
+    name: Browser flows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: closetsearch_e2e
+          POSTGRES_PASSWORD: closetsearch_e2e_password
+          POSTGRES_USER: closetsearch_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U closetsearch_e2e -d closetsearch_e2e"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://closetsearch_e2e:closetsearch_e2e_password@127.0.0.1:5432/closetsearch_e2e
+      PLAYWRIGHT_PERSISTENCE_DRIVER: postgres
+      POSTGRES_ALLOW_INSECURE: "true"
+      POSTGRES_SSL_MODE: disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Install frozen workspace
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Install Chromium runtime
+        run: corepack pnpm exec playwright install --with-deps chromium
+
+      - name: Migrate the browser-test PostgreSQL database
+        run: corepack pnpm db:migrate
+
+      - name: Run signed-out, signed-in, degraded, and session-expiry flows through PostgreSQL
+        run: corepack pnpm test:e2e
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diagnostics
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  containers:
+    name: Container topology
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Compose configuration
+        run: docker compose --env-file .env.compose.example config --quiet
+
+      - name: Build service images
+        run: docker compose --env-file .env.compose.example build
+
+      - name: Start local production topology
+        run: docker compose --env-file .env.compose.example up --detach postgres migrate api worker web
+
+      - name: Verify local health and no-mock configuration
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4000/health/live >/dev/null &&
+               curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker compose --env-file .env.compose.example ps
+              exit 1
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:4000/providers/health |
+            node -e '
+              let body = "";
+              process.stdin.on("data", (chunk) => { body += chunk; });
+              process.stdin.on("end", () => {
+                const health = JSON.parse(body);
+                if (health.providerRuntimeMode !== "real" || health.allowMockFallback !== false) process.exit(1);
+                if (health.providers.some((provider) => provider.active && provider.providerMode === "mock")) process.exit(1);
+              });
+            '
+
+      - name: Capture service diagnostics
+        if: failure()
+        run: |
+          docker compose --env-file .env.compose.example ps
+          docker compose --env-file .env.compose.example logs --no-color --tail=200
+
+      - name: Stop local production topology
+        if: always()
+        run: docker compose --env-file .env.compose.example down --volumes --remove-orphans
+
+  staging-smoke:
+    name: Authorized staging smoke
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOSETSEARCH_API_BASE_URL: ${{ inputs.staging_api_base_url }}
+      CLOSETSEARCH_EXPECTED_PROVIDER_IDS: ${{ inputs.expected_provider_ids }}
+      CLOSETSEARCH_SMOKE_REQUIRE_HTTPS: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+
+      - name: Verify authorized real-provider staging
+        run: corepack pnpm smoke:test

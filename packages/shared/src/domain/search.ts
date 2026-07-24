@@ -1,6 +1,8 @@
 import type {
   Listing,
   ListingCondition,
+  ListingDataOrigin,
+  ListingFreshnessStatus,
   ListingMarketStatus,
   ListingType,
 } from "./listing.js";
@@ -32,10 +34,22 @@ export interface SearchQuery {
 }
 
 export interface SearchProviderSummary {
+  cacheStatus?: "miss" | "fresh" | "stale";
+  dataOrigin?: ListingDataOrigin;
+  degraded?: boolean;
+  failure?: {
+    code: string;
+    message: string;
+    retryable: boolean;
+  };
+  fetchedAt?: string;
+  freshness?: ListingFreshnessStatus;
+  latencyMs?: number;
   providerId: string;
   providerName: string;
   status: "success" | "failure";
   resultCount: number;
+  warnings?: string[];
 }
 
 export interface SearchResponse {

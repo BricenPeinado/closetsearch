@@ -1,4 +1,4 @@
-import type { Listing, SearchSortMode } from "@closetsearch/shared";
+import type { Listing, ListingDataOrigin, SearchSortMode } from "@closetsearch/shared";
 import type {
   Provider,
   ProviderCapabilities,
@@ -11,6 +11,7 @@ import type {
   ProviderSearchResult,
   ProviderWarning,
 } from "../types.js";
+import { ProviderHttpError, type ProviderHttpMetric } from "../http/resilient-http.js";
 import {
   createGrailedPagination,
   GRAILED_ALGOLIA_HITS_PER_PAGE,
@@ -23,15 +24,10 @@ import {
   resolveGrailedAlgoliaCredentials,
   type GrailedCredentialCache,
 } from "./credentials.js";
-import {
-  grailedFixtureListings,
-  type RawGrailedFixtureListing,
-} from "./fixtures.js";
+import { grailedFixtureListings, type RawGrailedFixtureListing } from "./fixtures.js";
 import { createGrailedHttpClient, type GrailedFetch } from "./http-client.js";
-import {
-  createGrailedListingInputFromFixture,
-  normalizeGrailedListing,
-} from "./normalizer.js";
+import { createGrailedListingInputFromFixture, normalizeGrailedListing } from "./normalizer.js";
+import { normalizeGrailedBaseUrl } from "./url-policy.js";
 
 const GRAILED_PROVIDER_ID = "grailed";
 const GRAILED_PROVIDER_NAME = "Grailed";
@@ -45,13 +41,21 @@ const defaultCredentialTtlMs = 15 * 60_000;
 export type GrailedProviderRuntimeMode = "fixture" | "authorized-live";
 
 export interface GrailedProviderOptions {
+  authorizationReference?: string;
+  baseBackoffMs?: number;
   baseUrl?: string;
+  circuitBreakerCooldownMs?: number;
+  circuitBreakerFailureThreshold?: number;
   credentialTtlMs?: number;
   fetchImpl?: GrailedFetch;
   fixtureListings?: RawGrailedFixtureListing[];
+  maxConcurrency?: number;
+  maxRetries?: number;
+  maxRetryAfterMs?: number;
   maxResultsPerSearch?: number;
   minRequestIntervalMs?: number;
   nowImpl?: () => number;
+  onHttpMetric?: (metric: ProviderHttpMetric) => void;
   requestTimeoutMs?: number;
   runtimeMode?: GrailedProviderRuntimeMode;
   scrapingAllowed?: boolean;
@@ -60,11 +64,27 @@ export interface GrailedProviderOptions {
 }
 
 const grailedCapabilities: ProviderCapabilities = {
+  dataOrigin: "authorized_scraping",
+  paginationModel: "page",
+  requiresAttribution: true,
+  supportsActiveListings: true,
+  supportsAttribution: true,
+  supportsBrandFilter: false,
+  supportsCategoryFilter: false,
+  supportsChangeFeed: false,
+  supportsConditionFilter: false,
   supportsPagination: true,
   supportsPagePagination: true,
   supportsCursorPagination: false,
   supportsPriceRange: false,
+  supportsSearch: true,
+  supportsSellerMetadata: true,
+  supportsShipping: false,
+  supportsSizeFilter: false,
+  supportsSoldListings: true,
+  supportsWebhooks: false,
   supportedListingTypes: ["auction", "buy_now", "unknown"],
+  supportedMarketStatuses: ["active", "sold"],
   supportedSortModes: ["relevance", "newest"],
 };
 
@@ -75,8 +95,19 @@ function toTrimmedString(value: unknown) {
 function createFailure(
   code: ProviderFailureCode,
   message: string,
-  retryable = false,
+  retryableOrOptions:
+    | boolean
+    | {
+        retryAfterMs?: number;
+        retryable?: boolean;
+        statusCode?: number;
+      } = false,
 ): ProviderSearchFailure {
+  const options =
+    typeof retryableOrOptions === "boolean"
+      ? { retryable: retryableOrOptions }
+      : retryableOrOptions;
+
   return {
     providerId: GRAILED_PROVIDER_ID,
     status: "failure",
@@ -84,7 +115,9 @@ function createFailure(
       providerId: GRAILED_PROVIDER_ID,
       code,
       message,
-      retryable,
+      retryable: options.retryable === true,
+      ...(options.retryAfterMs === undefined ? {} : { retryAfterMs: options.retryAfterMs }),
+      ...(options.statusCode === undefined ? {} : { statusCode: options.statusCode }),
     },
   };
 }
@@ -93,6 +126,7 @@ function createSuccess(
   listings: ProviderSearchResult["listings"],
   pagination: ProviderPagination,
   warnings?: ProviderWarning[],
+  dataOrigin: ListingDataOrigin = "authorized_scraping",
 ): ProviderSearchResult {
   return {
     providerId: GRAILED_PROVIDER_ID,
@@ -102,7 +136,9 @@ function createSuccess(
     warnings,
     metadata: {
       providerId: GRAILED_PROVIDER_ID,
+      dataOrigin,
       fetchedAt: new Date().toISOString(),
+      freshness: "fresh",
       resultCount: listings.length,
       pagination,
     },
@@ -110,11 +146,7 @@ function createSuccess(
 }
 
 function toSearchTerms(text: string) {
-  return text
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
+  return text.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 function normalizePage(value: number | undefined) {
@@ -146,12 +178,7 @@ function matchesListingQuery(listing: Listing, query: ProviderSearchQuery) {
   const terms = toSearchTerms(query.text);
 
   if (terms.length > 0) {
-    const haystack = [
-      listing.title,
-      listing.brand.name,
-      listing.category ?? "",
-      listing.size ?? "",
-    ]
+    const haystack = [listing.title, listing.brand.name, listing.category ?? "", listing.size ?? ""]
       .join(" ")
       .toLowerCase();
 
@@ -164,7 +191,10 @@ function matchesListingQuery(listing: Listing, query: ProviderSearchQuery) {
     return false;
   }
 
-  if (query.categories?.length && (!listing.category || !query.categories.includes(listing.category))) {
+  if (
+    query.categories?.length &&
+    (!listing.category || !query.categories.includes(listing.category))
+  ) {
     return false;
   }
 
@@ -187,10 +217,9 @@ function matchesListingQuery(listing: Listing, query: ProviderSearchQuery) {
 }
 
 function matchesFixtureQuery(raw: RawGrailedFixtureListing, query: ProviderSearchQuery) {
-  return matchesListingQuery(
-    normalizeGrailedListing(createGrailedListingInputFromFixture(raw)),
-    query,
-  );
+  const listing = normalizeGrailedListing(createGrailedListingInputFromFixture(raw));
+
+  return listing ? matchesListingQuery(listing, query) : false;
 }
 
 function sortFixtureListings(
@@ -202,8 +231,7 @@ function sortFixtureListings(
   if (sortMode === "newest" || sortMode === "relevance") {
     sorted.sort(
       (left, right) =>
-        new Date(right.publishedAt ?? 0).valueOf() -
-        new Date(left.publishedAt ?? 0).valueOf(),
+        new Date(right.publishedAt ?? 0).valueOf() - new Date(left.publishedAt ?? 0).valueOf(),
     );
   }
 
@@ -220,19 +248,44 @@ async function searchFixtureListings(
   const matchedListings = sortFixtureListings(
     fixtureListings.filter((listing) => matchesFixtureQuery(listing, request.query)),
     request.query.sort,
-  ).map((listing) => normalizeGrailedListing(createGrailedListingInputFromFixture(listing)));
+  )
+    .map((listing) => normalizeGrailedListing(createGrailedListingInputFromFixture(listing)))
+    .filter((listing): listing is Listing => listing !== undefined)
+    .map((normalizedListing) => ({
+      ...normalizedListing,
+      source: {
+        ...normalizedListing.source,
+        dataOrigin: "mock" as const,
+        isMock: true,
+      },
+      analyticsEligibility: {
+        eligible: false,
+        exclusionReasons: ["recorded_fixture"],
+      },
+      market: normalizedListing.market
+        ? {
+            ...normalizedListing.market,
+            isExcludedFromAnalytics: true,
+          }
+        : undefined,
+    }));
   const startIndex = (page - 1) * pageSize;
   const endIndex = startIndex + pageSize;
   const listings = matchedListings.slice(startIndex, endIndex);
   const hasMore = endIndex < matchedListings.length;
 
-  return createSuccess(listings, {
-    page,
-    pageSize,
-    hasMore,
-    nextPage: hasMore ? page + 1 : undefined,
-    totalCount: matchedListings.length,
-  });
+  return createSuccess(
+    listings,
+    {
+      page,
+      pageSize,
+      hasMore,
+      nextPage: hasMore ? page + 1 : undefined,
+      totalCount: matchedListings.length,
+    },
+    undefined,
+    "mock",
+  );
 }
 
 async function resolveLiveGrailedAlgoliaCredentials(
@@ -296,28 +349,18 @@ async function queryGrailedWithCredentialRotation(
 
 async function searchAuthorizedLiveListings(
   request: ProviderSearchRequest,
-  options: Required<
-    Pick<
-      GrailedProviderOptions,
-      | "baseUrl"
-      | "credentialTtlMs"
-      | "fetchImpl"
-      | "maxResultsPerSearch"
-      | "minRequestIntervalMs"
-      | "requestTimeoutMs"
-      | "scrapingAllowed"
-      | "userAgent"
-    >
-  > & {
+  options: {
+    authorizationReference: string;
+    baseUrl: string;
+    client: ReturnType<typeof createGrailedHttpClient>;
     credentialCache: GrailedCredentialCache;
-    nowImpl?: () => number;
-    sleepImpl?: (ms: number) => Promise<void>;
+    scrapingAllowed: boolean;
   },
 ): Promise<ProviderSearchResponse> {
-  if (!options.scrapingAllowed) {
+  if (!options.scrapingAllowed || !toTrimmedString(options.authorizationReference)) {
     return createFailure(
       "authorization_required",
-      "Grailed scraping is not allowed until GRAILED_SCRAPING_ALLOWED=true is set with documented written permission.",
+      "Grailed live access requires both GRAILED_SCRAPING_ALLOWED=true and a retained GRAILED_AUTHORIZATION_REFERENCE.",
     );
   }
 
@@ -330,18 +373,10 @@ async function searchAuthorizedLiveListings(
     });
   }
 
-  const client = createGrailedHttpClient({
-    fetchImpl: options.fetchImpl,
-    minRequestIntervalMs: options.minRequestIntervalMs,
-    requestTimeoutMs: options.requestTimeoutMs,
-    userAgent: options.userAgent,
-    nowImpl: options.nowImpl,
-    sleepImpl: options.sleepImpl,
-  });
   const page = normalizePage(request.pagination?.page);
 
   try {
-    const response = await queryGrailedWithCredentialRotation(client, {
+    const response = await queryGrailedWithCredentialRotation(options.client, {
       baseUrl: options.baseUrl,
       credentialCache: options.credentialCache,
       page,
@@ -373,7 +408,7 @@ async function searchAuthorizedLiveListings(
 
     const hits = Array.isArray(response.body.hits) ? response.body.hits : [];
     const fetchedAt = new Date().toISOString();
-    const listings = hits
+    const normalizedListings = hits
       .map((hit) =>
         normalizeGrailedAlgoliaHit(hit, {
           baseUrl: options.baseUrl,
@@ -381,26 +416,43 @@ async function searchAuthorizedLiveListings(
           marketScope: request.query.marketScope,
         }),
       )
-      .filter((listing) => matchesListingQuery(listing, request.query));
+      .filter((listing): listing is Listing => listing !== undefined);
+    const droppedListingCount = hits.length - normalizedListings.length;
+    const listings = normalizedListings.filter((listing) =>
+      matchesListingQuery(listing, request.query),
+    );
 
     return createSuccess(
       listings,
       createGrailedPagination(response.body, page),
+      droppedListingCount > 0
+        ? [
+            {
+              code: "malformed_items_dropped",
+              message: `Dropped ${droppedListingCount} malformed Grailed listing ${
+                droppedListingCount === 1 ? "record" : "records"
+              }.`,
+              severity: "warning",
+            },
+          ]
+        : undefined,
     );
   } catch (error) {
     if (error instanceof GrailedCredentialResolutionError) {
       return createFailure(error.code, error.message, error.retryable);
     }
 
-    if (error instanceof Error && error.name === "AbortError") {
-      return createFailure("timeout", "Grailed scraping request timed out.", true);
+    if (error instanceof ProviderHttpError) {
+      return createFailure(error.code, error.message, {
+        retryAfterMs: error.retryAfterMs,
+        retryable: error.retryable,
+        statusCode: error.statusCode,
+      });
     }
 
     return createFailure(
       "unavailable",
-      error instanceof Error
-        ? error.message
-        : "Grailed scraping request failed before a response was returned.",
+      "Grailed scraping request failed before a response was returned.",
     );
   }
 }
@@ -408,27 +460,54 @@ async function searchAuthorizedLiveListings(
 export function createGrailedProvider(options: GrailedProviderOptions = {}): Provider {
   const runtimeMode = options.runtimeMode ?? "fixture";
   const fixtureListings = options.fixtureListings ?? grailedFixtureListings;
-  const baseUrl = toTrimmedString(options.baseUrl) || defaultBaseUrl;
+  const configuredBaseUrl = toTrimmedString(options.baseUrl) || defaultBaseUrl;
+  const baseUrl =
+    runtimeMode === "authorized-live"
+      ? normalizeGrailedBaseUrl(configuredBaseUrl)
+      : configuredBaseUrl;
   const userAgent = toTrimmedString(options.userAgent) || defaultUserAgent;
   const requestTimeoutMs = options.requestTimeoutMs ?? defaultRequestTimeoutMs;
   const minRequestIntervalMs = options.minRequestIntervalMs ?? defaultMinRequestIntervalMs;
   const maxResultsPerSearch = options.maxResultsPerSearch ?? defaultMaxResultsPerSearch;
   const credentialTtlMs = options.credentialTtlMs ?? defaultCredentialTtlMs;
-  const credentialCache = createGrailedCredentialCache(
-    credentialTtlMs,
-    options.nowImpl,
-  );
+  const credentialCache = createGrailedCredentialCache(credentialTtlMs, options.nowImpl);
+  const httpClient = options.fetchImpl
+    ? createGrailedHttpClient({
+        baseBackoffMs: options.baseBackoffMs,
+        circuitBreakerCooldownMs: options.circuitBreakerCooldownMs,
+        circuitBreakerFailureThreshold: options.circuitBreakerFailureThreshold,
+        fetchImpl: options.fetchImpl,
+        maxConcurrency: options.maxConcurrency,
+        maxRetries: options.maxRetries,
+        maxRetryAfterMs: options.maxRetryAfterMs,
+        minRequestIntervalMs,
+        nowImpl: options.nowImpl,
+        onHttpMetric: options.onHttpMetric,
+        requestTimeoutMs,
+        sleepImpl: options.sleepImpl,
+        userAgent,
+      })
+    : undefined;
 
   return {
     id: GRAILED_PROVIDER_ID,
     name: GRAILED_PROVIDER_NAME,
+    dataOrigin: runtimeMode === "fixture" ? "mock" : "authorized_scraping",
+    isMock: runtimeMode === "fixture",
     capabilities: grailedCapabilities,
     async search(request) {
       if (runtimeMode === "fixture") {
         return searchFixtureListings(fixtureListings, request, maxResultsPerSearch);
       }
 
-      if (!options.fetchImpl) {
+      if (options.scrapingAllowed !== true || !toTrimmedString(options.authorizationReference)) {
+        return createFailure(
+          "authorization_required",
+          "Grailed live access requires both GRAILED_SCRAPING_ALLOWED=true and a retained GRAILED_AUTHORIZATION_REFERENCE.",
+        );
+      }
+
+      if (!httpClient) {
         return createFailure(
           "unavailable",
           "Grailed authorized-live mode is configured but no server-side HTTP fetch implementation is available.",
@@ -437,16 +516,10 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
 
       return searchAuthorizedLiveListings(request, {
         baseUrl,
-        credentialTtlMs,
+        authorizationReference: toTrimmedString(options.authorizationReference),
+        client: httpClient,
         credentialCache,
-        fetchImpl: options.fetchImpl,
-        maxResultsPerSearch,
-        minRequestIntervalMs,
-        requestTimeoutMs,
         scrapingAllowed: options.scrapingAllowed === true,
-        userAgent,
-        nowImpl: options.nowImpl,
-        sleepImpl: options.sleepImpl,
       });
     },
   };

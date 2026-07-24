@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Brand } from "@closetsearch/shared";
+import type { Provider } from "@closetsearch/providers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, getMetricRoute, resetHttpSecurityStateForTests } from "./app.js";
 import { resetAuthSessionStore } from "./auth/session-service.js";
 import { getDatabase } from "./db/database.js";
 import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.js";
@@ -12,11 +13,11 @@ import { resetSavedSearchStore } from "./saved-search-service.js";
 import { resetSavedFilterStore } from "./saved-filter-service.js";
 import { resetUserSettingsStore } from "./user-settings-service.js";
 import { resetWatchlistStore } from "./watchlist-service.js";
-import { resetEngagementStore } from "./services/engagementService.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
+import type { ProviderRuntime } from "./providers/registry.js";
+import { loadProviderRuntimeConfig } from "./providers/runtime-config.js";
 import {
   getObservedPriceSnapshots,
-  recordObservedListings,
   resetPriceSnapshotStore,
 } from "./services/priceSnapshotService.js";
 import { resetUserStore } from "./user-service.js";
@@ -99,9 +100,8 @@ function createInvalidJsonRequest(
   return stream;
 }
 
-async function runRequest(request: IncomingMessage) {
+async function runRequestAgainstApp(app: ReturnType<typeof createApp>, request: IncomingMessage) {
   const recorder = createResponseRecorder();
-  const app = createApp();
   const requestListener = app.listeners("request")[0] as (
     request: IncomingMessage,
     response: ServerResponse<IncomingMessage>,
@@ -111,6 +111,10 @@ async function runRequest(request: IncomingMessage) {
   await recorder.done;
 
   return recorder.snapshot();
+}
+
+async function runRequest(request: IncomingMessage) {
+  return runRequestAgainstApp(createApp(), request);
 }
 
 async function signupAndGetSession(username: string, password = "closetpass") {
@@ -158,48 +162,22 @@ const sampleLikedListing = {
   fetchedAt: "2026-07-10T12:00:00.000Z",
 };
 
-function createAnalyticsListing(overrides?: Partial<typeof sampleLikedListing> & {
-  brandName?: string;
-  category?: string;
-  id?: string;
-  priceAmount?: number;
-}) {
-  const listingId = overrides?.id ?? "mock:analytics-listing";
-  const providerListingId = overrides?.providerListingId ?? listingId.split(":").pop() ?? listingId;
-  const brandName = overrides?.brandName ?? overrides?.brand?.name ?? "Kapital";
-  const brandSlug = brandName.toLowerCase().replace(/\s+/g, "-");
-
-  return {
-    ...sampleLikedListing,
-    ...overrides,
-    id: listingId,
-    providerId: overrides?.providerId ?? "mock",
-    providerListingId,
-    source: overrides?.source ?? {
-      id: "mock",
-      name: "Mock Closet",
-    },
-    sourceUrl: overrides?.sourceUrl ?? `https://mockcloset.example/listings/${providerListingId}`,
-    title: overrides?.title ?? `${brandName} listing`,
-    brand: overrides?.brand ?? {
-      id: `brand:${brandSlug}`,
-      slug: brandSlug,
-      name: brandName,
-    },
-    imageUrl: overrides?.imageUrl ?? `https://cdn.example.com/${providerListingId}.jpg`,
-    price: overrides?.price ?? {
-      amount: overrides?.priceAmount ?? 200,
-      currency: "USD",
-    },
-    category: overrides?.category,
-    fetchedAt: overrides?.fetchedAt ?? "2026-07-16T12:00:00.000Z",
-  };
-}
+describe("HTTP metric route normalization", () => {
+  it("keeps query values and resource identifiers out of metric labels", () => {
+    expect(getMetricRoute("/search?text=secret-query")).toBe("/search");
+    expect(getMetricRoute("/brands/kapital")).toBe("/brands/:slug");
+    expect(getMetricRoute("/me/watchlists/private-watchlist-id")).toBe(
+      "/me/watchlists/:watchlistId",
+    );
+    expect(getMetricRoute("/not-a-route/private-value")).toBe("unmatched");
+  });
+});
 
 describe("handleRequest", () => {
   let databasePath = "";
 
   beforeEach(() => {
+    resetHttpSecurityStateForTests();
     databasePath = useIsolatedDatabase("app");
     resetAuthSessionStore();
     resetUserStore();
@@ -207,7 +185,6 @@ describe("handleRequest", () => {
     resetSavedFilterStore();
     resetWatchlistStore();
     resetUserSettingsStore();
-    resetEngagementStore();
     resetListingCatalog();
     resetPriceSnapshotStore();
     resetRecentSearchStore();
@@ -243,6 +220,109 @@ describe("handleRequest", () => {
     });
   });
 
+  it("reuses one provider runtime across sequential search, feed, and health calls", async () => {
+    const searchTexts: string[] = [];
+    const provider: Provider = {
+      id: "persistent-test",
+      name: "Persistent test provider",
+      async search(request) {
+        searchTexts.push(request.query.text);
+
+        return {
+          listings: [],
+          pagination: {
+            hasMore: false,
+            page: request.pagination?.page ?? 1,
+            pageSize: request.pagination?.pageSize ?? 12,
+            totalCount: 0,
+          },
+          providerId: "persistent-test",
+          status: "success",
+        };
+      },
+    };
+    const providerRuntime: ProviderRuntime = {
+      activeProviders: [
+        {
+          mode: "real",
+          name: provider.name,
+          provider,
+        },
+      ],
+      config: loadProviderRuntimeConfig({}),
+      preflightFailures: [],
+      statuses: [
+        {
+          active: true,
+          configured: true,
+          enabled: true,
+          id: provider.id,
+          implementationStatus: "available",
+          mode: "official-api",
+          name: provider.name,
+          providerMode: "real",
+          reasons: [],
+        },
+      ],
+    };
+    const app = createApp({ providerRuntime });
+
+    const search = await runRequestAgainstApp(app, createRequest("GET", "/search?q=first"));
+    const feed = await runRequestAgainstApp(app, createRequest("GET", "/feed"));
+    const health = await runRequestAgainstApp(app, createRequest("GET", "/providers/health"));
+
+    expect(search.statusCode).toBe(200);
+    expect(feed.statusCode).toBe(200);
+    expect(searchTexts).toEqual(["first", ""]);
+    expect(JSON.parse(health.body)).toMatchObject({
+      providers: [
+        {
+          active: true,
+          id: "persistent-test",
+        },
+      ],
+    });
+  });
+
+  it("validates the durable client-event boundary without counting server responses", async () => {
+    const missingSession = await runRequest(
+      createJsonRequest("POST", "/events", {
+        eventId: "647613b8-5101-4ad4-87c5-c99fd45a3d5c",
+        eventType: "listing_view",
+        listingId: "mock:mock-jacket-001",
+        occurredAt: new Date().toISOString(),
+        viewportDurationMs: 1_000,
+      }),
+    );
+
+    expect(missingSession.statusCode).toBe(400);
+    expect(JSON.parse(missingSession.body)).toMatchObject({
+      error: "invalid_privacy_session",
+    });
+
+    const sqliteCompatibilityMode = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/events",
+        {
+          eventId: "647613b8-5101-4ad4-87c5-c99fd45a3d5c",
+          eventType: "listing_view",
+          listingId: "mock:mock-jacket-001",
+          occurredAt: new Date().toISOString(),
+          viewportDurationMs: 1_000,
+        },
+        {
+          "x-privacy-session-id": "opaque-test-session-123456",
+        },
+      ),
+    );
+
+    expect(sqliteCompatibilityMode.statusCode).toBe(503);
+    expect(JSON.parse(sqliteCompatibilityMode.body)).toMatchObject({
+      error: "durable_events_unavailable",
+    });
+  });
+
   it("returns a structured invalid_json error without echoing request secrets", async () => {
     const snapshot = await runRequest(
       createInvalidJsonRequest(
@@ -265,14 +345,16 @@ describe("handleRequest", () => {
     const previousMode = process.env.PROVIDER_RUNTIME_MODE;
     const previousEnabled = process.env.GRAILED_PROVIDER_ENABLED;
     const previousScrapingAllowed = process.env.GRAILED_SCRAPING_ALLOWED;
+    const previousAuthorizationReference = process.env.GRAILED_AUTHORIZATION_REFERENCE;
     const previousUserAgent = process.env.GRAILED_USER_AGENT;
     const previousBaseUrl = process.env.GRAILED_BASE_URL;
 
     process.env.PROVIDER_RUNTIME_MODE = "hybrid";
     process.env.GRAILED_PROVIDER_ENABLED = "true";
     process.env.GRAILED_SCRAPING_ALLOWED = "true";
+    process.env.GRAILED_AUTHORIZATION_REFERENCE = "legal-approval-fixture-CS-123";
     process.env.GRAILED_USER_AGENT = "ClosetSearchBot/0.1 contact:team.com";
-    process.env.GRAILED_BASE_URL = "https://secret-grailed.example/private";
+    process.env.GRAILED_BASE_URL = "https://www.grailed.com";
 
     try {
       const snapshot = await runRequest(createRequest("GET", "/providers/health"));
@@ -314,9 +396,8 @@ describe("handleRequest", () => {
           }),
         ]),
       );
-      expect(snapshot.body).not.toContain("super-secret-key");
+      expect(snapshot.body).not.toContain("legal-approval-fixture-CS-123");
       expect(snapshot.body).not.toContain("ClosetSearchBot/0.1 contact:team.com");
-      expect(snapshot.body).not.toContain("https://secret-grailed.example/private");
     } finally {
       if (previousMode === undefined) delete process.env.PROVIDER_RUNTIME_MODE;
       else process.env.PROVIDER_RUNTIME_MODE = previousMode;
@@ -324,6 +405,11 @@ describe("handleRequest", () => {
       else process.env.GRAILED_PROVIDER_ENABLED = previousEnabled;
       if (previousScrapingAllowed === undefined) delete process.env.GRAILED_SCRAPING_ALLOWED;
       else process.env.GRAILED_SCRAPING_ALLOWED = previousScrapingAllowed;
+      if (previousAuthorizationReference === undefined) {
+        delete process.env.GRAILED_AUTHORIZATION_REFERENCE;
+      } else {
+        process.env.GRAILED_AUTHORIZATION_REFERENCE = previousAuthorizationReference;
+      }
       if (previousUserAgent === undefined) delete process.env.GRAILED_USER_AGENT;
       else process.env.GRAILED_USER_AGENT = previousUserAgent;
       if (previousBaseUrl === undefined) delete process.env.GRAILED_BASE_URL;
@@ -410,9 +496,14 @@ describe("handleRequest", () => {
     const signup = await signupAndGetSession("logoutdemo", "mohaircoat");
 
     const logoutSnapshot = await runRequest(
-      createJsonRequest("POST", "/auth/logout", {}, {
-        cookie: signup.cookie,
-      }),
+      createJsonRequest(
+        "POST",
+        "/auth/logout",
+        {},
+        {
+          cookie: signup.cookie,
+        },
+      ),
     );
 
     expect(logoutSnapshot.statusCode).toBe(200);
@@ -645,7 +736,7 @@ describe("handleRequest", () => {
     });
   });
 
-  it("returns normalized search results from /search and records observed price snapshots", async () => {
+  it("returns normalized fixture search results without using mock data for analytics", async () => {
     const snapshot = await runRequest(createRequest("GET", "/search?q=jacket"));
 
     expect(snapshot.statusCode).toBe(200);
@@ -674,7 +765,7 @@ describe("handleRequest", () => {
         riskLevel: expect.any(String),
       },
     });
-    expect(getObservedPriceSnapshots().length).toBeGreaterThan(0);
+    expect(getObservedPriceSnapshots()).toHaveLength(0);
   });
 
   it("returns paginated normalized feed results and personalizes them from the session cookie", async () => {
@@ -688,7 +779,7 @@ describe("handleRequest", () => {
         pageSize: 4,
       },
     });
-    expect(getObservedPriceSnapshots().length).toBeGreaterThan(0);
+    expect(getObservedPriceSnapshots()).toHaveLength(0);
 
     const signup = await signupAndGetSession("preflover", "mohaircoat");
 
@@ -716,7 +807,9 @@ describe("handleRequest", () => {
     );
 
     const body = JSON.parse(personalizedSnapshot.body) as {
-      debugPersonalization?: { scoreBreakdowns: Array<{ listingId: string; reasons: Array<{ code: string }> }> };
+      debugPersonalization?: {
+        scoreBreakdowns: Array<{ listingId: string; reasons: Array<{ code: string }> }>;
+      };
       isPersonalized: boolean;
       listings: Array<{ brand: { name: string }; category?: string; id: string }>;
       personalizationSummary?: { isPersonalized: boolean; message: string; signalLabels: string[] };
@@ -762,106 +855,33 @@ describe("handleRequest", () => {
     });
   });
 
-  it("preserves locked analytics for free users and returns observed analytics for premium preview users", async () => {
+  it("keeps analytics locked without a persisted entitlement, regardless of username", async () => {
     const lockedSnapshot = await runRequest(createRequest("GET", "/analytics/overview"));
-    expect(JSON.parse(lockedSnapshot.body)).toMatchObject({
+    const signedOutBody = JSON.parse(lockedSnapshot.body) as Record<string, unknown>;
+
+    expect(signedOutBody).toMatchObject({
       locked: true,
-      message: expect.stringContaining("Collector Preview"),
+      message: expect.stringContaining("persisted entitlement"),
     });
+    expect(signedOutBody).not.toHaveProperty("premiumPreviewUsername");
 
-    recordObservedListings([
-      createAnalyticsListing({ id: "mock:kapital-1", brandName: "Kapital", category: "jackets", priceAmount: 120, title: "Kapital lower-priced jacket" }),
-      createAnalyticsListing({ id: "mock:kapital-2", brandName: "Kapital", category: "jackets", priceAmount: 180 }),
-      createAnalyticsListing({ id: "mock:kapital-3", brandName: "Kapital", category: "jackets", priceAmount: 210 }),
-      createAnalyticsListing({ id: "mock:kapital-4", brandName: "Kapital", category: "jackets", priceAmount: 240 }),
-      createAnalyticsListing({ id: "mock:kapital-5", brandName: "Kapital", category: "jackets", priceAmount: 260 }),
-      createAnalyticsListing({ id: "mock:undercover-1", brandName: "Undercover", category: "tops", priceAmount: 90 }),
-      createAnalyticsListing({ id: "mock:undercover-2", brandName: "Undercover", category: "tops", priceAmount: 120 }),
-      createAnalyticsListing({ id: "mock:undercover-3", brandName: "Undercover", category: "tops", priceAmount: 150 }),
-      createAnalyticsListing({ id: "mock:undercover-4", brandName: "Undercover", category: "tops", priceAmount: 200 }),
-    ]);
-
-    const premium = await signupAndGetSession("premiumdemo", "mohaircoat");
-
-    const overviewSnapshot = await runRequest(
+    const usernameOnly = await signupAndGetSession("premiumdemo", "mohaircoat");
+    const signedInSnapshot = await runRequest(
       createRequest("GET", "/analytics/overview", {
-        cookie: premium.cookie,
+        cookie: usernameOnly.cookie,
       }),
     );
-    const overviewBody = JSON.parse(overviewSnapshot.body) as {
-      locked: boolean;
-      overview?: {
-        dataQuality: { note: string; status: string };
-        observedBrandCount: number;
-        observedCategoryCount: number;
-        observedListingCount: number;
-      };
-      premiumAccess?: { isPremium: boolean; planName: string };
-      sampleData?: boolean;
-    };
+    const signedInBody = JSON.parse(signedInSnapshot.body) as Record<string, unknown>;
 
-    expect(overviewBody).toMatchObject({
-      locked: false,
+    expect(signedInBody).toMatchObject({
+      locked: true,
       premiumAccess: {
-        isPremium: true,
-        planName: "Collector Preview",
-      },
-      sampleData: true,
-      overview: {
-        observedBrandCount: 2,
-        observedCategoryCount: 2,
-        observedListingCount: 9,
+        isPremium: false,
+        planName: "Free",
+        userId: usernameOnly.body.userId,
       },
     });
-    expect(overviewBody.overview?.dataQuality.note.toLowerCase()).toContain("observed");
-
-    const insightsSnapshot = await runRequest(
-      createRequest("GET", "/analytics/market-insights", {
-        cookie: premium.cookie,
-      }),
-    );
-    expect(JSON.parse(insightsSnapshot.body)).toMatchObject({
-      locked: false,
-      brandSummaries: expect.arrayContaining([
-        expect.objectContaining({
-          brand: "Kapital",
-          range: expect.objectContaining({
-            medianPrice: 210,
-            minPrice: 120,
-            maxPrice: 260,
-          }),
-        }),
-      ]),
-      categorySummaries: expect.arrayContaining([
-        expect.objectContaining({
-          category: "jackets",
-          range: expect.objectContaining({
-            count: 5,
-          }),
-        }),
-      ]),
-    });
-
-    const underpricedSnapshot = await runRequest(
-      createRequest("GET", "/analytics/underpriced", {
-        cookie: premium.cookie,
-      }),
-    );
-    const underpricedBody = JSON.parse(underpricedSnapshot.body) as {
-      locked: boolean;
-      signals?: Array<{ label: string; summary: string }>;
-    };
-
-    expect(underpricedBody.locked).toBe(false);
-    expect(underpricedBody.signals).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          label: "Below observed range",
-          summary: expect.stringContaining("observed"),
-        }),
-      ]),
-    );
-    expect(JSON.stringify(underpricedBody).toLowerCase()).not.toContain("profit");
+    expect(signedInBody).not.toHaveProperty("overview");
   });
 
   it("persists recent searches through authenticated API routes", async () => {
@@ -901,9 +921,14 @@ describe("handleRequest", () => {
     });
 
     const clearSnapshot = await runRequest(
-      createJsonRequest("DELETE", "/recent-searches", {}, {
-        cookie: signup.cookie,
-      }),
+      createJsonRequest(
+        "DELETE",
+        "/recent-searches",
+        {},
+        {
+          cookie: signup.cookie,
+        },
+      ),
     );
 
     expect(JSON.parse(clearSnapshot.body)).toEqual({
@@ -1316,7 +1341,8 @@ describe("handleRequest", () => {
     expect(JSON.parse(alertMatchesSnapshot.body)).toMatchObject({
       alertMatches: [],
       deliveryActive: false,
-      message: "Alert delivery is not active yet. Stored matches are foundation data only.",
+      message:
+        "SQLite compatibility mode does not run worker matching. In-app alerts are available with PostgreSQL; outbound email, push, and SMS remain disabled.",
       userId: signup.body.userId,
     });
 

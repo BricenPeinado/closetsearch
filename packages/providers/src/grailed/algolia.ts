@@ -1,16 +1,20 @@
-import type {
-  Listing,
-  ListingCondition,
-  ListingMarketStatus,
-  ListingSeller,
-  SellerTrustTier,
+import {
+  resolveCanonicalBrand,
+  type Listing,
+  type ListingCondition,
+  type ListingMarketStatus,
+  type ListingSeller,
+  type SellerTrustTier,
 } from "@closetsearch/shared";
 import type { ProviderSearchQuery } from "../types.js";
 import type { GrailedAlgoliaCredentials } from "./credentials.js";
 import type { GrailedJsonClientResponse } from "./http-client.js";
+import { createMoneyFromMinor } from "../money.js";
+import { normalizeGrailedAlgoliaAppId, normalizeGrailedBaseUrl } from "./url-policy.js";
 
 const activeListingsIndex = "Listing_production";
 const soldListingsIndex = "Listing_sold_production";
+const fallbackGrailedImageUrl = "https://closetsearch.dev/placeholders/grailed-listing.png";
 export const GRAILED_ALGOLIA_HITS_PER_PAGE = 100;
 
 type GrailedAlgoliaHit = Record<string, unknown>;
@@ -76,27 +80,35 @@ function firstNumber(...values: unknown[]) {
   return undefined;
 }
 
-function slugify(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function normalizePath(pathOrUrl: string | undefined, providerListingId: string, baseUrl: string) {
+  const value = firstString(pathOrUrl);
+  const normalizedBaseUrl = normalizeGrailedBaseUrl(baseUrl);
+  const normalizedPath = value || `/listings/${providerListingId}`;
+
+  try {
+    const url = new URL(normalizedPath, normalizedBaseUrl);
+
+    return url.protocol === "https:" && url.origin === normalizedBaseUrl
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-function normalizePath(
-  pathOrUrl: string | undefined,
-  providerListingId: string,
-  baseUrl: string,
-) {
-  const value = firstString(pathOrUrl);
+function normalizeImageUrl(value: unknown) {
+  const rawUrl = firstString(value);
 
-  if (value?.startsWith("http://") || value?.startsWith("https://")) {
-    return value;
+  if (!rawUrl) {
+    return fallbackGrailedImageUrl;
   }
 
-  const normalizedPath = value || `/listings/${providerListingId}`;
-  return `${baseUrl}${normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`}`;
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "https:" ? url.toString() : fallbackGrailedImageUrl;
+  } catch {
+    return fallbackGrailedImageUrl;
+  }
 }
 
 function normalizeListingType(value: unknown) {
@@ -168,12 +180,7 @@ function normalizeSeller(hit: GrailedAlgoliaHit): ListingSeller | undefined {
     hit.seller_feedback_count,
     hit.sellerFeedbackCount,
   );
-  const username = firstString(
-    seller?.username,
-    seller?.name,
-    hit.seller_username,
-    hit.sellerName,
-  );
+  const username = firstString(seller?.username, seller?.name, hit.seller_username, hit.sellerName);
   const trustTier = normalizeSellerTrustTier(feedbackScore, feedbackCount);
 
   if (
@@ -193,36 +200,31 @@ function normalizeSeller(hit: GrailedAlgoliaHit): ListingSeller | undefined {
   };
 }
 
-export function getGrailedIndexName(
-  marketScope: ListingMarketStatus | undefined,
-) {
+export function getGrailedIndexName(marketScope: ListingMarketStatus | undefined) {
   return marketScope === "sold" ? soldListingsIndex : activeListingsIndex;
 }
 
-function createGrailedAlgoliaRequestUrl(
-  credentials: GrailedAlgoliaCredentials,
-  indexName: string,
-) {
-  return `https://${credentials.appId}-dsn.algolia.net/1/indexes/${indexName}/query`;
+function createGrailedAlgoliaRequestUrl(credentials: GrailedAlgoliaCredentials, indexName: string) {
+  const appId = normalizeGrailedAlgoliaAppId(credentials.appId);
+  return `https://${appId}-dsn.algolia.net/1/indexes/${indexName}/query`;
 }
 
 function createGrailedAlgoliaRequestHeaders(
   baseUrl: string,
   credentials: GrailedAlgoliaCredentials,
 ) {
+  const normalizedBaseUrl = normalizeGrailedBaseUrl(baseUrl);
+
   return {
-    origin: baseUrl,
-    referer: `${baseUrl}/`,
+    origin: normalizedBaseUrl,
+    referer: `${normalizedBaseUrl}/`,
     "x-algolia-agent": "ClosetSearch Grailed Provider",
     "x-algolia-api-key": credentials.apiKey,
     "x-algolia-application-id": credentials.appId,
   };
 }
 
-export function createGrailedAlgoliaQueryPayload(
-  query: ProviderSearchQuery,
-  page: number,
-) {
+export function createGrailedAlgoliaQueryPayload(query: ProviderSearchQuery, page: number) {
   const params = new URLSearchParams({
     hitsPerPage: String(GRAILED_ALGOLIA_HITS_PER_PAGE),
     page: String(Math.max(0, page - 1)),
@@ -238,9 +240,7 @@ export function createGrailedAlgoliaQueryPayload(
   };
 }
 
-export function createGrailedAlgoliaCredentialValidationPayload(
-  queryText = "",
-) {
+export function createGrailedAlgoliaCredentialValidationPayload(queryText = "") {
   return {
     params: new URLSearchParams({
       hitsPerPage: "1",
@@ -303,41 +303,67 @@ export function normalizeGrailedAlgoliaHit(
     fetchedAt: string;
     marketScope?: ListingMarketStatus;
   },
-): Listing {
-  const providerListingId =
-    firstString(hit.objectID, hit.id, hit.slug) ?? "generated-grailed-hit";
+): Listing | undefined {
+  const providerListingId = firstString(hit.objectID, hit.id, hit.slug);
+  const title = firstString(hit.title, hit.full_title, hit.name);
+
+  if (
+    !providerListingId ||
+    providerListingId.length > 256 ||
+    !/^[A-Za-z0-9][A-Za-z0-9._|:-]*$/.test(providerListingId) ||
+    !title
+  ) {
+    return undefined;
+  }
+
   const designer = asRecord(hit.designer) ?? asRecord(hit.brand);
-  const firstDesigner = Array.isArray(hit.designers)
-    ? asRecord(hit.designers[0])
-    : undefined;
+  const firstDesigner = Array.isArray(hit.designers) ? asRecord(hit.designers[0]) : undefined;
   const brandName =
-    firstString(
-      designer?.name,
-      firstDesigner?.name,
-      hit.brand_name,
-      hit.brand,
-    ) ?? "Unknown Brand";
-  const generatedBrandSlug = slugify(brandName);
-  const brandSlug =
-    firstString(designer?.slug, firstDesigner?.slug, hit.brand_slug) ??
-    (generatedBrandSlug.length > 0 ? generatedBrandSlug : "unknown-brand");
-  const priceInCents =
-    firstNumber(
-      hit.price_in_cents,
-      hit.priceInCents,
-      hit.sold_price_in_cents,
-      asRecord(hit.price)?.amount,
-    ) ?? 0;
-  const currency =
-    firstString(hit.currency, asRecord(hit.price)?.currency, "USD") ?? "USD";
+    firstString(designer?.name, firstDesigner?.name, hit.brand_name, hit.brand) ?? "Unknown Brand";
+  const providerBrandSlug = firstString(designer?.slug, firstDesigner?.slug, hit.brand_slug);
+  const priceInCents = firstNumber(
+    hit.price_in_cents,
+    hit.priceInCents,
+    hit.sold_price_in_cents,
+    asRecord(hit.price)?.amount,
+  );
+  const currency = firstString(hit.currency, asRecord(hit.price)?.currency);
   const seller = normalizeSeller(hit);
   const trustTier = seller?.trustTier ?? "unknown";
   const tags = asStringArray(hit.tags) ?? asStringArray(hit.metadata_tags);
-  const priceDropsCount = firstNumber(
-    hit.price_drops_count,
-    hit.priceDropsCount,
-  );
+  const priceDropsCount = firstNumber(hit.price_drops_count, hit.priceDropsCount);
   const marketStatus = options.marketScope ?? "active";
+  const price =
+    priceInCents !== undefined &&
+    Number.isSafeInteger(priceInCents) &&
+    priceInCents >= 0 &&
+    currency
+      ? createMoneyFromMinor(priceInCents, currency)
+      : undefined;
+
+  if (!price) {
+    return undefined;
+  }
+
+  const sourceUpdatedAt = firstString(hit.updated_at, hit.created_at) ?? options.fetchedAt;
+  const listedAt = firstString(hit.created_at);
+  const imageUrl = normalizeImageUrl(
+    firstString(
+      hit.image_url,
+      hit.photo_url,
+      asRecord(hit.cover_photo)?.url,
+      asRecord(hit.photo)?.url,
+    ),
+  );
+  const sourceUrl = normalizePath(
+    firstString(hit.url, hit.path, hit.canonical_path),
+    providerListingId,
+    options.baseUrl,
+  );
+
+  if (!sourceUrl) {
+    return undefined;
+  }
 
   return {
     id: `grailed:${providerListingId}`,
@@ -346,39 +372,58 @@ export function normalizeGrailedAlgoliaHit(
     source: {
       id: "grailed",
       name: "Grailed",
+      dataOrigin: "authorized_scraping",
+      isMock: false,
     },
-    sourceUrl: normalizePath(
-      firstString(hit.url, hit.path, hit.canonical_path),
-      providerListingId,
-      options.baseUrl,
-    ),
-    title: firstString(hit.title, hit.full_title, hit.name) ?? "Grailed listing",
-    brand: {
-      id: `brand:${brandSlug}`,
-      slug: brandSlug,
-      name: brandName,
-    },
-    imageUrl:
-      firstString(
-        hit.image_url,
-        hit.photo_url,
-        asRecord(hit.cover_photo)?.url,
-        asRecord(hit.photo)?.url,
-      ) ?? "https://closetsearch.dev/placeholders/grailed-listing.png",
-    price: {
-      amount: Math.max(0, priceInCents / 100),
-      currency,
+    sourceUrl,
+    title,
+    brand: resolveCanonicalBrand(brandName, providerBrandSlug),
+    imageUrl,
+    images: [
+      {
+        url: imageUrl,
+        role: "primary",
+        alt: title,
+      },
+    ],
+    price,
+    pricing: {
+      original: price,
     },
     category: firstString(hit.category, hit.category_name),
     size: firstString(hit.size, hit.size_label, hit.size_name),
     condition: normalizeCondition(hit.condition),
     listingType: normalizeListingType(hit.listing_type ?? hit.sale_type),
-    fetchedAt:
-      firstString(hit.updated_at, hit.created_at, options.fetchedAt) ??
-      options.fetchedAt,
+    fetchedAt: options.fetchedAt,
+    analyticsEligibility: {
+      eligible: trustTier !== "unverified",
+      exclusionReasons:
+        trustTier === "unverified" ? ["seller_metadata_below_provider_confidence_gate"] : undefined,
+    },
+    attribution: {
+      destinationUrl: sourceUrl,
+      displayText: "View on Grailed",
+      marketplaceName: "Grailed",
+      required: true,
+    },
+    freshness: {
+      observedAt: options.fetchedAt,
+      sourceUpdatedAt,
+      status: "fresh",
+    },
+    lifecycle: {
+      lastSeenAt: options.fetchedAt,
+      listedAt,
+      observedAt: options.fetchedAt,
+      soldAt: marketStatus === "sold" ? sourceUpdatedAt : undefined,
+      sourceUpdatedAt,
+      status: marketStatus,
+    },
     seller,
     market: {
       status: marketStatus,
+      askingPrice: marketStatus === "active" ? price : undefined,
+      soldPrice: marketStatus === "sold" ? price : undefined,
       tags,
       priceDropsCount,
       isExcludedFromAnalytics: trustTier === "unverified",
@@ -386,10 +431,7 @@ export function normalizeGrailedAlgoliaHit(
   };
 }
 
-export function createGrailedPagination(
-  response: GrailedAlgoliaResponse,
-  providerPage: number,
-) {
+export function createGrailedPagination(response: GrailedAlgoliaResponse, providerPage: number) {
   const totalCount = firstNumber(response.nbHits);
   const totalPages = firstNumber(response.nbPages);
   const hasMore = totalPages !== undefined ? providerPage < totalPages : false;

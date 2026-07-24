@@ -1,10 +1,11 @@
-import type {
-  Brand,
-  Listing,
-  ListingCondition,
-  ListingType,
-  SearchSortMode,
+import {
+  resolveCanonicalBrand,
+  type Listing,
+  type ListingCondition,
+  type ListingType,
+  type SearchSortMode,
 } from "@closetsearch/shared";
+import { createMoneyFromMajor } from "../money.js";
 import type { Provider, ProviderSearchQuery, ProviderSearchRequest } from "../types.js";
 
 const MOCK_PROVIDER_ID = "mock";
@@ -126,15 +127,17 @@ const rawMockListings: RawMockListing[] = [
   },
 ];
 
-function normalizeBrand(raw: RawMockListing): Brand {
-  return {
-    id: `brand:${raw.designerSlug}`,
-    slug: raw.designerSlug,
-    name: raw.designer,
-  };
+function normalizeBrand(raw: RawMockListing) {
+  return resolveCanonicalBrand(raw.designer, raw.designerSlug);
 }
 
 export function normalizeMockListing(raw: RawMockListing): Listing {
+  const price = createMoneyFromMajor(raw.amount, raw.currencyCode);
+
+  if (!price) {
+    throw new Error("Mock fixture contains invalid money.");
+  }
+
   return {
     id: `${MOCK_PROVIDER_ID}:${raw.id}`,
     providerId: MOCK_PROVIDER_ID,
@@ -142,41 +145,68 @@ export function normalizeMockListing(raw: RawMockListing): Listing {
     source: {
       id: MOCK_PROVIDER_ID,
       name: MOCK_PROVIDER_NAME,
+      dataOrigin: "mock",
+      isMock: true,
     },
     sourceUrl: raw.listingHref,
     title: raw.headline,
     brand: normalizeBrand(raw),
     imageUrl: raw.imageHref,
-    price: {
-      amount: raw.amount,
-      currency: raw.currencyCode,
+    images: [
+      {
+        url: raw.imageHref,
+        role: "primary",
+        alt: raw.headline,
+      },
+    ],
+    price,
+    pricing: {
+      original: price,
     },
     category: raw.department,
     size: raw.taggedSize,
     condition: raw.wear,
     listingType: raw.purchaseFormat,
     fetchedAt: raw.indexedAt,
+    analyticsEligibility: {
+      eligible: false,
+      exclusionReasons: ["mock_fixture"],
+    },
+    attribution: {
+      destinationUrl: raw.listingHref,
+      displayText: "View mock listing",
+      marketplaceName: MOCK_PROVIDER_NAME,
+      required: false,
+    },
+    freshness: {
+      observedAt: raw.indexedAt,
+      sourceUpdatedAt: raw.indexedAt,
+      status: "fresh",
+    },
+    lifecycle: {
+      lastSeenAt: raw.indexedAt,
+      listedAt: raw.indexedAt,
+      observedAt: raw.indexedAt,
+      sourceUpdatedAt: raw.indexedAt,
+      status: "active",
+    },
+    market: {
+      status: "active",
+      askingPrice: price,
+      isExcludedFromAnalytics: true,
+    },
   };
 }
 
 function toSearchTerms(text: string) {
-  return text
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
+  return text.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 function matchesQuery(raw: RawMockListing, query: ProviderSearchQuery) {
   const terms = toSearchTerms(query.text);
 
   if (terms.length > 0) {
-    const haystack = [
-      raw.headline,
-      raw.designer,
-      raw.department,
-      raw.taggedSize ?? "",
-    ]
+    const haystack = [raw.headline, raw.designer, raw.department, raw.taggedSize ?? ""]
       .join(" ")
       .toLowerCase();
 
@@ -209,11 +239,7 @@ function matchesQuery(raw: RawMockListing, query: ProviderSearchQuery) {
     return false;
   }
 
-  if (
-    query.conditions &&
-    query.conditions.length > 0 &&
-    !query.conditions.includes(raw.wear)
-  ) {
+  if (query.conditions && query.conditions.length > 0 && !query.conditions.includes(raw.wear)) {
     return false;
   }
 
@@ -241,20 +267,14 @@ function matchesQuery(raw: RawMockListing, query: ProviderSearchQuery) {
     return false;
   }
 
-  if (
-    query.currency &&
-    query.currency.toUpperCase() !== raw.currencyCode.toUpperCase()
-  ) {
+  if (query.currency && query.currency.toUpperCase() !== raw.currencyCode.toUpperCase()) {
     return false;
   }
 
   return true;
 }
 
-function sortListings(
-  listings: RawMockListing[],
-  sortMode: SearchSortMode = "relevance",
-) {
+function sortListings(listings: RawMockListing[], sortMode: SearchSortMode = "relevance") {
   const sorted = [...listings];
 
   switch (sortMode) {
@@ -266,15 +286,13 @@ function sortListings(
       break;
     case "newest":
       sorted.sort(
-        (left, right) =>
-          new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
+        (left, right) => new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
       );
       break;
     case "relevance":
     default:
       sorted.sort(
-        (left, right) =>
-          new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
+        (left, right) => new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
       );
       break;
   }
@@ -301,12 +319,30 @@ function normalizePageSize(value: number | undefined) {
 export const mockProvider: Provider = {
   id: MOCK_PROVIDER_ID,
   name: MOCK_PROVIDER_NAME,
+  dataOrigin: "mock",
+  isMock: true,
   capabilities: {
+    dataOrigin: "mock",
+    paginationModel: "page",
+    requiresAttribution: false,
+    supportsActiveListings: true,
+    supportsAttribution: true,
+    supportsBrandFilter: true,
+    supportsCategoryFilter: true,
+    supportsChangeFeed: false,
+    supportsConditionFilter: true,
     supportsPagination: true,
     supportsPagePagination: true,
     supportsCursorPagination: false,
     supportsPriceRange: true,
+    supportsSearch: true,
+    supportsSellerMetadata: false,
+    supportsShipping: false,
+    supportsSizeFilter: true,
+    supportsSoldListings: false,
+    supportsWebhooks: false,
     supportedListingTypes: ["auction", "buy_now", "unknown"],
+    supportedMarketStatuses: ["active"],
     supportedSortModes: ["relevance", "price_asc", "price_desc", "newest"],
   },
   async search(request: ProviderSearchRequest) {
@@ -336,7 +372,9 @@ export const mockProvider: Provider = {
       pagination,
       metadata: {
         providerId: MOCK_PROVIDER_ID,
+        dataOrigin: "mock",
         fetchedAt: new Date().toISOString(),
+        freshness: "fresh",
         resultCount: listings.length,
         pagination,
       },

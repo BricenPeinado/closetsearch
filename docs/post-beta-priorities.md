@@ -1,46 +1,46 @@
-# Post-Beta Priorities
+# Remaining Priorities
 
-This list keeps beta triage disciplined by separating immediate beta hardening from wider public-launch work.
+## Public-launch blockers
 
-## Must Fix Before Public Launch
+1. Obtain and retain authorized live provider access. The target is two real
+   providers; eBay and Grailed are both externally blocked.
+2. Run a no-mock HTTPS staging smoke with those providers.
+3. Configure transactional email and exercise verification/reset/export.
+4. Add a Compose boot and encrypted off-host backup/restore drill to the
+   completed local PostgreSQL concurrency/lease/restart/checksummed-restore
+   evidence.
+5. Approve privacy, retention, subprocessor, and incident processes.
+6. Configure dashboards/alerts, secret rotation, error tracking, and HA/PITR.
 
-- stronger provider depth and live-data reliability
-- production-grade database and backup strategy
-- stronger observability and incident-response tooling
-- password reset, email verification, and fuller account recovery
-- clearer rollout and rollback automation beyond docs-first beta operations
+## Production follow-through
 
-## Should Fix Before Public Launch
+- distributed auth/account rate limiting
+- approved exchange-rate provider and persisted refresh schedule
+- outbound email alert handler with bounce/suppression/retry operations
+- billing provider with signed idempotent webhooks
+- broader Playwright coverage against PostgreSQL staging
+- query-plan and capacity review with representative data volume
 
-- richer provider-limited and degraded-state UX across every surface
-- broader mobile and accessibility review
-- better admin and moderation tooling
-- improved analytics coverage once more observed data exists
-- more robust smoke checks and deploy validation
+## Data and ML
 
-## Later Improvements
+- collect deletion-aware temporal engagement snapshots
+- obtain enough confirmed sold outcomes under provider terms
+- evaluate recommendation segments, diversity, novelty, provider/brand
+  concentration, and latency
+- improve/calibrate fair-value candidate until it beats observed baseline
+- keep rules and observed ranges active until promotion gates pass
 
-- multiple real providers with smarter merging
-- richer recommendation controls
-- better saved-item organization
-- more complete beta feedback intake automation
+## Intentionally deferred
 
-## Deferred Feature Ideas
+- push and SMS
+- authenticity/fake verdicts
+- OAuth/social login and device management UI
+- seller posting/social tools
 
-- real watchlist delivery
-- premium packaging and billing
-- broader personalization controls
-- deeper analytics beyond observed pricing context
+## Ongoing risks
 
-## Known Product Risks
-
-- users may overread analytics or trust copy if disclaimers become too subtle
-- provider incompleteness can still make the product feel inconsistent across categories
-- limited data can make beta users question result quality even when the app is functioning correctly
-
-## Known Technical Risks
-
-- SQLite is still the operational persistence layer
-- provider adapters can still break if upstream HTML or APIs change
-- observability remains intentionally lightweight for beta
-- session and deployment behavior still depend on careful environment setup
+- upstream provider contract/permission changes
+- sparse/biased sold coverage
+- analytics overinterpretation
+- exposure bias in engagement-trained models
+- multi-replica cache/rate/database concurrency budgets

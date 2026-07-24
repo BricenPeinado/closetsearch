@@ -1,4 +1,10 @@
-import type { Brand, Listing, ListingCondition, ListingType } from "@closetsearch/shared";
+import {
+  resolveCanonicalBrand,
+  type Listing,
+  type ListingCondition,
+  type ListingType,
+} from "@closetsearch/shared";
+import { createMoneyFromMajor } from "../money.js";
 import type { RawGrailedFixtureListing } from "./fixtures.js";
 import type { ParsedGrailedListingCard } from "./parser.js";
 
@@ -35,16 +41,9 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function normalizeBrand(raw: GrailedListingInput): Brand {
+function normalizeBrand(raw: GrailedListingInput) {
   const rawName = toTrimmedString(raw.brandName);
-  const name = rawName || "Unknown Brand";
-  const slug = toTrimmedString(raw.brandSlug) || slugify(name) || "unknown-brand";
-
-  return {
-    id: "brand:" + slug,
-    slug,
-    name,
-  };
+  return resolveCanonicalBrand(rawName || "Unknown brand", toTrimmedString(raw.brandSlug));
 }
 
 function normalizeListingType(value: string | null | undefined): ListingType {
@@ -99,19 +98,20 @@ function normalizeSourceListingId(raw: GrailedListingInput) {
     }
   }
 
-  const titleSlug = slugify(toTrimmedString(raw.title));
-  return titleSlug ? "generated-" + titleSlug : "generated-grailed-listing";
+  return undefined;
 }
 
 function normalizeSourceUrl(pathOrUrl: string | null | undefined, sourceListingId: string) {
   const value = toTrimmedString(pathOrUrl);
-
-  if (/^https?:\/\//i.test(value)) {
-    return value;
-  }
-
   const normalizedPath = value || "/listings/" + sourceListingId;
-  return grailedBaseUrl + (normalizedPath.startsWith("/") ? normalizedPath : "/" + normalizedPath);
+
+  try {
+    const url = new URL(normalizedPath, grailedBaseUrl);
+
+    return url.protocol === "https:" && url.origin === grailedBaseUrl ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeMoney(value: string | null | undefined) {
@@ -124,26 +124,23 @@ function normalizeMoney(value: string | null | undefined) {
       : text.toUpperCase().includes("USD") || text.includes("$")
         ? "USD"
         : "USD";
-  const amount = amountMatch ? Number(amountMatch[1]) : 0;
-
-  return {
-    amount: Number.isFinite(amount) ? amount : 0,
-    currency,
-  };
+  return amountMatch ? createMoneyFromMajor(amountMatch[1], currency) : undefined;
 }
 
 function normalizeFetchedAt(value: string | null | undefined) {
   const timestamp = toTrimmedString(value);
 
   if (!timestamp) {
-    return new Date().toISOString();
+    return undefined;
   }
 
   const parsedDate = new Date(timestamp);
-  return Number.isNaN(parsedDate.valueOf()) ? new Date().toISOString() : parsedDate.toISOString();
+  return Number.isNaN(parsedDate.valueOf()) ? undefined : parsedDate.toISOString();
 }
 
-export function createGrailedListingInputFromFixture(raw: RawGrailedFixtureListing): GrailedListingInput {
+export function createGrailedListingInputFromFixture(
+  raw: RawGrailedFixtureListing,
+): GrailedListingInput {
   return {
     id: raw.id,
     sourceListingId: raw.id,
@@ -182,8 +179,23 @@ export function createGrailedListingInputFromParsedCard(
   };
 }
 
-export function normalizeGrailedListing(raw: GrailedListingInput): Listing {
+export function normalizeGrailedListing(raw: GrailedListingInput): Listing | undefined {
   const providerListingId = normalizeSourceListingId(raw);
+  const fetchedAt = normalizeFetchedAt(raw.fetchedAt);
+  const title = toTrimmedString(raw.title);
+  const price = normalizeMoney(raw.priceText);
+
+  if (!providerListingId || !fetchedAt || !title || !price) {
+    return undefined;
+  }
+
+  const sourceUrl = normalizeSourceUrl(raw.sourceUrl, providerListingId);
+
+  if (!sourceUrl) {
+    return undefined;
+  }
+
+  const imageUrl = toTrimmedString(raw.imageUrl) || fallbackGrailedImageUrl;
 
   return {
     id: GRAILED_PROVIDER_ID + ":" + providerListingId,
@@ -192,16 +204,54 @@ export function normalizeGrailedListing(raw: GrailedListingInput): Listing {
     source: {
       id: GRAILED_PROVIDER_ID,
       name: GRAILED_PROVIDER_NAME,
+      dataOrigin: "authorized_scraping",
+      isMock: false,
     },
-    sourceUrl: normalizeSourceUrl(raw.sourceUrl, providerListingId),
-    title: toTrimmedString(raw.title) || "Grailed listing",
+    sourceUrl,
+    title,
     brand: normalizeBrand(raw),
-    imageUrl: toTrimmedString(raw.imageUrl) || fallbackGrailedImageUrl,
-    price: normalizeMoney(raw.priceText),
+    imageUrl,
+    images: [
+      {
+        url: imageUrl,
+        role: "primary",
+        alt: title,
+      },
+    ],
+    price,
+    pricing: {
+      original: price,
+    },
     category: toTrimmedString(raw.category) || undefined,
     size: toTrimmedString(raw.size) || undefined,
     condition: normalizeCondition(raw.condition),
     listingType: normalizeListingType(raw.listingType),
-    fetchedAt: normalizeFetchedAt(raw.fetchedAt),
+    fetchedAt,
+    analyticsEligibility: {
+      eligible: true,
+    },
+    attribution: {
+      destinationUrl: sourceUrl,
+      displayText: "View on Grailed",
+      marketplaceName: GRAILED_PROVIDER_NAME,
+      required: true,
+    },
+    freshness: {
+      observedAt: fetchedAt,
+      sourceUpdatedAt: fetchedAt,
+      status: "fresh",
+    },
+    lifecycle: {
+      lastSeenAt: fetchedAt,
+      listedAt: fetchedAt,
+      observedAt: fetchedAt,
+      sourceUpdatedAt: fetchedAt,
+      status: "active",
+    },
+    market: {
+      status: "active",
+      askingPrice: price,
+      isExcludedFromAnalytics: false,
+    },
   };
 }

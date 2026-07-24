@@ -15,10 +15,7 @@ import {
   listLikesByUserId,
   type StoredLikeRecord,
 } from "./db/repositories/likes.js";
-import {
-  getRememberedListing,
-  rememberListings,
-} from "./services/listingCatalogService.js";
+import { getRememberedListing, rememberListings } from "./services/listingCatalogService.js";
 
 function toTrimmedString(value: string | undefined) {
   return typeof value === "string" ? value.trim() : "";
@@ -27,9 +24,7 @@ function toTrimmedString(value: string | undefined) {
 function titleCaseSource(source: string) {
   return source
     .split(/[-_\s]+/)
-    .map((segment) =>
-      segment.length > 0 ? segment[0].toUpperCase() + segment.slice(1) : "",
-    )
+    .map((segment) => (segment.length > 0 ? segment[0].toUpperCase() + segment.slice(1) : ""))
     .join(" ");
 }
 
@@ -58,7 +53,8 @@ function buildFallbackListing(record: StoredLikeRecord): Listing {
     id: snapshot?.id || record.like.listingId,
     providerId: snapshot?.providerId || record.like.source,
     providerListingId:
-      snapshot?.providerListingId || parseProviderListingId(record.like.listingId, record.like.source),
+      snapshot?.providerListingId ||
+      parseProviderListingId(record.like.listingId, record.like.source),
     source: snapshot?.source || {
       id: record.like.source,
       name: sourceName,

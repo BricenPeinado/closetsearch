@@ -7,9 +7,11 @@ import {
 } from "../db/repositories/price-snapshots.js";
 
 function hasUsableObservedPrice(listing: Listing) {
-  return Number.isFinite(listing.price.amount) &&
+  return (
+    Number.isFinite(listing.price.amount) &&
     listing.price.amount > 0 &&
-    listing.price.currency.trim().length > 0;
+    listing.price.currency.trim().length > 0
+  );
 }
 
 function shouldRecordListing(listing: Listing) {
@@ -18,16 +20,12 @@ function shouldRecordListing(listing: Listing) {
     listing.providerListingId.trim().length > 0 &&
     listing.sourceUrl.trim().length > 0 &&
     hasUsableObservedPrice(listing) &&
-    (
-      listing.market?.isExcludedFromAnalytics === false ||
-      listing.market?.isExcludedFromAnalytics === undefined
-    )
+    (listing.market?.isExcludedFromAnalytics === false ||
+      listing.market?.isExcludedFromAnalytics === undefined)
   );
 }
 
-export function recordObservedListings(listings: Listing[]) {
-  const observedAt = new Date().toISOString();
-
+export function recordObservedListings(listings: Listing[], observedAt = new Date().toISOString()) {
   for (const listing of listings) {
     if (shouldRecordListing(listing) === false) {
       continue;

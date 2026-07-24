@@ -5,20 +5,27 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json && mkdir -p dist/db/schema && cp -R src/db/schema/. dist/db/schema && cp -R dist/apps/api/src/. dist/",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/db/schema dist/db/postgres/migrations && cp -R src/db/schema/. dist/db/schema && cp -R src/db/postgres/migrations/. dist/db/postgres/migrations && cp -R dist/apps/api/src/. dist/",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts && eslint vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:integration": "vitest run src/db/postgres/postgres.integration.test.ts src/db/postgres/request-store.integration.test.ts src/db/postgres/real-postgres.integration.test.ts src/db/persistence-runtime.test.ts src/services/durableDataServices.integration.test.ts src/services/postgresAnalyticsService.integration.test.ts src/worker/worker.integration.test.ts src/auth/postgres-account-security-service.integration.test.ts src/routes/postgres-request-routes.integration.test.ts",
     "db:migrate": "tsx src/db/migrations.ts",
-    "db:seed": "tsx src/db/seed.ts"
+    "db:migrate:postgres": "tsx src/db/postgres/migrate-cli.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "worker": "tsx src/worker/entrypoint.ts",
+    "worker:start": "node dist/worker/entrypoint.js"
   },
   "dependencies": {
     "@closetsearch/providers": "workspace:*",
-    "@closetsearch/shared": "workspace:*"
+    "@closetsearch/shared": "workspace:*",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.5",
+    "pg-mem": "^3.0.5",
     "tsx": "^4.19.0"
   }
 }

@@ -42,7 +42,11 @@ export function updateSettings(input: UpdateUserSettingsInput) {
   const preferredCurrency = normalizeCurrency(input.preferredCurrency);
 
   if (preferredCurrency && preferredCurrency.length !== 3) {
-    throw new ApiError(400, "invalid_request", "preferredCurrency must be a 3-letter currency code.");
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "preferredCurrency must be a 3-letter currency code.",
+    );
   }
 
   if (

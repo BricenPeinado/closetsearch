@@ -49,7 +49,7 @@ export const grailedPublicConfigHtmlFixture = [
   "  <head></head>",
   "  <body>",
   "    <script>",
-  '      window.PUBLIC_CONFIG = {"algolia":{"appId":"grailed-app-123","apiKey":"grailed-key-123"},"other":{"flag":true}};',
+  '      window.PUBLIC_CONFIG = {"algolia":{"appId":"GRAILED123","apiKey":"grailed-key-123"},"other":{"flag":true}};',
   "    </script>",
   "  </body>",
   "</html>",
@@ -70,7 +70,7 @@ export const grailedAlternateInlineConfigHtmlFixture = [
   "  <head></head>",
   "  <body>",
   "    <script>",
-  '      window.__PRELOADED_STATE__ = {"runtime":{"services":{"search":{"algolia":{"applicationId":"grailed-app-234","apiKey":"grailed-key-234"}}}}};',
+  '      window.__PRELOADED_STATE__ = {"runtime":{"services":{"search":{"algolia":{"applicationId":"GRAILED234","apiKey":"grailed-key-234"}}}}};',
   "    </script>",
   "  </body>",
   "</html>",
@@ -83,7 +83,7 @@ export const grailedHomepageScriptHtmlFixture = [
   '    <script src="/assets/listings.js"></script>',
   "  </head>",
   "  <body>",
-  "    <div id=\"app\"></div>",
+  '    <div id="app"></div>',
   "  </body>",
   "</html>",
 ].join("\n");
@@ -94,14 +94,14 @@ export const grailedNoCredentialHtmlFixture = [
   '    <script src="/assets/runtime.js"></script>',
   "  </head>",
   "  <body>",
-  "    <div id=\"app\"></div>",
+  '    <div id="app"></div>',
   "  </body>",
   "</html>",
 ].join("\n");
 
 export const grailedCredentialBundleFixture = [
-  'window.__APP_DATA__={};',
-  'var listingSearch={indexName:"Listing_production",applicationID:"grailed-app-456",apiKey:"grailed-key-456"};',
+  "window.__APP_DATA__={};",
+  'var listingSearch={indexName:"Listing_production",applicationID:"GRAILED456",apiKey:"grailed-key-456"};',
   'var soldListingSearch={indexName:"Listing_sold_production"};',
 ].join("\n");
 
@@ -200,8 +200,8 @@ export const grailedSearchHtmlFixture = [
   '      <div data-testid="listing-size">L</div>',
   '      <div data-testid="listing-condition">Good</div>',
   '      <div data-testid="listing-category">Outerwear</div>',
-  '    </a>',
-  '  </article>',
+  "    </a>",
+  "  </article>",
   '  <article data-testid="listing-tile" data-listing-id="grailed-1002-vintage-band-tee">',
   '    <a href="/listings/grailed-1002-vintage-band-tee" aria-label="Vintage band tee">',
   '      <img src="https://media.example.com/grailed-1002.jpg" alt="Vintage band tee" />',
@@ -211,9 +211,9 @@ export const grailedSearchHtmlFixture = [
   '      <div data-testid="listing-size">M</div>',
   '      <div data-testid="listing-condition">Excellent</div>',
   '      <div data-testid="listing-category">Tops</div>',
-  '    </a>',
-  '  </article>',
-  '</section>',
+  "    </a>",
+  "  </article>",
+  "</section>",
 ].join("\n");
 
 export const grailedPartialSearchHtmlFixture = [
@@ -222,13 +222,13 @@ export const grailedPartialSearchHtmlFixture = [
   '    <a href="/listings/grailed-2001-unknown-archive-piece" aria-label="Unknown archive piece">',
   '      <div data-testid="listing-title">Unknown archive piece</div>',
   '      <div data-testid="listing-price">Offer</div>',
-  '    </a>',
-  '  </article>',
-  '</section>',
+  "    </a>",
+  "  </article>",
+  "</section>",
 ].join("\n");
 
 export const grailedNoResultsHtmlFixture = [
   '<section data-testid="search-results">',
   '  <div data-testid="empty-state">No listings found</div>',
-  '</section>',
+  "</section>",
 ].join("\n");

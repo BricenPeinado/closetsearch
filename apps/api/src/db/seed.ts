@@ -324,18 +324,7 @@ export function seedDatabase() {
         quiet_hours_end = excluded.quiet_hours_end,
         updated_at = excluded.updated_at`,
     )
-    .run(
-      seedUserId,
-      0,
-      0,
-      0,
-      1,
-      "daily",
-      "22:00",
-      "08:00",
-      seedCreatedAt,
-      seedCreatedAt,
-    );
+    .run(seedUserId, 0, 0, 0, 1, "daily", "22:00", "08:00", seedCreatedAt, seedCreatedAt);
 
   recordObservedListings(seedObservedListings);
 }

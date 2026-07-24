@@ -1,11 +1,8 @@
-import type {
-  ListingCondition,
-  ListingMarketStatus,
-  ListingType,
-} from "./listing.js";
+import type { ListingCondition, ListingMarketStatus, ListingType } from "./listing.js";
 
 export interface PriceSnapshot {
   id: string;
+  observationSequence: number;
   listingId: string;
   source: string;
   sourceListingId: string;
@@ -39,11 +36,13 @@ export interface ObservedMarketRange {
 }
 
 export interface BrandMarketSummary {
+  basis?: "confirmed_sold" | "observed_asking";
   brand: string;
   range: ObservedMarketRange;
 }
 
 export interface CategoryMarketSummary {
+  basis?: "confirmed_sold" | "observed_asking";
   category: string;
   range: ObservedMarketRange;
 }

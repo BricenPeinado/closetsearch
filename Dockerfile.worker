@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_VERSION=24.5.0
+
+FROM node:${NODE_VERSION}-bookworm-slim AS build
+ENV COREPACK_HOME=/corepack
+WORKDIR /workspace
+
+RUN corepack enable && corepack prepare pnpm@10.0.0 --activate
+
+COPY . .
+RUN corepack pnpm install --frozen-lockfile \
+  && corepack pnpm --filter @closetsearch/api... build
+
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /workspace/apps/api
+
+LABEL org.opencontainers.image.source="https://github.com/BricenPeinado/closetsearch" \
+      org.opencontainers.image.title="ClosetSearch Worker"
+
+COPY --from=build --chown=node:node /workspace/node_modules /workspace/node_modules
+COPY --from=build --chown=node:node /workspace/apps/api/node_modules /workspace/apps/api/node_modules
+COPY --from=build --chown=node:node /workspace/apps/api/package.json /workspace/apps/api/package.json
+COPY --from=build --chown=node:node /workspace/apps/api/dist /workspace/apps/api/dist
+COPY --from=build --chown=node:node /workspace/packages/providers/package.json /workspace/packages/providers/package.json
+COPY --from=build --chown=node:node /workspace/packages/providers/node_modules /workspace/packages/providers/node_modules
+COPY --from=build --chown=node:node /workspace/packages/providers/dist /workspace/packages/providers/dist
+COPY --from=build --chown=node:node /workspace/packages/shared/package.json /workspace/packages/shared/package.json
+COPY --from=build --chown=node:node /workspace/packages/shared/dist /workspace/packages/shared/dist
+
+USER node
+STOPSIGNAL SIGTERM
+
+# This proves process liveness only. Job freshness and ingestion lag must be
+# monitored from durable job/provider-health records.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD ["node", "-e", "const fs=require('node:fs');const c=fs.readFileSync('/proc/1/cmdline','utf8');process.exit(c.includes('worker/entrypoint.js')?0:1)"]
+
+CMD ["node", "dist/worker/entrypoint.js"]

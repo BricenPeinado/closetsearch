@@ -3,16 +3,18 @@ import { randomUUID } from "node:crypto";
 type LogLevel = "info" | "warn" | "error";
 
 type JsonValue =
-  | boolean
-  | number
-  | string
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue | undefined };
+  boolean | number | string | null | JsonValue[] | { [key: string]: JsonValue | undefined };
 
 export type LogFields = Record<string, JsonValue | undefined>;
 
-function sanitizeValue(value: JsonValue | undefined): JsonValue | undefined {
+const sensitiveKeyPattern =
+  /authorization|cookie|credential|password|secret|session|token|api[-_]?key/i;
+
+function sanitizeValue(value: JsonValue | undefined, key?: string): JsonValue | undefined {
+  if (key && sensitiveKeyPattern.test(key)) {
+    return "[REDACTED]";
+  }
+
   if (value === undefined || value === null) {
     return value;
   }
@@ -24,7 +26,7 @@ function sanitizeValue(value: JsonValue | undefined): JsonValue | undefined {
   if (typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value)
-        .map(([key, nestedValue]) => [key, sanitizeValue(nestedValue)])
+        .map(([nestedKey, nestedValue]) => [nestedKey, sanitizeValue(nestedValue, nestedKey)])
         .filter(([, nestedValue]) => nestedValue !== undefined),
     );
   }

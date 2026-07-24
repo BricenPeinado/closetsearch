@@ -1,47 +1,46 @@
-# Docs
+# Documentation
 
-This folder holds supporting project notes that should not crowd the root planning docs.
+## Production status
 
-## Beta Readiness Docs
+- [Implementation report](implementation-report.md)
+- [Immutable pre-implementation gap matrix](production-gap-matrix.md)
+- [Provider acquisition/compliance matrix](provider-acquisition-matrix.md)
+- [Known limitations](known-limitations.md)
+- [Truthful roadmap](../TASKS.md)
 
-- [Deployment checklist](./runbooks/deployment-checklist.md)
-- [Environment reference](./runbooks/environment.md)
-- [Seed and demo data](./runbooks/seed-demo-data.md)
-- [Manual beta QA checklist](./qa/manual-beta-checklist.md)
-- [Known limitations](./known-limitations.md)
-- [Beta feedback plan](./beta-feedback-plan.md)
-- [Beta triage rubric](./beta-triage-rubric.md)
-- [Post-beta priorities](./post-beta-priorities.md)
-- [Beta privacy copy](./legal/privacy-beta.md)
-- [Beta data-use copy](./legal/data-use.md)
-- [Beta bug report template](./templates/beta-bug-report.md)
-- [Beta feature request template](./templates/beta-feature-request.md)
-- [Beta usability feedback template](./templates/beta-usability-feedback.md)
+## Operations
 
-## Release Docs
+- [Production deployment](runbooks/PRODUCTION_DEPLOYMENT.md)
+- [Environment reference](runbooks/environment.md)
+- [PostgreSQL persistence](runbooks/DATABASE_PERSISTENCE.md)
+- [Backup and restore](runbooks/POSTGRES_BACKUP_RESTORE.md)
+- [Production rollback](runbooks/PRODUCTION_ROLLBACK.md)
+- [Incident response](runbooks/INCIDENT_RESPONSE.md)
+- [Deployment checklist](runbooks/deployment-checklist.md)
+- [Provider operations/compliance](runbooks/PROVIDERS.md)
+- [Provider configuration](runbooks/PROVIDER_CONFIGURATION.md)
+- [Pagination/caching](runbooks/PAGINATION_AND_CACHING.md)
 
-- [Launch candidate scope freeze](./release/scope-freeze.md)
-- [Release candidate checklist](./release/release-candidate-checklist.md)
-- [Release notes template](./release/release-notes-template.md)
-- [Launch go / no-go](./release/go-no-go.md)
-- [Rollback plan](./release/rollback-plan.md)
-- [Launch blockers](./release/launch-blockers.md)
-- [Post-launch monitoring](./release/post-launch-monitoring.md)
+## Product systems
 
-## Existing Runbooks
+- [Authentication/account security](runbooks/auth.md)
+- [Saved user features](runbooks/user-features.md)
+- [Alerts/watchlists](runbooks/alerts-watchlists.md)
+- [Market analytics](runbooks/analytics.md)
+- [Personalization/ML runtime](runbooks/personalization.md)
+- [ML dataset/model cards and evaluation](ml/README.md)
 
-- `prompts`: reusable AI development prompts and pass notes
-- `marketplace-notes`: marketplace research and integration notes
-- `runbooks`: operational or development runbooks when the project has runnable systems
+## QA and release
 
-Useful existing runbooks:
+- [Current QA baseline](runbooks/QA_BASELINE.md)
+- [Manual beta checklist](qa/manual-beta-checklist.md)
+- [Release candidate checklist](release/release-candidate-checklist.md)
+- [Go/no-go](release/go-no-go.md)
+- [Launch blockers](release/launch-blockers.md)
+- [Post-launch monitoring](release/post-launch-monitoring.md)
+- [Release notes template](release/release-notes-template.md)
 
-- [Auth](./runbooks/auth.md)
-- [Analytics](./runbooks/analytics.md)
-- [Alerts and watchlists](./runbooks/alerts-watchlists.md)
-- [User features](./runbooks/user-features.md)
-- [Providers](./runbooks/PROVIDER_CONFIGURATION.md)
-- [Database persistence](./runbooks/DATABASE_PERSISTENCE.md)
-- [Personalization](./runbooks/personalization.md)
-
-Root planning stays in `README.md`, `PRODUCT.md`, `ARCHITECTURE.md`, `TASKS.md`, and `DECISIONS.md`.
+The older beta feedback, triage, privacy, and release notes remain historical
+planning inputs. When an older document conflicts with a production-hardening
+runbook, the current runbook, provider matrix, `TASKS.md`, and implementation
+report are authoritative.

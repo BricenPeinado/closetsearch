@@ -1,6 +1,9 @@
 # Decisions
 
-This file records durable product and architecture decisions. Keep entries short, dated, and easy to revisit.
+This file records durable product and architecture decisions. Keep entries short,
+dated, and easy to revisit. Earlier entries preserve the state and rationale at
+the time they were accepted; later decisions supersede production behavior where
+they conflict with preview-era wording.
 
 ## Template
 
@@ -372,7 +375,6 @@ Watchlists are stored intent only for now. They do not trigger alerts, backgroun
 
 The account area becomes meaningfully useful now, core user data survives refreshes and restarts, and later milestones can build delivery and personalization on stable persisted user intent instead of reworking the storage model.
 
-
 ### Explainable Rule-Based Personalization Comes Before ML
 
 **Date:** 2026-07-14  
@@ -612,3 +614,206 @@ This means the repo should focus on:
 #### Consequences
 
 Launch decisions stay focused, rollback remains practical, and user trust is better protected. The cost is that some otherwise appealing feature ideas remain intentionally deferred until after the launch-candidate cut.
+
+### Production Provider Access Fails Closed
+
+**Date:** 2026-07-24
+**Status:** Accepted
+
+#### Context
+
+An implemented adapter, reachable endpoint, or recorded fixture is not proof
+that ClosetSearch may collect, retain, analyze, or display marketplace data.
+Silent mock fallback also makes an outage look like live inventory.
+
+#### Decision
+
+Production requires `real` provider mode, disables the mock provider and mock
+fallback, and refuses a provider that lacks its credentials or authorization
+gate. Official/partner APIs are preferred. Grailed additionally requires a
+retained written-authorization reference covering the exact access profile.
+Normal tests never call live marketplaces.
+
+#### Alternatives Considered
+
+- treat technical access as authorization
+- scrape providers until they block the service
+- serve fixtures when all real providers fail
+
+#### Consequences
+
+Development remains deterministic, partial failures stay visible, and production
+may intentionally return no inventory until external approval exists. Provider
+fixtures cannot satisfy a live-provider completion criterion.
+
+### PostgreSQL Is the Production System of Record
+
+**Date:** 2026-07-24
+**Status:** Accepted
+
+#### Context
+
+The single synchronous SQLite connection cannot provide a credible production
+concurrency, pooling, backup, or recovery model.
+
+#### Decision
+
+Production startup requires PostgreSQL. The API request path and worker share
+repository interfaces over a pooled PostgreSQL data plane. SQLite remains an
+explicit local/test compatibility path. PostgreSQL migrations are forward-only,
+transactional, advisory-locked, checksummed, and inspected by readiness.
+
+#### Alternatives Considered
+
+- keep SQLite in production with operational caveats
+- rewrite every repository in a single unreviewable change
+- let every API replica migrate independently
+
+#### Consequences
+
+Migrations can land incrementally behind repository boundaries, production
+request state survives replica restarts, and schema drift fails closed. A
+dedicated one-shot migration job precedes API/worker rollout.
+
+### Price History Uses a Monotonic Database Version
+
+**Date:** 2026-07-24
+**Status:** Accepted
+
+#### Context
+
+Two price changes can share a timestamp, making “latest by timestamp” ambiguous
+and causing nondeterministic analytics.
+
+#### Decision
+
+Every changed observation receives a database-generated monotonic observation
+version. Latest and history queries order explicitly by this version; timestamps
+remain event metadata.
+
+#### Alternatives Considered
+
+- increase clock precision
+- add sleeps in tests
+- use a UUID as an ordering tie-break
+
+#### Consequences
+
+Repeated same-timestamp transitions are deterministic in both SQLite
+compatibility and PostgreSQL, without depending on wall-clock resolution.
+
+### Engagement Represents Client-Observed Actions
+
+**Date:** 2026-07-24
+**Status:** Accepted
+
+#### Context
+
+Counting every listing returned by the server as an impression records delivery,
+not attention, and process-local counts disappear on restart.
+
+#### Decision
+
+The client emits opaque, event-ID-deduped events. An impression requires at
+least 50% visibility for one second. PostgreSQL stores raw events and worker jobs
+produce daily aggregate features. User identity, when available, comes only from
+the authenticated session.
+
+#### Alternatives Considered
+
+- keep response-count impressions
+- scan all raw events during every feed request
+- attach arbitrary client-supplied user IDs
+
+#### Consequences
+
+Recommendation inputs survive restarts and better represent actual behavior,
+with a clear privacy/retention boundary and no browser authority over identity.
+
+### Models Are Guarded Additions, Not Required Dependencies
+
+**Date:** 2026-07-24
+**Status:** Accepted
+
+#### Context
+
+A model that trains successfully can still leak future data, concentrate a feed,
+perform poorly on cold start, miss latency budgets, or produce badly calibrated
+market estimates.
+
+#### Decision
+
+Offline training uses temporal snapshots, versioned schemas/artifacts,
+deterministic seeds, and executable promotion gates. Recommendation inference
+supports disabled/shadow/guarded-active modes and always keeps the rules ranker.
+Fair-value analysis always keeps observed comparable ranges. No artifact becomes
+active without a promoted lifecycle and explicit deployment approval.
+
+#### Alternatives Considered
+
+- replace the rules ranker as soon as a model trains
+- train or mutate artifacts in the request process
+- expose a low-confidence fair-value estimate as authoritative
+
+#### Consequences
+
+The current synthetic recommendation and fair-value candidates remain
+unpromoted. Failures, staleness, drift, schema mismatch, and timeouts degrade to
+honest deterministic behavior.
+
+### Premium and Alerts Must Reflect Durable State
+
+**Date:** 2026-07-24
+**Status:** Accepted
+
+#### Context
+
+Username-based premium access and watchlist “coming later” records cannot support
+authorization or a trustworthy alert lifecycle.
+
+#### Decision
+
+Premium access is a persisted entitlement lookup. Development grants are
+non-production-only and require a verified admin identity. Provider ingestion
+matches watchlists into a durable in-app inbox with unseen/seen/dismissed state
+and delivery attempt scheduling. Email, push, SMS, and billing stay disabled
+until their real providers and verification/webhook controls exist.
+
+#### Alternatives Considered
+
+- keep reserved usernames
+- imply a subscription exists without billing
+- imply outbound delivery from saved preferences alone
+
+#### Consequences
+
+Authorization and in-app alert state survive restarts. Missing external
+providers remain explicit activation blockers instead of hidden placeholders.
+
+### Application Rollback Preserves Forward-Compatible Schema
+
+**Date:** 2026-07-24
+**Status:** Accepted
+
+#### Context
+
+Automatic down migrations and routine database restores can turn an application
+regression into destructive data loss.
+
+#### Decision
+
+Deploy migrations once, canary immutable application images, and prefer rolling
+API/web/worker images back while retaining a forward-compatible schema. Correct
+schema defects with a new forward migration. Restore only for confirmed
+corruption/data loss after isolated validation and incident approval.
+
+#### Alternatives Considered
+
+- ship down migrations for every deploy
+- restore the last backup as the default rollback
+- edit applied migration files
+
+#### Consequences
+
+Application and data recovery remain separate decisions. Backups, checksums,
+restore drills, image digests, and schema versions are required release evidence.

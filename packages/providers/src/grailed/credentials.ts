@@ -1,7 +1,13 @@
 import type { ProviderFailureCode } from "../types.js";
+import { ProviderHttpError } from "../http/resilient-http.js";
 import { validateGrailedAlgoliaCredentials } from "./algolia.js";
 import type { GrailedHttpClient } from "./http-client.js";
 import { buildGrailedSearchUrl } from "./search-url.js";
+import {
+  isAllowedGrailedDocumentUrl,
+  normalizeGrailedAlgoliaAppId,
+  normalizeGrailedBaseUrl,
+} from "./url-policy.js";
 
 export interface GrailedAlgoliaCredentials {
   apiKey: string;
@@ -41,8 +47,7 @@ export class GrailedCredentialResolutionError extends Error {
 
 const publicConfigAssignmentPattern = /window\.PUBLIC_CONFIG\s*=\s*/i;
 const scriptSourcePattern = /<script\b[^>]*\bsrc=(['"])(.*?)\1[^>]*>/gi;
-const nextDataPattern =
-  /<script\b[^>]*\bid=(['"])__NEXT_DATA__\1[^>]*>([\s\S]*?)<\/script>/gi;
+const nextDataPattern = /<script\b[^>]*\bid=(['"])__NEXT_DATA__\1[^>]*>([\s\S]*?)<\/script>/gi;
 const maxScriptBundlesToInspect = 20;
 const maxBundleCandidatesPerScript = 8;
 const configAssignments = [
@@ -63,12 +68,7 @@ const configAssignments = [
     pattern: /window\.__PRELOADED_STATE__\s*=\s*/i,
   },
 ] as const;
-const appIdFieldNames = [
-  "appId",
-  "applicationId",
-  "applicationID",
-  "ALGOLIA_APP_ID",
-] as const;
+const appIdFieldNames = ["appId", "applicationId", "applicationID", "ALGOLIA_APP_ID"] as const;
 const apiKeyFieldNames = ["apiKey", "ALGOLIA_API_KEY"] as const;
 const bundleAppIdPattern =
   /(?:["']?(?:appId|applicationID|applicationId|ALGOLIA_APP_ID)["']?\s*[:=]\s*["']([^"'\\\s]{3,})["'])/g;
@@ -116,25 +116,11 @@ function asRecord(value: unknown) {
     : undefined;
 }
 
-function maskSecret(value: string) {
-  const trimmed = value.trim();
-
-  if (trimmed.length <= 8) {
-    return trimmed.length <= 4
-      ? "*".repeat(trimmed.length)
-      : `${trimmed.slice(0, 2)}...${trimmed.slice(-2)}`;
-  }
-
-  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
-}
-
 function logCredentialCandidate(event: string, candidate: GrailedCredentialCandidate) {
   console.info("Grailed Algolia credential candidate", {
     event,
     source: candidate.source,
     detail: candidate.detail,
-    appId: maskSecret(candidate.appId),
-    apiKey: maskSecret(candidate.apiKey),
   });
 }
 
@@ -214,10 +200,7 @@ function extractAssignedJsonObject(
     throw new Error(missingMessage);
   }
 
-  const objectStartIndex = html.indexOf(
-    "{",
-    assignmentMatch.index + assignmentMatch[0].length,
-  );
+  const objectStartIndex = html.indexOf("{", assignmentMatch.index + assignmentMatch[0].length);
 
   if (objectStartIndex === -1) {
     throw new Error(missingObjectMessage);
@@ -226,10 +209,7 @@ function extractAssignedJsonObject(
   return findBalancedJsonObject(html, objectStartIndex);
 }
 
-function getStringField(
-  record: Record<string, unknown>,
-  fieldNames: readonly string[],
-) {
+function getStringField(record: Record<string, unknown>, fieldNames: readonly string[]) {
   for (const fieldName of fieldNames) {
     const value = toTrimmedString(record[fieldName]);
 
@@ -381,14 +361,10 @@ function collectInlineCredentialCandidates(
     try {
       const parsedValue = JSON.parse(jsonBlock.json) as unknown;
       candidates.push(
-        ...collectCredentialCandidatesFromJsonValue(parsedValue, source).map(
-          (candidate) => ({
-            ...candidate,
-            detail: candidate.detail
-              ? `${jsonBlock.label}:${candidate.detail}`
-              : jsonBlock.label,
-          }),
-        ),
+        ...collectCredentialCandidatesFromJsonValue(parsedValue, source).map((candidate) => ({
+          ...candidate,
+          detail: candidate.detail ? `${jsonBlock.label}:${candidate.detail}` : jsonBlock.label,
+        })),
       );
     } catch {
       continue;
@@ -401,7 +377,7 @@ function collectInlineCredentialCandidates(
 function extractScriptUrls(html: string, baseUrl: string) {
   const urls = new Set<string>();
   let match: RegExpExecArray | null;
-  const baseOrigin = new URL(baseUrl).origin;
+  const normalizedBaseUrl = normalizeGrailedBaseUrl(baseUrl);
 
   scriptSourcePattern.lastIndex = 0;
 
@@ -413,20 +389,17 @@ function extractScriptUrls(html: string, baseUrl: string) {
     }
 
     try {
-      const normalizedUrl = new URL(rawUrl, baseUrl).toString();
-      urls.add(normalizedUrl);
+      const normalizedUrl = new URL(rawUrl, normalizedBaseUrl).toString();
+
+      if (isAllowedGrailedDocumentUrl(normalizedUrl, normalizedBaseUrl)) {
+        urls.add(normalizedUrl);
+      }
     } catch {
       continue;
     }
   }
 
-  return Array.from(urls)
-    .sort((left, right) => {
-      const leftSameOrigin = left.startsWith(baseOrigin) ? 0 : 1;
-      const rightSameOrigin = right.startsWith(baseOrigin) ? 0 : 1;
-      return leftSameOrigin - rightSameOrigin;
-    })
-    .slice(0, maxScriptBundlesToInspect);
+  return Array.from(urls).sort().slice(0, maxScriptBundlesToInspect);
 }
 
 function collectRegexMatches(pattern: RegExp, source: string) {
@@ -493,8 +466,7 @@ function collectScriptBundleCredentialCandidates(
   const rankedCandidates = appIdMatches.flatMap((appIdMatch) => {
     const nearestApiKeyMatch = [...apiKeyMatches].sort(
       (left, right) =>
-        Math.abs(left.index - appIdMatch.index) -
-        Math.abs(right.index - appIdMatch.index),
+        Math.abs(left.index - appIdMatch.index) - Math.abs(right.index - appIdMatch.index),
     )[0];
 
     if (!nearestApiKeyMatch) {
@@ -529,32 +501,34 @@ async function validateCandidate(
   candidate: GrailedCredentialCandidate,
   options: GrailedCredentialResolutionOptions,
 ): Promise<ValidationResult> {
-  logCredentialCandidate("validating", candidate);
+  const validatedCandidate = {
+    ...candidate,
+    appId: normalizeGrailedAlgoliaAppId(candidate.appId),
+  };
+  logCredentialCandidate("validating", validatedCandidate);
 
   try {
     const response = await validateGrailedAlgoliaCredentials(options.client, {
       baseUrl: options.baseUrl,
-      credentials: candidate,
+      credentials: validatedCandidate,
       queryText: options.queryText,
     });
 
     if (response.ok) {
-      logCredentialCandidate("accepted", candidate);
+      logCredentialCandidate("accepted", validatedCandidate);
       return {
         kind: "accepted",
         credentials: options.cache.set({
-          appId: candidate.appId,
-          apiKey: candidate.apiKey,
+          appId: validatedCandidate.appId,
+          apiKey: validatedCandidate.apiKey,
         }),
       };
     }
 
     if (response.status === 401 || response.status === 403) {
       console.warn("Grailed Algolia credential candidate rejected", {
-        source: candidate.source,
-        detail: candidate.detail,
-        appId: maskSecret(candidate.appId),
-        apiKey: maskSecret(candidate.apiKey),
+        source: validatedCandidate.source,
+        detail: validatedCandidate.detail,
         status: response.status,
       });
       return {
@@ -565,8 +539,8 @@ async function validateCandidate(
 
     if (response.status === 429) {
       console.warn("Grailed Algolia credential validation rate limited", {
-        source: candidate.source,
-        detail: candidate.detail,
+        source: validatedCandidate.source,
+        detail: validatedCandidate.detail,
         status: response.status,
       });
       return {
@@ -576,8 +550,8 @@ async function validateCandidate(
     }
 
     console.warn("Grailed Algolia credential validation unavailable", {
-      source: candidate.source,
-      detail: candidate.detail,
+      source: validatedCandidate.source,
+      detail: validatedCandidate.detail,
       status: response.status,
     });
     return {
@@ -585,14 +559,18 @@ async function validateCandidate(
       status: response.status,
     };
   } catch (error) {
+    if (error instanceof ProviderHttpError) {
+      throw error;
+    }
+
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }
 
     console.warn("Grailed Algolia credential validation errored", {
-      source: candidate.source,
-      detail: candidate.detail,
-      message: error instanceof Error ? error.message : "unknown error",
+      source: validatedCandidate.source,
+      detail: validatedCandidate.detail,
+      errorName: error instanceof Error ? error.name : "UnknownCredentialValidationError",
     });
 
     return {
@@ -676,6 +654,10 @@ async function fetchHtmlDocument(
       throw error;
     }
 
+    if (error instanceof ProviderHttpError) {
+      throw error;
+    }
+
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }
@@ -709,6 +691,10 @@ async function resolveFromScriptBundles(
     try {
       response = await options.client.getText(scriptUrl);
     } catch (error) {
+      if (error instanceof ProviderHttpError) {
+        throw error;
+      }
+
       if (error instanceof Error && error.name === "AbortError") {
         throw error;
       }
@@ -741,11 +727,7 @@ async function resolveFromScriptBundles(
         return scriptUrl;
       }
     })();
-    const candidates = collectScriptBundleCredentialCandidates(
-      response.body,
-      source,
-      detail,
-    );
+    const candidates = collectScriptBundleCredentialCandidates(response.body, source, detail);
 
     if (candidates.length === 0) {
       continue;
@@ -805,12 +787,7 @@ async function resolveFromHtmlDocument(
     }
   }
 
-  return resolveFromScriptBundles(
-    html,
-    `${pageLabel}-script`,
-    options,
-    state,
-  );
+  return resolveFromScriptBundles(html, `${pageLabel}-script`, options, state);
 }
 
 export function extractGrailedPublicConfigJson(html: string) {
@@ -822,9 +799,7 @@ export function extractGrailedPublicConfigJson(html: string) {
   );
 }
 
-export function extractGrailedAlgoliaCredentials(
-  html: string,
-): GrailedAlgoliaCredentials {
+export function extractGrailedAlgoliaCredentials(html: string): GrailedAlgoliaCredentials {
   const publicConfigJson = extractGrailedPublicConfigJson(html);
   const parsedValue = JSON.parse(publicConfigJson) as Record<string, unknown>;
   const algolia =
@@ -833,26 +808,22 @@ export function extractGrailedAlgoliaCredentials(
       : undefined;
 
   if (!algolia) {
-    throw new Error(
-      "Grailed PUBLIC_CONFIG no longer contains an algolia configuration object.",
-    );
+    throw new Error("Grailed PUBLIC_CONFIG no longer contains an algolia configuration object.");
   }
 
-  const appId = toTrimmedString(algolia.appId);
+  const rawAppId = toTrimmedString(algolia.appId);
   const apiKey = toTrimmedString(algolia.apiKey);
 
-  if (!appId) {
+  if (!rawAppId) {
     throw new Error("Grailed PUBLIC_CONFIG.algolia.appId was missing or empty.");
   }
 
   if (!apiKey) {
-    throw new Error(
-      "Grailed PUBLIC_CONFIG.algolia.apiKey was missing or empty.",
-    );
+    throw new Error("Grailed PUBLIC_CONFIG.algolia.apiKey was missing or empty.");
   }
 
   return {
-    appId,
+    appId: normalizeGrailedAlgoliaAppId(rawAppId),
     apiKey,
   };
 }
@@ -860,6 +831,10 @@ export function extractGrailedAlgoliaCredentials(
 export async function resolveGrailedAlgoliaCredentials(
   options: GrailedCredentialResolutionOptions,
 ): Promise<GrailedAlgoliaCredentials> {
+  options = {
+    ...options,
+    baseUrl: normalizeGrailedBaseUrl(options.baseUrl),
+  };
   const state: GrailedCredentialResolutionState = {
     sawCredentialFailure: false,
     sawUnavailable: false,
@@ -900,12 +875,7 @@ export async function resolveGrailedAlgoliaCredentials(
     });
   }
 
-  const homepageHtml = await fetchHtmlDocument(
-    options.baseUrl,
-    "homepage",
-    options,
-    state,
-  );
+  const homepageHtml = await fetchHtmlDocument(options.baseUrl, "homepage", options, state);
 
   if (homepageHtml) {
     const homepageCredentials = await resolveFromHtmlDocument(
@@ -929,12 +899,7 @@ export async function resolveGrailedAlgoliaCredentials(
         text: trimmedQueryText,
       },
     });
-    const searchPageHtml = await fetchHtmlDocument(
-      searchPageUrl,
-      "search",
-      options,
-      state,
-    );
+    const searchPageHtml = await fetchHtmlDocument(searchPageUrl, "search", options, state);
 
     if (searchPageHtml) {
       const searchCredentials = await resolveFromHtmlDocument(
@@ -962,13 +927,9 @@ export async function resolveGrailedAlgoliaCredentials(
     stages,
   });
 
-  throw new GrailedCredentialResolutionError(
-    code,
-    buildFailureMessage(stages),
-    {
-      stages,
-    },
-  );
+  throw new GrailedCredentialResolutionError(code, buildFailureMessage(stages), {
+    stages,
+  });
 }
 
 export function createGrailedCredentialCache(

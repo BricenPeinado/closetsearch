@@ -59,7 +59,10 @@ export async function main() {
 
   await runCheck("feed-surface", "/feed?pageSize=1", (body) => {
     assert(Array.isArray(body?.listings), "Feed response is missing listings.");
-    assert(body?.pagination && typeof body.pagination.page === "number", "Feed response is missing pagination.");
+    assert(
+      body?.pagination && typeof body.pagination.page === "number",
+      "Feed response is missing pagination.",
+    );
     assert(Array.isArray(body?.providers), "Feed response is missing provider summaries.");
   });
 
@@ -69,7 +72,10 @@ export async function main() {
 
   await runCheck("search-surface", "/search?q=kapital&pageSize=1", (body) => {
     assert(Array.isArray(body?.listings), "Search response is missing listings.");
-    assert(body?.pagination && typeof body.pagination.page === "number", "Search response is missing pagination.");
+    assert(
+      body?.pagination && typeof body.pagination.page === "number",
+      "Search response is missing pagination.",
+    );
     assert(Array.isArray(body?.providers), "Search response is missing provider summaries.");
   });
 

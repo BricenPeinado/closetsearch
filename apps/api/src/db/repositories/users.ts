@@ -21,8 +21,7 @@ function parsePreferences(value: string): OnboardingPreferences {
     categories: Array.isArray(parsedValue.categories)
       ? parsedValue.categories.filter((item): item is string => typeof item === "string")
       : [],
-    priceRange:
-      typeof parsedValue.priceRange === "string" ? parsedValue.priceRange : "",
+    priceRange: typeof parsedValue.priceRange === "string" ? parsedValue.priceRange : "",
   };
 }
 
@@ -133,6 +132,17 @@ export function updateUserPasswordHash(userId: string, passwordHash: string) {
     .run(passwordHash, userId);
 
   return findUserById(userId);
+}
+
+export function deleteUserByIdAndNormalizedUsername(userId: string, normalizedUsername: string) {
+  const result = getDatabase()
+    .prepare(
+      `DELETE FROM users
+      WHERE id = ? AND normalized_username = ?`,
+    )
+    .run(userId, normalizedUsername);
+
+  return result.changes === 1;
 }
 
 export function clearUsers() {

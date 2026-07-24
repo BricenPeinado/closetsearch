@@ -1,158 +1,87 @@
-# User Features Runbook
+# Saved User Features
 
-This runbook covers the saved-user surface added in Milestone 16.
+## Production persistence
 
-## Scope
+In PostgreSQL production mode, session-scoped repositories persist:
 
-Milestone 16 adds persisted user data and account UI for:
+- likes that reference server-persisted normalized catalog listings
+- recent and saved searches
+- saved filter presets
+- watchlists
+- notification preferences
+- display/currency/source/sort settings
 
-- saved likes
-- saved searches
-- saved filters / search presets
-- watchlist shell entries
-- basic user settings
+SQLite provides equivalent local/test compatibility. The client never chooses a
+user ID; every operation uses the authenticated session.
 
-It does not add:
+## Routes
 
-- alert delivery
-- email or push notifications
-- background jobs
-- personalization V2 behavior
-- analytics V1 behavior
-- auth rebuild work
+- `/likes` and `/me/likes`
+- `/recent-searches`
+- `/saved-searches` and `/me/saved-searches`
+- `/me/saved-filters`
+- `/me/watchlists` and `/me/watchlists/:id`
+- `/me/notification-preferences`
+- `/me/settings`
+- `/me/alerts`
+- `/me/alerts/seen`
+- `/me/alerts/dismiss`
 
-## Auth Boundary
+Legacy route aliases remain where required by the web contract, but PostgreSQL
+production routing enforces the same ownership checks.
 
-All saved-user API routes use the authenticated session from the production-auth foundation.
+## Likes
 
-Protected routes:
+PostgreSQL feed/search persist sanitized provider-normalized listings before
+returning them. A production like supplies only the displayed listing identity
+and source; the API requires the corresponding server-owned catalog row and
+reconstructs the response from it. Browser listing content cannot create or
+rewrite catalog status, asking/sold price, or history. An unknown identity is
+rejected instead of being trusted.
 
-- `GET /me/likes`
-- `POST /me/likes`
-- `DELETE /me/likes`
-- `GET /me/saved-searches`
-- `POST /me/saved-searches`
-- `DELETE /me/saved-searches`
-- `GET /me/saved-filters`
-- `POST /me/saved-filters`
-- `DELETE /me/saved-filters`
-- `GET /me/watchlists`
-- `POST /me/watchlists`
-- `DELETE /me/watchlists`
-- `GET /me/settings`
-- `PATCH /me/settings`
+The user/listing unique key makes retries idempotent. Unlike removes only the
+current user's relation.
 
-The API should ignore spoofed `userId` values from request bodies and always use the authenticated session user.
+Likes feed both profile rendering and personalization features.
 
-## Saved Likes
+## Searches and filters
 
-Liked listings now persist in SQLite instead of only living in memory.
+Saved searches preserve normalized search parameters and labels. Saved filters
+preserve reusable query/source/listing-type/market/price/sort intent. Normalized
+uniqueness prevents accidental duplicates and newest entries sort first.
 
-Behavior:
+Recent search storage is durable for signed-in users; signed-out recent state may
+remain browser-local.
 
-- duplicate likes dedupe by `user_id + listing_id`
-- likes can store a listing snapshot for later rendering
-- if a cached full listing exists, `GET /me/likes` returns it
-- if only a snapshot exists, the snapshot is used
-- if neither exists, the API returns a safe fallback listing shape instead of crashing
+## Settings and currency
 
-## Saved Searches
+Settings include display name, preferred currency, preferred sources, and
+default sort. Preferred currency is a request for display conversion, not
+permission to relabel money. If the exchange service has no valid quote, the UI
+keeps the original currency.
 
-Saved searches store:
+## Watchlists and alerts
 
-- label
-- description
-- serialized search params
-- user id
-- created timestamp
+Watchlists support query, canonical/provider brand, category, source, listing
+type, market status, price/currency, size, condition, label, frequency, and
+enabled state. Worker ingestion matches new/changed durable listings.
 
-Behavior:
+In-app alerts are active. Email, push, and SMS preferences cannot be enabled:
+the API returns `delivery_channel_unavailable` until real providers exist.
+See [Alerts and watchlists](alerts-watchlists.md).
 
-- dedupe by `user_id + params`
-- newest saved search appears first
-- saved searches can be reopened from Profile back into `/search?...`
+## Verification
 
-## Saved Filters
+Tests cover:
 
-Saved filters store lightweight reusable search presets:
+- restart persistence
+- user ownership and spoofed-ID rejection
+- deduplication and deletion
+- server-owned catalog enforcement and forged listing-snapshot rejection
+- search/filter/watchlist validation
+- currency/settings behavior
+- in-app alert inbox state
+- PostgreSQL production request paths
 
-- label
-- optional query text
-- source filter
-- listing type filter
-- min / max price
-- sort mode
-- created / updated timestamps
-
-Behavior:
-
-- dedupe by `user_id + normalized filter params`
-- filter-only searches are valid and can reopen the search page without a text query
-
-## Watchlist Shell
-
-Watchlists are stored user intent only.
-
-Stored fields:
-
-- label
-- query text
-- optional brand
-- optional max price
-- optional source
-- created / updated timestamps
-
-Important boundary:
-
-- watchlists do not trigger alerts yet
-- there are no jobs, notifications, emails, or pushes yet
-- UI copy should keep saying alert delivery comes later
-
-## User Settings
-
-Current settings include:
-
-- preferred currency
-- optional default sort mode
-- optional preferred sources
-- optional display name
-
-Currency is display-preference scaffolding only for now. Listing prices remain marketplace-native until conversion is implemented.
-
-## Database Notes
-
-Milestone 16 adds migration `003_saved_user_features.sql` with:
-
-- liked listing snapshot storage on `likes`
-- `saved_filters`
-- `watchlists`
-- `user_settings`
-- saved-search timestamp support for future updates
-
-## Frontend Notes
-
-The profile route is now the main signed-in account surface.
-
-Users can:
-
-- view and unlike liked listings
-- reopen and delete saved searches
-- apply and delete saved filters
-- create and delete watchlist shell entries
-- update basic settings
-
-The search route adds:
-
-- `Save search` for signed-in users with an active query or filter
-- `Save filters` for signed-in users with active filters
-- signed-out prompts that route users to login instead of failing silently
-
-## Deferred Work
-
-The following remains intentionally deferred to Milestones 17-19:
-
-- personalization V2 using richer saved-user behavior
-- watchlist alert delivery
-- notifications
-- analytics V1
-- broader account-management features beyond the current settings/profile surface
+Account export and deletion include/cascade these user-owned records as described
+in [Authentication and account security](auth.md).

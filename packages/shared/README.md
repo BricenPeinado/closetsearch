@@ -1,18 +1,12 @@
 # Shared Package
 
-This package contains normalized domain models and small framework-independent contracts used across ClosetSearch apps and packages.
+`@closetsearch/shared` contains framework-independent product contracts used by
+the API, web, providers, and ML runtime.
 
-Current source of truth:
+Current domains include listings, exact/converted money, lifecycle/freshness,
+seller/shipping/attribution, search and filters, pagination/provider summaries,
+brands/aliases, users, analytics, alerts, engagement, and recommendation
+metadata.
 
-- `src/domain`: core product domain models
-- `src/index.ts`: public type export surface
-- `src/types.ts`: compatibility export surface for early imports
-
-Keep this package focused on stable product concepts such as `Listing`, `SearchQuery`, and `Brand`.
-
-Do not put these here:
-
-- provider-specific raw response shapes
-- app-specific UI props
-- database logic
-- analytics, fake-risk, or personalization models before those milestones begin
+Keep raw provider payloads, SQL/database types, UI component props, credentials,
+and model implementation details outside this package.

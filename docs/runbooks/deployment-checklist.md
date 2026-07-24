@@ -1,117 +1,90 @@
 # Deployment Checklist
 
-This checklist prepares ClosetSearch for a constrained beta launch, not a full public production rollout.
+See [Production deployment](PRODUCTION_DEPLOYMENT.md) and
+[Production rollback](PRODUCTION_ROLLBACK.md).
 
-## Runtime Baseline
+## Authorization and data
 
-- Node: `v24.5.0` recommended for parity with the current local beta setup
-- pnpm: `10.0.0`
-- Package manager command prefix: `corepack pnpm`
+- [ ] every enabled provider has current approval/credentials
+- [ ] the provider acquisition record covers display, retention, history,
+      analytics/ML, attribution, regions, and revocation
+- [ ] eBay partner/affiliate obligations or Grailed written authorization are
+      retained as applicable
+- [ ] `PROVIDER_RUNTIME_MODE=real`
+- [ ] `PROVIDER_ALLOW_MOCK_FALLBACK=false`
+- [ ] `PROVIDER_MOCK_ENABLED=false`
+- [ ] authorized staging smoke proves no mock listing/provider is active
 
-## Pre-Deploy Commands
+## Build and quality
 
-Run these from the repo root:
+- [ ] frozen install
+- [ ] format check, lint, typecheck, build
+- [ ] unit/contract tests
+- [ ] PostgreSQL integration tests
+- [ ] Playwright signed-out, signed-in/onboarding/likes,
+      watchlist-create-edit-delete, entitlement-gated analytics, degraded-provider,
+      session-expiry, and PostgreSQL account-deletion flows
+- [ ] axe-core WCAG A/AA scans pass; keyboard/screen-reader/zoom/mobile checks
+      remain manually reviewed
+- [ ] five consecutive clean full test runs
+- [ ] OpenAPI contract validation
+- [ ] dependency and image vulnerability policy
+- [ ] immutable image digests recorded
 
-```sh
-corepack pnpm install
-corepack pnpm typecheck
-corepack pnpm build
-corepack pnpm lint
-corepack pnpm test
-corepack pnpm db:migrate
-corepack pnpm db:seed
-```
+## PostgreSQL
 
-## Build and Start Commands
+- [ ] managed encrypted service and total pool budget approved
+- [ ] migration job reaches version `006`
+- [ ] migration names/checksums inspected
+- [ ] API readiness reports PostgreSQL and no pending migrations
+- [ ] concurrent writes, rollback, restart, lease contention, session
+      revocation/expiry verified on a real engine
+- [ ] fresh encrypted backup exists off host
+- [ ] isolated restore drill and row-count/schema evidence meet RPO/RTO
 
-- API build: `corepack pnpm --filter @closetsearch/api build`
-- API start: `corepack pnpm --filter @closetsearch/api start`
-- Web build: `corepack pnpm --filter @closetsearch/web build`
-- Combined workspace build: `corepack pnpm build`
+## Security
 
-## Required Environment Variables
+- [ ] explicit HTTPS allowed origins
+- [ ] secure cookies and session pepper from secret management
+- [ ] database TLS certificate verification
+- [ ] body/origin/CSRF/rate-limit controls exercised
+- [ ] account verification/reset/export/deletion behavior exercised
+- [ ] logs/metrics contain no credentials, tokens, personal email, database URL,
+      or sensitive feature vectors
+- [ ] rotation and incident contacts tested
 
-For a safe beta deployment, set:
+## Worker and alerts
 
-- `HOST`
-- `PORT`
-- `CLOSETSEARCH_DB_PATH`
-- `AUTH_ALLOWED_ORIGINS`
-- `AUTH_SESSION_COOKIE_NAME`
-- `AUTH_SESSION_TTL_DAYS`
-- `AUTH_COOKIE_SECURE`
-- `VITE_API_BASE_URL`
+- [ ] `worker_jobs_seeded.activeProviderIds` is exactly expected
+- [ ] no unexpected `blockedProviders`
+- [ ] jobs seed idempotently and leases/checkpoints survive restart
+- [ ] active/sold scope matches provider capability
+- [ ] ingestion last success/lag, stale maintenance, and provider health advance
+- [ ] watchlist match, inbox unseen/seen/dismiss, frequency/quiet hours pass
+- [ ] delivery retry/dead-letter state is monitored
+- [ ] email, push, and SMS remain disabled unless separately approved and tested
 
-At least one auth token pepper should also be configured for beta:
+## ML
 
-- `AUTH_SESSION_PEPPER`
+- [ ] intended mode and immutable artifact digest recorded
+- [ ] active mode uses a promoted, non-stale artifact and explicit approval
+- [ ] rules and observed-range fallback tested
+- [ ] latency, fallback, coverage, diversity, provider/brand concentration, and
+      model version observed
+- [ ] no synthetic fixture is described as production performance evidence
 
-## Optional Environment Variables
+## Rollout
 
-Provider and runtime tuning variables are optional:
+- [ ] previous image digests retained
+- [ ] rollback owner/deadline declared
+- [ ] migration, worker, API canary, then web deployed in order
+- [ ] liveness/readiness/provider health/no-mock smoke pass
+- [ ] `/operations/status` and `/metrics` expose current sanitized durable state
+      without payloads, cursors, credentials, raw errors, or unbounded route labels
+- [ ] critical user flows pass against the deployed environment
+- [ ] metrics stable through one normal ingestion interval
+- [ ] release evidence and remaining external blockers recorded
 
-- `PROVIDER_RUNTIME_MODE`
-- `PROVIDER_ALLOW_MOCK_FALLBACK`
-- `PROVIDER_REQUEST_TIMEOUT_MS`
-- `PROVIDER_MAX_ACTIVE_PROVIDERS`
-- `PROVIDER_MOCK_ENABLED`
-- `GRAILED_PROVIDER_ENABLED`
-- `GRAILED_SCRAPING_ALLOWED`
-- `GRAILED_BASE_URL`
-- `GRAILED_REQUEST_TIMEOUT_MS`
-- `GRAILED_MIN_REQUEST_INTERVAL_MS`
-- `GRAILED_MAX_RESULTS_PER_SEARCH`
-- `GRAILED_USER_AGENT`
-
-## Provider Configuration Notes
-
-- `mock` mode is still the safest beta fallback.
-- Do not enable `GRAILED_SCRAPING_ALLOWED=true` unless written approval still exists and matches the current request profile.
-- `GET /providers/health` is useful for smoke checks because it exposes safe provider status only.
-
-## Auth and Session Cookie Notes
-
-- Cookies are `HttpOnly`, `SameSite=Lax`, and `Path=/`.
-- `AUTH_COOKIE_SECURE=true` should be used for HTTPS beta deployments.
-- `AUTH_ALLOWED_ORIGINS` must exactly match the deployed web origins for credentialed requests.
-- Changing `AUTH_SESSION_PEPPER` invalidates existing sessions.
-
-## Database Notes
-
-- The API uses SQLite through `CLOSETSEARCH_DB_PATH`.
-- Make sure the deployment target can create and write the parent directory.
-- Run migrations before starting the API on a fresh environment.
-- `corepack pnpm db:seed` adds demo-safe data for the `closetdemo` account and mock analytics observations without touching unrelated user data.
-
-## Web Build and Deploy Notes
-
-- The web app is a static Vite build.
-- `VITE_API_BASE_URL` must point at the deployed API origin.
-- Keep web and API origins aligned with `AUTH_ALLOWED_ORIGINS` so cookie-backed auth works.
-
-## Local vs Beta Differences
-
-- Local development typically uses `AUTH_COOKIE_SECURE=false`; HTTPS beta should use `true`.
-- Local and demo environments may rely on mock provider data more often than beta.
-- Analytics sample data and demo seeds can make the app look healthier than a fresh, unseeded environment.
-- `GET /providers/health` is development-oriented and currently unauthenticated.
-
-## Smoke Test After Deploy
-
-1. Open the web app and confirm the shell loads.
-2. Verify `GET /health` returns `200`, `service`, `status`, and a timestamp.
-3. Verify `GET /providers/health` returns safe provider metadata without secrets.
-4. Run `corepack pnpm smoke:test` against the deployed API if direct CLI access is available.
-5. Sign up or log in and confirm cookie-backed auth works.
-6. Open feed, search, brands, analytics, and profile.
-7. Save a like, search, filter, and watchlist.
-8. Confirm watchlist UI still says delivery is not active.
-9. Confirm analytics still says observed-data only and not financial advice.
-10. Confirm `closetdemo` seed data appears if the seed command was run.
-
-## Rollback Notes
-
-- Keep the previous API build artifact and previous web build artifact available for quick restore.
-- Back up the SQLite file before risky beta migrations or seed changes.
-- If a beta deploy breaks auth or persistence, roll back the app build and restore the last known-good database copy if needed.
-- If only the seed or demo data is wrong, do not wipe real user data blindly; prefer restoring from backup or reseeding only the demo environment.
+An empty real-provider schedule is an external/configuration blocker, not a
+successful live deployment. This workstation lacks Docker, so a local Compose
+check cannot be marked complete here.

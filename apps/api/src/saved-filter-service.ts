@@ -8,7 +8,9 @@ import {
 } from "./db/repositories/saved-filters.js";
 
 function normalizeOptionalNumber(value: number | undefined) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : undefined;
 }
 
 export function addSavedFilter(input: PersistSavedFilterInput) {

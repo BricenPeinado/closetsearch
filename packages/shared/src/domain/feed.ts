@@ -1,6 +1,10 @@
 import type { Listing } from "./listing.js";
 import type { PaginationInfo } from "./pagination.js";
-import type { FeedPersonalizationDebug, PersonalizationSummary } from "./recommendation.js";
+import type {
+  FeedPersonalizationDebug,
+  FeedRecommendationMetadata,
+  PersonalizationSummary,
+} from "./recommendation.js";
 import type { SearchProviderSummary } from "./search.js";
 
 export interface FeedQuery {
@@ -18,4 +22,5 @@ export interface FeedResponse {
   pagination: PaginationInfo;
   personalizationSummary?: PersonalizationSummary;
   providers?: SearchProviderSummary[];
+  recommendation?: FeedRecommendationMetadata;
 }

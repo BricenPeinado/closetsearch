@@ -1,4 +1,4 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 interface ParsedError {
   code: string;
@@ -29,6 +29,20 @@ function getSafeErrorMessage(status: number, code: string, message?: string) {
       return "Invalid username or password.";
     case "username_taken":
       return "That username is already taken.";
+    case "email_in_use":
+      return "That email address is already attached to another account.";
+    case "email_missing":
+      return "Add an email address before requesting verification.";
+    case "email_not_verified":
+      return "Verify your email address before requesting an account export.";
+    case "invalid_email":
+      return "Enter a valid email address.";
+    case "invalid_or_expired_token":
+      return "This one-time link is invalid or has expired. Request a new link.";
+    case "password_policy_failed":
+      return message ?? "Choose a password that meets the account security requirements.";
+    case "confirmation_mismatch":
+      return "Enter your username exactly to delete the account.";
     case "session_expired":
       return "Your session expired. Please log in again.";
     case "unauthenticated":
@@ -43,9 +57,10 @@ function getSafeErrorMessage(status: number, code: string, message?: string) {
 }
 
 async function parseError(response: Response): Promise<ParsedError> {
-  const errorBody = (await response.json().catch(() => null)) as
-    | { error?: string; message?: string }
-    | null;
+  const errorBody = (await response.json().catch(() => null)) as {
+    error?: string;
+    message?: string;
+  } | null;
   const code = errorBody?.error ?? "request_failed";
 
   return {
@@ -70,11 +85,7 @@ async function requestJson<T>(
       throw error;
     }
 
-    throw new ApiClientError(
-      0,
-      "network_error",
-      getSafeErrorMessage(0, "network_error"),
-    );
+    throw new ApiClientError(0, "network_error", getSafeErrorMessage(0, "network_error"));
   }
 
   if (!response.ok) {
@@ -85,16 +96,13 @@ async function requestJson<T>(
   return (await response.json()) as T;
 }
 
-export async function fetchJson<T>(
-  path: string,
-  signal?: AbortSignal,
-): Promise<T> {
+export async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return requestJson<T>(path, { signal });
 }
 
 export async function sendJson<T>(
   path: string,
-  method: "POST" | "PATCH" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   body: unknown,
 ): Promise<T> {
   return requestJson<T>(path, {

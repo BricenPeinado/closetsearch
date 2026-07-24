@@ -1,10 +1,11 @@
 # Apps
 
-This folder contains runnable application surfaces.
+Runnable product processes:
 
-Current apps:
+- [`web`](web/README.md): React/Vite client for discovery, accounts, saved
+  features, alerts, and analytics
+- [`api`](api/README.md): TypeScript HTTP API, PostgreSQL data plane, and
+  separately invoked worker entry point
 
-- `web`: future user-facing web app
-- `api`: future API boundary for feed, search, and provider orchestration
-
-Milestone 1 keeps these apps as placeholders only. Milestone 2 will choose runtimes/frameworks and create runnable shells without product business logic.
+Production deploys the web, API, worker, and one-shot migration job as separate
+processes. Provider credentials remain server-side.

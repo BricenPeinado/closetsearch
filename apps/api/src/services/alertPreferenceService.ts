@@ -65,10 +65,10 @@ export function updateAlertPreferences(input: UpdateNotificationPreferencesInput
     quietHoursStart:
       input.quietHoursStart !== undefined
         ? input.quietHoursStart
-        : currentPreferences.quietHoursStart ?? null,
+        : (currentPreferences.quietHoursStart ?? null),
     quietHoursEnd:
       input.quietHoursEnd !== undefined
         ? input.quietHoursEnd
-        : currentPreferences.quietHoursEnd ?? null,
+        : (currentPreferences.quietHoursEnd ?? null),
   });
 }

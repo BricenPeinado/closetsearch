@@ -1,60 +1,62 @@
-# ClosetSearch Beta Data-Use Copy
+# ClosetSearch Data-Use Draft
 
-This is beta data-use copy for a constrained launch. It is operational guidance, not a lawyer-approved public policy.
+This is operational engineering guidance, not approved legal terms.
 
-## Account and Saved Feature Data
+## Permitted product use
 
-ClosetSearch uses stored account and saved-feature data to:
+User-owned data supports sessions, account recovery/export/deletion, saved
+features, in-app watchlist alerts, entitlement authorization, and explainable
+personalization.
 
-- keep users signed in with server-side sessions
-- persist likes, saved searches, saved filters, watchlists, notification preference shell data, and settings
-- personalize the signed-in feed with explainable rules
+Qualified, deduplicated engagement supports aggregate popularity and user
+recommendation features. Do not collect unnecessary direct identifiers or
+secrets in events.
 
-## Observed Listing Data
+Marketplace observations support discovery, lifecycle tracking, price history,
+watchlist matching, and cautious analytics only within each provider's approved
+display, caching, retention, derivation, attribution, and ML terms.
 
-ClosetSearch uses observed listing and price snapshot data to:
+## Provider rule
 
-- build cautious brand and category pricing ranges
-- support observed under-market style analytics
-- improve future debugging and product quality review
+Use official API, approved partner API, documented feed, or explicitly
+authorized scraping in that order. Never bypass access controls or technical
+enforcement. An adapter/fixture does not prove permission. See the
+[provider acquisition matrix](../provider-acquisition-matrix.md).
 
-Observed listing data is not the same thing as complete marketplace coverage.
+## Analytics and ML limits
 
-## Watchlists
+- keep currencies exact and separate unless a sourced/timestamped conversion
+  exists
+- keep asking and confirmed sold outcomes distinct
+- do not treat an active asking price as a realized target
+- use temporal evaluation and deletion-aware feature snapshots
+- keep rules/observed fallback
+- do not expose sensitive features
+- do not claim profit, investment, guaranteed value, future certainty, or
+  authentic/fake verdicts
 
-Watchlists currently save what a user wants to track later.
+Current ML candidates are not promoted.
 
-They do not currently send:
+## Account rights
 
-- email
-- push
-- SMS
+The implemented one-time export excludes credential/token hashes. Confirmed
+deletion cascades user-owned state and removes the user association from raw
+engagement while retaining pseudonymous events/aggregates and provider-wide
+catalog history. Final legal policy and retention/deletion enforcement still
+require approval.
 
-## Analytics Boundaries
+## Alerts and billing
 
-ClosetSearch analytics in beta are:
+In-app alerts are active. Email account actions/alerts require an approved sender
+and verified address; push/SMS are disabled. No billing provider is configured,
+and a development entitlement must not be described as a subscription.
 
-- observed-data only
-- not financial advice
-- not price predictions
-- not investment guidance
+## Prohibited uses
 
-## Provider Data Limits
-
-Provider data may be:
-
-- incomplete
-- delayed
-- temporarily unavailable
-- different from the live marketplace state by the time a user clicks through
-
-## Feedback and Improvement
-
-Beta feedback may be used to improve:
-
-- product copy
-- reliability
-- saved-feature behavior
-- personalization quality
-- analytics clarity
-- deployment and QA processes
+- credential/session/token logging
+- collecting unnecessary personal seller/user data
+- proxy/identity rotation to evade provider controls
+- live marketplace calls from normal CI
+- production mock substitution
+- training on data outside approved provider/user scope
+- authenticity enforcement from placeholder metadata heuristics

@@ -60,9 +60,7 @@ function getLatestObservationAt() {
 
 function countUniqueValues(values: Array<string | undefined>) {
   return new Set(
-    values
-      .map((value) => value?.trim())
-      .filter((value): value is string => Boolean(value)),
+    values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)),
   ).size;
 }
 
@@ -86,18 +84,18 @@ export function getAnalyticsOverview(): AnalyticsOverview {
           status: "empty" as const,
         }
       : activeSnapshots.length < sampleSizeThreshold
-      ? {
-          comparableListingCount: activeSnapshots.length,
-          note: "Observed data is still limited. Similar-listing signals appear after enough same-currency listings are seen.",
-          sampleSizeThreshold,
-          status: "limited" as const,
-        }
-      : {
-          comparableListingCount: activeSnapshots.length,
-          note: "Ranges use observed listings grouped by matching brand, category, and currency when possible.",
-          sampleSizeThreshold,
-          status: "observed" as const,
-        };
+        ? {
+            comparableListingCount: activeSnapshots.length,
+            note: "Observed data is still limited. Similar-listing signals appear after enough same-currency listings are seen.",
+            sampleSizeThreshold,
+            status: "limited" as const,
+          }
+        : {
+            comparableListingCount: activeSnapshots.length,
+            note: "Ranges use observed listings grouped by matching brand, category, and currency when possible.",
+            sampleSizeThreshold,
+            status: "observed" as const,
+          };
 
   return {
     dataQuality,

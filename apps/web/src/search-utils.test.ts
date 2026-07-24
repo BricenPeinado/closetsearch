@@ -37,12 +37,18 @@ describe("search utils", () => {
     );
 
     expect(values).toEqual({
+      brand: "",
+      category: "",
+      condition: "",
+      currency: "",
       query: "jacket",
       sort: "price_asc",
       source: "mock",
       listingType: "auction",
+      marketStatus: "",
       minPrice: "100",
       maxPrice: "250",
+      size: "",
     });
 
     expect(createSearchParams(values).toString()).toBe(
@@ -53,6 +59,26 @@ describe("search utils", () => {
     );
   });
 
+  it("round-trips normalized marketplace filters through the URL", () => {
+    const values = parseSearchFormValues(
+      new URLSearchParams(
+        "brands=Kapital&categories=jackets&sizes=M&conditions=excellent&marketScope=sold&currency=eur",
+      ),
+    );
+
+    expect(values).toMatchObject({
+      brand: "Kapital",
+      category: "jackets",
+      condition: "excellent",
+      currency: "EUR",
+      marketStatus: "sold",
+      size: "M",
+    });
+    expect(createSearchParams(values).toString()).toBe(
+      "brands=Kapital&categories=jackets&sizes=M&conditions=excellent&marketScope=sold&currency=EUR",
+    );
+    expect(hasActiveSearchValues(values)).toBe(true);
+  });
 
   it("builds a filter-only search path when query text is empty", () => {
     const values = {

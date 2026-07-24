@@ -96,9 +96,10 @@ function selectWatchlistById(userId: string, id: string) {
 }
 
 export function listWatchlistsByUserId(userId: string) {
-  return ((getDatabase()
-    .prepare(
-      `SELECT
+  return (
+    getDatabase()
+      .prepare(
+        `SELECT
         id,
         user_id,
         label,
@@ -118,8 +119,9 @@ export function listWatchlistsByUserId(userId: string) {
       FROM watchlists
       WHERE user_id = ?
       ORDER BY updated_at DESC, created_at DESC, id DESC`,
-    )
-    .all(userId) as unknown as WatchlistRow[])).map(mapWatchlistRow);
+      )
+      .all(userId) as unknown as WatchlistRow[]
+  ).map(mapWatchlistRow);
 }
 
 export function findWatchlistByUserIdAndId(userId: string, id: string) {

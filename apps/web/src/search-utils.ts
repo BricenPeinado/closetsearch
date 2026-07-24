@@ -1,14 +1,28 @@
-import type { ListingType, SearchHistoryEntry, SearchSortMode } from "@closetsearch/shared";
+import type {
+  ListingCondition,
+  ListingMarketStatus,
+  ListingType,
+  SearchHistoryEntry,
+  SearchSortMode,
+} from "@closetsearch/shared";
 
 export type SearchListingTypeFilter = "" | Exclude<ListingType, "unknown">;
+export type SearchConditionFilter = "" | ListingCondition;
+export type SearchMarketStatusFilter = "" | ListingMarketStatus;
 
 export interface SearchFormValues {
+  brand?: string;
+  category?: string;
+  condition?: SearchConditionFilter;
+  currency?: string;
   query: string;
   sort: SearchSortMode;
   source: string;
   listingType: SearchListingTypeFilter;
+  marketStatus?: SearchMarketStatusFilter;
   minPrice: string;
   maxPrice: string;
+  size?: string;
 }
 
 export type RecentSearchEntry = SearchHistoryEntry;
@@ -25,11 +39,17 @@ const RECENT_SEARCH_LIMIT = 8;
 export function createDefaultSearchFormValues(): SearchFormValues {
   return {
     query: "",
+    brand: "",
+    category: "",
+    condition: "",
+    currency: "",
     sort: "relevance",
     source: "",
     listingType: "",
+    marketStatus: "",
     minPrice: "",
     maxPrice: "",
+    size: "",
   };
 }
 
@@ -55,6 +75,24 @@ function normalizeListingType(value: string | null): SearchListingTypeFilter {
   }
 
   return "";
+}
+
+function normalizeCondition(value: string | null): SearchConditionFilter {
+  switch (value) {
+    case "new_with_tags":
+    case "new_without_tags":
+    case "excellent":
+    case "good":
+    case "fair":
+    case "unknown":
+      return value;
+    default:
+      return "";
+  }
+}
+
+function normalizeMarketStatus(value: string | null): SearchMarketStatusFilter {
+  return value === "active" || value === "sold" ? value : "";
 }
 
 function normalizePriceValue(value: string | null): string {
@@ -85,12 +123,18 @@ function getBrowserStorage(): StorageLike | null {
 
 export function parseSearchFormValues(searchParams: URLSearchParams): SearchFormValues {
   return {
+    brand: searchParams.get("brands")?.trim() ?? "",
+    category: searchParams.get("categories")?.trim() ?? "",
+    condition: normalizeCondition(searchParams.get("conditions")),
+    currency: searchParams.get("currency")?.trim().toUpperCase() ?? "",
     query: searchParams.get("q")?.trim() ?? "",
     sort: normalizeSearchSortMode(searchParams.get("sort")),
     source: searchParams.get("source")?.trim() ?? "",
     listingType: normalizeListingType(searchParams.get("listingType")),
+    marketStatus: normalizeMarketStatus(searchParams.get("marketScope")),
     minPrice: normalizePriceValue(searchParams.get("minPrice")),
     maxPrice: normalizePriceValue(searchParams.get("maxPrice")),
+    size: searchParams.get("sizes")?.trim() ?? "",
   };
 }
 
@@ -116,6 +160,12 @@ export function createSearchParams(values: SearchFormValues): URLSearchParams {
 
   setOptionalParam(params, "source", values.source);
   setOptionalParam(params, "listingType", values.listingType);
+  setOptionalParam(params, "brands", values.brand ?? "");
+  setOptionalParam(params, "categories", values.category ?? "");
+  setOptionalParam(params, "sizes", values.size ?? "");
+  setOptionalParam(params, "conditions", values.condition ?? "");
+  setOptionalParam(params, "marketScope", values.marketStatus ?? "");
+  setOptionalParam(params, "currency", values.currency ?? "");
   setOptionalParam(params, "minPrice", normalizePriceValue(values.minPrice));
   setOptionalParam(params, "maxPrice", normalizePriceValue(values.maxPrice));
 
@@ -128,6 +178,12 @@ export function hasActiveSearchValues(values: SearchFormValues): boolean {
     values.sort !== "relevance" ||
     values.source.trim().length > 0 ||
     values.listingType.trim().length > 0 ||
+    (values.brand?.trim().length ?? 0) > 0 ||
+    (values.category?.trim().length ?? 0) > 0 ||
+    (values.size?.trim().length ?? 0) > 0 ||
+    (values.condition?.trim().length ?? 0) > 0 ||
+    (values.marketStatus?.trim().length ?? 0) > 0 ||
+    (values.currency?.trim().length ?? 0) > 0 ||
     normalizePriceValue(values.minPrice).length > 0 ||
     normalizePriceValue(values.maxPrice).length > 0
   );
@@ -170,17 +226,20 @@ function formatSortLabel(sort: SearchSortMode): string | null {
   }
 }
 
-function formatPriceLabel(minPrice: string, maxPrice: string): string | null {
+function formatPriceLabel(minPrice: string, maxPrice: string, currency?: string): string | null {
+  const normalizedCurrency = currency?.trim().toUpperCase();
+  const prefix = normalizedCurrency ? `${normalizedCurrency} ` : "$";
+
   if (minPrice && maxPrice) {
-    return `$${minPrice} to $${maxPrice}`;
+    return `${prefix}${minPrice} to ${normalizedCurrency ? "" : "$"}${maxPrice}`;
   }
 
   if (minPrice) {
-    return `$${minPrice}+`;
+    return `${prefix}${minPrice}+`;
   }
 
   if (maxPrice) {
-    return `Up to $${maxPrice}`;
+    return `Up to ${prefix}${maxPrice}`;
   }
 
   return null;
@@ -188,10 +247,15 @@ function formatPriceLabel(minPrice: string, maxPrice: string): string | null {
 
 export function describeSearch(values: SearchFormValues): string {
   const details = [
+    values.brand || null,
+    values.category || null,
+    values.size ? `Size ${values.size}` : null,
+    values.condition || null,
     values.source || null,
     formatListingTypeLabel(values.listingType),
+    values.marketStatus || null,
     formatSortLabel(values.sort),
-    formatPriceLabel(values.minPrice, values.maxPrice),
+    formatPriceLabel(values.minPrice, values.maxPrice, values.currency),
   ].filter((detail): detail is string => detail !== null && detail.length > 0);
 
   return details.length > 0 ? details.join(" • ") : "Keyword search";

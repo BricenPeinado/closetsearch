@@ -1,123 +1,121 @@
-# Personalization Runbook
+# Personalization and Recommendation Runtime
 
-This runbook covers the rules-based feed ranking added in Milestone 17.
+## Active behavior
 
-## Scope
+The explainable rules ranker is the authoritative default and failure/cold-start
+fallback. The hybrid ML candidate is available through a guarded runtime but is
+not promoted.
 
-Personalization V2 improves the signed-in home feed without adding ML, alerts, or analytics V1.
+## Durable inputs
 
-It does include:
+Production profiles can use:
 
-- persisted likes as real ranking input
-- onboarding preferences
-- saved searches
-- saved filters
-- watchlist shell intent as a weak signal
-- preferred sources from user settings
-- freshness, listing quality, engagement, diversity, and repetition rules
-- optional debug score breakdowns
+- onboarding brand/category/price preferences
+- normalized liked listings
+- searches and filter applications
+- saved searches and saved filters
+- enabled watchlists as weaker intent
+- preferred sources/settings
+- clicks/opens, qualified views, likes/unlikes, saves, hides, and recommendation
+  events from PostgreSQL daily aggregates
+- listing content, quality, freshness, popularity, source, and exact
+  same-currency price bands
 
-It does not include:
+A server response is not an impression. The web emits `listing_view` only after
+50% visibility for one second, with a unique event ID and opaque privacy
+session. Worker rollups keep feed requests from scanning raw events.
 
-- embeddings or vector search
-- model training or ML ranking
-- alert delivery
-- notification jobs
-- analytics V1
-- underpriced listing detection
-- fake-risk intelligence
+## Rules baseline
 
-## Inputs
+Rules apply inspectable affinity, intent, price, freshness, quality, and durable
+engagement boosts. Selection penalizes repeated brands/categories/sources and
+near-identical signatures while retaining an exploration lane.
 
-Current ranking inputs are additive and inspectable.
+Cold start:
 
-User-signal inputs:
+- signed-out or signal-free users receive generic deterministic results
+- onboarding preferences provide content boosts without interaction history
+- sparse-history users retain content/popularity/freshness behavior
 
-- liked listing brands, categories, sizes, conditions, sources, and listing types
-- onboarding favorite brands and categories
-- onboarding price range
-- saved search query terms, brands, categories, sizes, sources, listing types, and price ranges
-- saved filter query text, source, listing type, and price ranges
-- watchlist query text, brand, source, and max price as weak intent only
-- preferred sources from user settings
+Development debug metadata includes reason codes and score breakdowns, not
+credentials or full sensitive user features.
 
-Listing-state inputs:
+## ML candidate
 
-- freshness relative to the newest feed candidates
-- listing completeness across title, brand, image, source URL, price, category, size, and condition
-- lightweight impression-count engagement from the in-process engagement store
+`packages/ml` trains a deterministic implicit/content hybrid:
 
-## Scoring Weights
+- versioned recommendation feature schema
+- fixed seed and snapshot fingerprint
+- temporal train/validation/test isolation
+- weighted implicit user content profile and item co-occurrence
+- explicit preference/content cold start
+- popularity and freshness
+- provider/brand diversity quotas and repeat penalties
+- Recall@K, NDCG@K, MAP@K, coverage, diversity, novelty, provider
+  concentration, brand concentration, and cold-start metrics
 
-Current weights are intentionally simple and reviewable. They are implemented in `apps/api/src/services/personalizationSignalsService.ts` and `apps/api/src/services/recommendationService.ts`.
+The API adapter consumes an immutable JSON artifact. It does not train or write
+artifacts in requests.
 
-Representative signal weights:
+## Rollout modes
 
-- liked brand affinity: `3.4`
-- onboarding brand affinity: `2.6`
-- liked category affinity: `2.3`
-- onboarding category affinity: `1.9`
-- preferred source affinity: up to `1.45` from settings, with weaker saved-search/filter/watchlist source boosts
-- saved-search query intent: about `1.05` per matching term, capped in the scorer
-- saved-filter price preference: about `0.9` when in-range, with smaller near-range boosts
-- freshness: `1.6` for very new listings down to strong negative penalties for very stale ones
-- listing quality: small positive boost for complete listings and small penalties for incomplete ones
-- engagement: small capped boost from impression counts
+- `disabled` (default): return rules immediately
+- `shadow`: validate/score ML, return rules, and attach bounded overlap/reason
+  metadata
+- `active`: permitted only with an artifact lifecycle of `promoted`, explicit
+  promotion approval, compatible schema/model version, and non-stale artifact
 
-These numbers are not hidden hard filters. They are soft boosts and penalties that still allow exploration candidates to appear.
+Safety:
 
-## Diversity And Exploration
+- maximum 500 candidates
+- 1–250 ms configured timeout, 25 ms default
+- malformed, missing, oversized, incompatible, stale, retired, timed-out, or
+  failed artifacts fall back to rules
+- price-band features are skipped unless candidates share a normalized
+  comparison currency
+- per-item responses include reason codes/rank, not raw feature values or user
+  weights
 
-Personalization should not collapse the top of the feed into one brand or one source.
+## Current evaluation
 
-Current controls:
+Synthetic fixture at K=5:
 
-- repeated brands near the top receive a penalty
-- repeated categories near the top receive a smaller penalty
-- repeated sources near the top receive a smaller penalty
-- near-identical listing signatures receive an extra penalty
-- personalized ranking is mixed with a small exploration lane using a `3 personalized / 1 exploration` cadence
+| Metric       |  Rules | Hybrid |
+| ------------ | -----: | -----: |
+| Recall       | 0.0000 | 0.8750 |
+| NDCG         | 0.0000 | 0.7577 |
+| MAP          | 0.0000 | 0.7188 |
+| Coverage     | 0.3889 | 0.9444 |
+| Diversity    | 0.8938 | 0.8375 |
+| Provider HHI | 0.3350 | 0.3400 |
+| Brand HHI    | 0.2250 | 0.1763 |
 
-This keeps relevant matches strong without turning the feed into a narrow clone list.
+This is not production evidence: only eight synthetic users and one snapshot
+were evaluated, and diversity regressed more than the allowed `0.02`. The
+artifact lifecycle is `shadow`, so active mode rejects it.
 
-## Repetition Rules
+## Promotion
 
-Current repetition controls include:
+At minimum:
 
-- duplicate listing IDs are removed before ranking
-- near-identical signatures are penalized during selection
-- repeated brands, categories, and sources are penalized as the first page is built
+- 100 evaluated users and three reproducible temporal snapshots
+- NDCG improvement `>= +0.02`
+- Recall no worse than `-0.005`
+- diversity no worse than baseline `-0.02`
+- coverage at least 95% of baseline
+- provider/brand concentration no worse than baseline `+0.03`
+- cold-start NDCG no worse than baseline `-0.02`
+- inference p95 at most 75 ms
+- privacy and segment/concentration review
 
-These controls are intentionally lightweight and local to feed ranking. They are not session-history or long-term fatigue systems yet.
+## Operations and rollback
 
-## Cold Start Behavior
+Metrics expose request/fallback counts, structured fallback reason, last
+inference time, selected strategy, and non-secret model version. Observe shadow
+overlap, latency, diversity, and concentration before promotion.
 
-Cold-start users should still get a usable feed.
+Rollback is configuration to `shadow` or `disabled` plus artifact retirement.
+No schema rollback is required; rules remain independently available.
 
-Behavior:
-
-- signed-out users get the generic newest-first feed
-- signed-in users with onboarding preferences but no likes can still get brand/category/price boosts
-- signed-in users with no meaningful signals fall back to the generic feed and see a gentle prompt to like listings or save searches
-
-## Debugging
-
-Use `GET /feed?debugPersonalization=1` to inspect ranking reasons during development and tests.
-
-Debug output includes:
-
-- `personalizationSummary`
-- `debugPersonalization.scoreBreakdowns[]`
-- per-listing reason codes such as `brand_affinity`, `category_affinity`, `source_preference`, `price_affinity`, `query_intent`, `freshness`, `listing_quality`, and repetition penalties
-
-Debug output should remain development-oriented and should not expose full sensitive user account state.
-
-## Known Limitations
-
-Still deferred to future milestones:
-
-- ML ranking or embeddings
-- richer long-term engagement features
-- alert delivery from watchlists
-- analytics V1 and observed pricing pipelines
-- stronger provider diversity once live providers broaden beyond the current baseline
+See [ML status](../ml/README.md) and the
+[recommendation model card](../ml/recommendation-model-card.md).

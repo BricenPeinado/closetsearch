@@ -12,46 +12,45 @@ import type {
 } from "@closetsearch/shared";
 import { isApiError } from "./api-error.js";
 import { getAuthConfig } from "./auth/config.js";
-import { requireAuth, getOptionalAuthContext } from "./auth/auth-context.js";
+import {
+  getAuthSessionResolution,
+  getOptionalAuthContext,
+  requireAuth,
+} from "./auth/auth-context.js";
+import { prepareRequestAuthContext } from "./auth/postgres-session-service.js";
 import {
   clearSessionCookie,
   createAuthSession,
-  getAuthSessionFromRequest,
   revokeAllSessionsForUser,
   revokeCurrentSession,
 } from "./auth/session-service.js";
 import { getFeed } from "./feed-service.js";
 import { addLike, getLikedListingsByUserId, getLikesByUserId, removeLike } from "./like-service.js";
 import { createRequestId, logError, logWarn } from "./logger.js";
+import { parseJsonRequestBody } from "./http/request-body.js";
+import { FixedWindowRateLimiter, getRequestIpHint } from "./http/rate-limit.js";
+import { assertCsrfSafeRequest, buildSecurityHeaders } from "./http/security.js";
+import { incrementCounter, observeHistogram } from "./metrics.js";
 import {
   addRecentSearch,
   getRecentSearchesByUserId,
   removeRecentSearchesByUserId,
 } from "./recent-search-service.js";
+import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
 import {
   addSavedSearch,
   getSavedSearchesByUserId,
   removeSavedSearch,
 } from "./saved-search-service.js";
-import { addSavedFilter, getSavedFiltersByUserId, removeSavedFilter } from "./saved-filter-service.js";
+import {
+  addSavedFilter,
+  getSavedFiltersByUserId,
+  removeSavedFilter,
+} from "./saved-filter-service.js";
 import { searchListings } from "./search-service.js";
-import { createProviderRuntime } from "./providers/registry.js";
 import { getSettingsByUserId, updateSettings } from "./user-settings-service.js";
-import {
-  analyticsUsesSampleData,
-  getAnalyticsOverview,
-  getMarketInsights,
-  getUnderpricedListingSignals,
-} from "./services/analyticsService.js";
-import { findBrandBySlug, listBrands } from "./services/brandService.js";
-import {
-  getPremiumAccess,
-  getPremiumPreviewUsername,
-} from "./services/premiumAccessService.js";
 import { createUser, loginUser, saveOnboardingPreferences } from "./user-service.js";
-import {
-  getAlertMatchesByUserId,
-} from "./services/alertMatchService.js";
+import { getAlertMatchesByUserId } from "./services/alertMatchService.js";
 import {
   getAlertPreferencesByUserId,
   updateAlertPreferences,
@@ -62,16 +61,121 @@ import {
   removeWatchlist,
   updateWatchlist,
 } from "./services/watchlistService.js";
+import {
+  handleEngagementRoute,
+  resetEngagementRateLimitsForTests,
+} from "./routes/engagement-routes.js";
+import { handleOperationsRoute } from "./routes/operations-routes.js";
+import { handleBrandRoute } from "./routes/brand-routes.js";
+import { handleAnalyticsRoute } from "./routes/analytics-routes.js";
+import { handleEntitlementRoute } from "./routes/entitlement-routes.js";
+import { handlePostgresAccountRoute } from "./routes/postgres-account-routes.js";
+import { handlePostgresAuthRoute } from "./routes/postgres-auth-routes.js";
+import { handlePostgresSavedRoute } from "./routes/postgres-saved-routes.js";
 
 const requestIdHeaderName = "x-request-id";
+const authRateLimiter = new FixedWindowRateLimiter({
+  limit: 10,
+  windowMs: 60_000,
+});
+
+export function resetHttpSecurityStateForTests() {
+  authRateLimiter.reset();
+  resetEngagementRateLimitsForTests();
+}
+
+const exactMetricRoutes = new Set([
+  "/",
+  "/account/export",
+  "/admin/development-entitlements",
+  "/analytics/market-insights",
+  "/analytics/overview",
+  "/analytics/underpriced",
+  "/auth/login",
+  "/auth/logout",
+  "/auth/logout-all",
+  "/auth/me",
+  "/auth/password-reset/complete",
+  "/auth/password-reset/request",
+  "/auth/signup",
+  "/auth/verify-email",
+  "/brands",
+  "/events",
+  "/feed",
+  "/health",
+  "/health/live",
+  "/health/ready",
+  "/likes",
+  "/me",
+  "/me/account-export",
+  "/me/alert-matches",
+  "/me/alerts",
+  "/me/alerts/dismiss",
+  "/me/alerts/seen",
+  "/me/email",
+  "/me/email/verification",
+  "/me/likes",
+  "/me/notification-preferences",
+  "/me/saved-filters",
+  "/me/saved-searches",
+  "/me/settings",
+  "/me/watchlists",
+  "/metrics",
+  "/operations/status",
+  "/providers/health",
+  "/recent-searches",
+  "/saved-searches",
+  "/search",
+  "/users/onboarding",
+]);
+
+export function getMetricRoute(rawUrl: string | undefined) {
+  let pathname: string;
+
+  try {
+    pathname = new URL(rawUrl ?? "/", "http://closetsearch.local").pathname;
+  } catch {
+    return "unmatched";
+  }
+
+  if (exactMetricRoutes.has(pathname)) {
+    return pathname;
+  }
+
+  if (pathname.startsWith("/brands/")) {
+    return "/brands/:slug";
+  }
+  if (pathname.startsWith("/likes/")) {
+    return "/likes/:legacyUserId";
+  }
+  if (pathname.startsWith("/me/likes/")) {
+    return "/me/likes/:legacyUserId";
+  }
+  if (pathname.startsWith("/recent-searches/")) {
+    return "/recent-searches/:legacyUserId";
+  }
+  if (pathname.startsWith("/me/saved-filters/")) {
+    return "/me/saved-filters/:filterId";
+  }
+  if (pathname.startsWith("/me/saved-searches/")) {
+    return "/me/saved-searches/:searchId";
+  }
+  if (pathname.startsWith("/saved-searches/")) {
+    return "/saved-searches/:legacyUserId";
+  }
+  if (pathname.startsWith("/me/watchlists/")) {
+    return "/me/watchlists/:watchlistId";
+  }
+
+  return "unmatched";
+}
 
 function buildCorsHeaders(request: IncomingMessage) {
-  const origin =
-    typeof request.headers?.origin === "string" ? request.headers.origin.trim() : "";
+  const origin = typeof request.headers?.origin === "string" ? request.headers.origin.trim() : "";
   const authConfig = getAuthConfig();
   const headers: Record<string, string> = {
-    "access-control-allow-headers": "content-type",
-    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "access-control-allow-headers": "content-type,x-privacy-session-id",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
   };
 
   if (origin && authConfig.allowedOrigins.has(origin)) {
@@ -87,11 +191,9 @@ function getRequestId(request: IncomingMessage) {
   return (request as IncomingMessage & { __requestId?: string }).__requestId ?? "unknown";
 }
 
-function buildResponseHeaders(
-  request: IncomingMessage,
-  extraHeaders?: Record<string, string>,
-) {
+function buildResponseHeaders(request: IncomingMessage, extraHeaders?: Record<string, string>) {
   return {
+    ...buildSecurityHeaders(),
     ...buildCorsHeaders(request),
     [requestIdHeaderName]: getRequestId(request),
     ...extraHeaders,
@@ -124,29 +226,7 @@ function sendEmpty(
   response.end();
 }
 
-async function parseJsonBody(request: IncomingMessage) {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
-  if (chunks.length === 0) {
-    return null;
-  }
-
-  const body = Buffer.concat(chunks).toString("utf-8").trim();
-
-  if (body.length === 0) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(body) as unknown;
-  } catch {
-    throw new Error("invalid_json");
-  }
-}
+const parseJsonBody = parseJsonRequestBody;
 
 function parseListParameter(value: string | null) {
   if (!value) {
@@ -173,9 +253,7 @@ function parseSearchSortMode(value: string | null): SearchSortMode {
   }
 }
 
-function parseListingMarketStatus(
-  value: string | null,
-): ListingMarketStatus | undefined {
+function parseListingMarketStatus(value: string | null): ListingMarketStatus | undefined {
   switch (value?.trim().toLowerCase()) {
     case "active":
       return "active";
@@ -202,6 +280,14 @@ function parseListingTypes(value: string | null): ListingType[] | undefined {
     .filter((item): item is ListingType => item !== undefined);
 
   return listingTypes && listingTypes.length > 0 ? listingTypes : undefined;
+}
+
+function parseListingConditions(value: string | null): ListingCondition[] | undefined {
+  const conditions = parseListParameter(value)
+    ?.map((item) => toOptionalListingCondition(item))
+    .filter((condition): condition is ListingCondition => condition !== undefined);
+
+  return conditions && conditions.length > 0 ? conditions : undefined;
 }
 
 function parsePositiveInteger(value: string | null, fallback: number) {
@@ -234,6 +320,8 @@ function hasSearchCriteria(requestUrl: URL) {
     (searchParams.get("brands")?.trim().length ?? 0) > 0 ||
     (searchParams.get("categories")?.trim().length ?? 0) > 0 ||
     (searchParams.get("sizes")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("conditions")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("currency")?.trim().length ?? 0) > 0 ||
     parseSearchSortMode(searchParams.get("sort")) !== "relevance"
   );
 }
@@ -257,16 +345,15 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
     brandSlugs: parseListParameter(requestUrl.searchParams.get("brands")),
     categories: parseListParameter(requestUrl.searchParams.get("categories")),
     sizes: parseListParameter(requestUrl.searchParams.get("sizes")),
+    conditions: parseListingConditions(requestUrl.searchParams.get("conditions")),
     sourceIds:
       parseListParameter(requestUrl.searchParams.get("source")) ??
       parseListParameter(requestUrl.searchParams.get("sources")),
     listingTypes: parseListingTypes(
-      requestUrl.searchParams.get("listingType") ??
-        requestUrl.searchParams.get("listingTypes"),
+      requestUrl.searchParams.get("listingType") ?? requestUrl.searchParams.get("listingTypes"),
     ),
     marketScope: parseListingMarketStatus(
-      requestUrl.searchParams.get("marketScope") ??
-        requestUrl.searchParams.get("market"),
+      requestUrl.searchParams.get("marketScope") ?? requestUrl.searchParams.get("market"),
     ),
     sort: parseSearchSortMode(requestUrl.searchParams.get("sort")),
     currency: requestUrl.searchParams.get("currency") ?? undefined,
@@ -286,10 +373,7 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
 
 function parseFeedQuery(requestUrl: URL): FeedQuery {
   const page = parsePositiveInteger(requestUrl.searchParams.get("page"), 1);
-  const requestedPageSize = parsePositiveInteger(
-    requestUrl.searchParams.get("pageSize"),
-    12,
-  );
+  const requestedPageSize = parsePositiveInteger(requestUrl.searchParams.get("pageSize"), 12);
   const debugPersonalizationValue = requestUrl.searchParams.get("debugPersonalization");
 
   return {
@@ -311,11 +395,8 @@ function toStringArray(value: unknown) {
     return [];
   }
 
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
+  return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 }
-
 
 function toOptionalNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -331,7 +412,12 @@ function toOptionalNumber(value: unknown) {
 }
 
 function toOptionalSearchSortMode(value: unknown) {
-  if (value === "price_asc" || value === "price_desc" || value === "newest" || value === "relevance") {
+  if (
+    value === "price_asc" ||
+    value === "price_desc" ||
+    value === "newest" ||
+    value === "relevance"
+  ) {
     return value;
   }
 
@@ -435,10 +521,7 @@ function toOptionalListingSnapshot(value: unknown) {
 }
 
 function toOnboardingPreferences(value: unknown): OnboardingPreferences {
-  const preferences =
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : {};
+  const preferences = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 
   return {
     favoriteBrands: toStringArray(preferences.favoriteBrands),
@@ -460,10 +543,8 @@ function sendValidationError(
   });
 }
 
-async function handleSignup(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+async function handleSignup(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
+  authRateLimiter.consume(`signup:${getRequestIpHint(request)}`);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
   const username = toTrimmedString(body?.username);
   const password = typeof body?.password === "string" ? body.password : "";
@@ -482,10 +563,8 @@ async function handleSignup(
   });
 }
 
-async function handleLogin(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+async function handleLogin(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
+  authRateLimiter.consume(`login:${getRequestIpHint(request)}`);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
   const username = toTrimmedString(body?.username);
   const password = typeof body?.password === "string" ? body.password : "";
@@ -504,11 +583,8 @@ async function handleLogin(
   });
 }
 
-function handleAuthMe(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const authSession = getAuthSessionFromRequest(request);
+function handleAuthMe(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
+  const authSession = getAuthSessionResolution(request);
 
   if (authSession.status !== "authenticated") {
     sendJson(
@@ -548,10 +624,7 @@ function handleAuthMe(
   );
 }
 
-function handleLogout(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleLogout(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   revokeCurrentSession(request);
 
   sendJson(
@@ -568,10 +641,7 @@ function handleLogout(
   );
 }
 
-function handleLogoutAll(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleLogoutAll(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
   const revokedSessions = revokeAllSessionsForUser(user.id);
 
@@ -663,10 +733,7 @@ async function handleDeleteLike(
   });
 }
 
-function handleGetLikes(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleGetLikes(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
 
   sendJson(request, response, 200, {
@@ -897,10 +964,7 @@ async function handleCreateWatchlist(
   });
 }
 
-function handleGetWatchlists(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleGetWatchlists(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
 
   sendJson(request, response, 200, {
@@ -1000,15 +1064,13 @@ function handleGetAlertMatches(
   sendJson(request, response, 200, {
     alertMatches: getAlertMatchesByUserId(user.id),
     deliveryActive: false,
-    message: "Alert delivery is not active yet. Stored matches are foundation data only.",
+    message:
+      "SQLite compatibility mode does not run worker matching. In-app alerts are available with PostgreSQL; outbound email, push, and SMS remain disabled.",
     userId: user.id,
   });
 }
 
-function handleGetSettings(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
+function handleGetSettings(request: IncomingMessage, response: ServerResponse<IncomingMessage>) {
   const user = requireAuth(request);
 
   sendJson(request, response, 200, {
@@ -1051,156 +1113,6 @@ async function handlePatchSettings(
   });
 }
 
-function handleListBrands(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-  query: string | null,
-) {
-  const brands = listBrands(query ?? undefined);
-
-  sendJson(request, response, 200, {
-    brands,
-    query: query?.trim() || undefined,
-    total: brands.length,
-  });
-}
-
-function handleGetBrand(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-  slug: string,
-) {
-  const brand = findBrandBySlug(slug);
-
-  if (!brand) {
-    sendJson(request, response, 404, {
-      error: "not_found",
-      message: "Brand not found.",
-    });
-    return;
-  }
-
-  sendJson(request, response, 200, {
-    brand,
-  });
-}
-
-function getAnalyticsUser(request: IncomingMessage) {
-  return getOptionalAuthContext(request)?.user;
-}
-
-function sendLockedAnalyticsResponse(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-  userId?: string,
-) {
-  sendJson(request, response, 200, {
-    locked: true,
-    message:
-      "Observed pricing context is part of Collector Preview. Brand ranges, category ranges, and cautious under-market signals use only listings ClosetSearch has observed.",
-    premiumAccess: userId
-      ? {
-          userId,
-          isPremium: false,
-          planName: "Free",
-        }
-      : undefined,
-    premiumPreviewUsername: getPremiumPreviewUsername(),
-  });
-}
-
-function handleAnalyticsOverview(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const user = getAnalyticsUser(request);
-  const premiumAccess = getPremiumAccess(user);
-
-  if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(request, response, user?.id);
-    return;
-  }
-
-  sendJson(request, response, 200, {
-    locked: false,
-    premiumAccess,
-    overview: getAnalyticsOverview(),
-    sampleData: analyticsUsesSampleData(),
-  });
-}
-
-function handleMarketInsights(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const user = getAnalyticsUser(request);
-  const premiumAccess = getPremiumAccess(user);
-
-  if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(request, response, user?.id);
-    return;
-  }
-
-  const insights = getMarketInsights();
-
-  sendJson(request, response, 200, {
-    locked: false,
-    premiumAccess,
-    brandSummaries: insights.brandSummaries,
-    categorySummaries: insights.categorySummaries,
-    sampleData: analyticsUsesSampleData(),
-  });
-}
-
-function handleUnderpricedSignals(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const user = getAnalyticsUser(request);
-  const premiumAccess = getPremiumAccess(user);
-
-  if (!premiumAccess?.isPremium) {
-    sendLockedAnalyticsResponse(request, response, user?.id);
-    return;
-  }
-
-  sendJson(request, response, 200, {
-    locked: false,
-    premiumAccess,
-    signals: getUnderpricedListingSignals(),
-    sampleData: analyticsUsesSampleData(),
-  });
-}
-
-function handleProviderHealth(
-  request: IncomingMessage,
-  response: ServerResponse<IncomingMessage>,
-) {
-  const runtime = createProviderRuntime();
-
-  sendJson(request, response, 200, {
-    providerRuntimeMode: runtime.config.mode,
-    allowMockFallback: runtime.config.allowMockFallback,
-    requestTimeoutMs: runtime.config.requestTimeoutMs,
-    maxProvidersPerRequest: runtime.config.maxProvidersPerRequest,
-    providers: runtime.statuses.map((status) => ({
-      id: status.id,
-      displayName: status.name,
-      providerMode: status.providerMode,
-      mode: status.mode,
-      enabled: status.enabled,
-      configured: status.configured,
-      active: status.active,
-      scrapingAllowed: status.scrapingAllowed,
-      implementationStatus: status.implementationStatus,
-      requiredEnvVars: status.requiredEnvVars,
-      capabilities: status.capabilities,
-      reasons: status.reasons,
-      lastErrorCategory: status.lastErrorCategory,
-    })),
-  });
-}
-
 function getErrorHeaders(error: { code?: string }) {
   if (error.code === "session_expired" || error.code === "unauthenticated") {
     return {
@@ -1215,6 +1127,7 @@ function getErrorHeaders(error: { code?: string }) {
 export async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
+  providerRuntime: ProviderRuntime,
 ) {
   const method = request.method ?? "GET";
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
@@ -1224,17 +1137,87 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "GET" && requestUrl.pathname === "/health") {
-    sendJson(request, response, 200, {
-      service: "closetsearch-api",
-      status: "ok",
-      timestamp: new Date().toISOString(),
-    });
+  await prepareRequestAuthContext(request);
+
+  assertCsrfSafeRequest(request);
+
+  const postgresAuthRoute = await handlePostgresAuthRoute(request, requestUrl);
+
+  if (postgresAuthRoute) {
+    sendJson(
+      request,
+      response,
+      postgresAuthRoute.statusCode,
+      postgresAuthRoute.body,
+      postgresAuthRoute.headers,
+    );
     return;
   }
 
-  if (method === "GET" && requestUrl.pathname === "/providers/health") {
-    handleProviderHealth(request, response);
+  const postgresAccountRoute = await handlePostgresAccountRoute(request, requestUrl);
+
+  if (postgresAccountRoute) {
+    sendJson(
+      request,
+      response,
+      postgresAccountRoute.statusCode,
+      postgresAccountRoute.body,
+      postgresAccountRoute.headers,
+    );
+    return;
+  }
+
+  const postgresSavedRoute = await handlePostgresSavedRoute(request, requestUrl);
+
+  if (postgresSavedRoute) {
+    sendJson(
+      request,
+      response,
+      postgresSavedRoute.statusCode,
+      postgresSavedRoute.body,
+      postgresSavedRoute.headers,
+    );
+    return;
+  }
+
+  const engagementRoute = await handleEngagementRoute(request, requestUrl);
+
+  if (engagementRoute) {
+    sendJson(request, response, engagementRoute.statusCode, engagementRoute.body);
+    return;
+  }
+
+  const entitlementRoute = await handleEntitlementRoute(request, requestUrl);
+
+  if (entitlementRoute) {
+    sendJson(
+      request,
+      response,
+      entitlementRoute.statusCode,
+      entitlementRoute.body,
+      entitlementRoute.headers,
+    );
+    return;
+  }
+
+  const operationsRoute = await handleOperationsRoute(request, requestUrl, providerRuntime);
+
+  if (operationsRoute) {
+    if (operationsRoute.kind === "json") {
+      sendJson(
+        request,
+        response,
+        operationsRoute.statusCode,
+        operationsRoute.body,
+        operationsRoute.headers,
+      );
+    } else {
+      response.writeHead(operationsRoute.statusCode, {
+        ...buildResponseHeaders(request),
+        ...operationsRoute.headers,
+      });
+      response.end(operationsRoute.body);
+    }
     return;
   }
 
@@ -1279,69 +1262,67 @@ export async function handleRequest(
       return;
     }
 
-    const result = await searchListings(query);
+    const result = await searchListings(query, providerRuntime);
 
     sendJson(request, response, 200, result);
     return;
   }
 
   if (method === "GET" && requestUrl.pathname === "/feed") {
-    const result = await getFeed({
-      ...parseFeedQuery(requestUrl),
-      userId: getOptionalAuthContext(request)?.user.id,
-    });
+    const result = await getFeed(
+      {
+        ...parseFeedQuery(requestUrl),
+        userId: getOptionalAuthContext(request)?.user.id,
+      },
+      providerRuntime,
+    );
 
     sendJson(request, response, 200, result);
     return;
   }
 
-  if (method === "GET" && requestUrl.pathname === "/analytics/overview") {
-    handleAnalyticsOverview(request, response);
-    return;
-  }
+  const analyticsRoute = await handleAnalyticsRoute(request, requestUrl);
 
-  if (method === "GET" && requestUrl.pathname === "/analytics/market-insights") {
-    handleMarketInsights(request, response);
-    return;
-  }
-
-  if (method === "GET" && requestUrl.pathname === "/analytics/underpriced") {
-    handleUnderpricedSignals(request, response);
-    return;
-  }
-
-  if (method === "GET" && requestUrl.pathname === "/brands") {
-    handleListBrands(request, response, requestUrl.searchParams.get("q"));
-    return;
-  }
-
-  if (method === "GET" && requestUrl.pathname.startsWith("/brands/")) {
-    handleGetBrand(
+  if (analyticsRoute) {
+    sendJson(
       request,
       response,
-      decodeURIComponent(requestUrl.pathname.replace("/brands/", "")),
+      analyticsRoute.statusCode,
+      analyticsRoute.body,
+      analyticsRoute.headers,
     );
     return;
   }
 
-  if (method === "POST" && (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")) {
+  const brandRoute = handleBrandRoute(request, requestUrl);
+
+  if (brandRoute) {
+    sendJson(request, response, brandRoute.statusCode, brandRoute.body, brandRoute.headers);
+    return;
+  }
+
+  if (
+    method === "POST" &&
+    (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")
+  ) {
     await handleCreateLike(request, response);
     return;
   }
 
-  if (method === "DELETE" && (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")) {
+  if (
+    method === "DELETE" &&
+    (requestUrl.pathname === "/likes" || requestUrl.pathname === "/me/likes")
+  ) {
     await handleDeleteLike(request, response);
     return;
   }
 
   if (
     method === "GET" &&
-    (
-      requestUrl.pathname === "/likes" ||
+    (requestUrl.pathname === "/likes" ||
       requestUrl.pathname.startsWith("/likes/") ||
       requestUrl.pathname === "/me/likes" ||
-      requestUrl.pathname.startsWith("/me/likes/")
-    )
+      requestUrl.pathname.startsWith("/me/likes/"))
   ) {
     handleGetLikes(request, response);
     return;
@@ -1370,25 +1351,29 @@ export async function handleRequest(
     return;
   }
 
-  if (method === "POST" && (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")) {
+  if (
+    method === "POST" &&
+    (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")
+  ) {
     await handleCreateSavedSearch(request, response);
     return;
   }
 
   if (
     method === "GET" &&
-    (
-      requestUrl.pathname === "/saved-searches" ||
+    (requestUrl.pathname === "/saved-searches" ||
       requestUrl.pathname.startsWith("/saved-searches/") ||
       requestUrl.pathname === "/me/saved-searches" ||
-      requestUrl.pathname.startsWith("/me/saved-searches/")
-    )
+      requestUrl.pathname.startsWith("/me/saved-searches/"))
   ) {
     handleGetSavedSearches(request, response);
     return;
   }
 
-  if (method === "DELETE" && (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")) {
+  if (
+    method === "DELETE" &&
+    (requestUrl.pathname === "/saved-searches" || requestUrl.pathname === "/me/saved-searches")
+  ) {
     await handleDeleteSavedSearch(request, response);
     return;
   }
@@ -1400,7 +1385,8 @@ export async function handleRequest(
 
   if (
     method === "GET" &&
-    (requestUrl.pathname === "/me/saved-filters" || requestUrl.pathname.startsWith("/me/saved-filters/"))
+    (requestUrl.pathname === "/me/saved-filters" ||
+      requestUrl.pathname.startsWith("/me/saved-filters/"))
   ) {
     handleGetSavedFilters(request, response);
     return;
@@ -1464,53 +1450,97 @@ export async function handleRequest(
   });
 }
 
-export function createApp() {
+export interface CreateAppOptions {
+  providerRuntime?: ProviderRuntime;
+}
+
+export function createApp(options: CreateAppOptions = {}) {
+  const providerRuntime = options.providerRuntime ?? createProviderRuntime();
+
   return createServer((request, response) => {
+    const startedAt = performance.now();
     const requestWithContext = request as IncomingMessage & { __requestId?: string };
     requestWithContext.__requestId = createRequestId();
+    const recordCompletion = () => {
+      const method = request.method ?? "GET";
+      const route = getMetricRoute(request.url);
+      incrementCounter("closetsearch_http_requests_total", {
+        method,
+        route,
+        status: String(response.statusCode || 0),
+      });
+      observeHistogram(
+        "closetsearch_http_request_duration_ms",
+        {
+          method,
+          route,
+        },
+        performance.now() - startedAt,
+      );
+    };
 
-    void handleRequest(request, response).catch((error: unknown) => {
-      const requestContext = {
-        method: request.method ?? "GET",
-        path: request.url ?? "/",
-        requestId: getRequestId(request),
-      };
+    if (typeof response.once === "function") {
+      response.once("finish", recordCompletion);
+    }
 
-      if (error instanceof Error && error.message === "invalid_json") {
-        logWarn("Rejected invalid JSON request body", requestContext);
-        sendValidationError(request, response, "The request body must be valid JSON.", 400, "invalid_json");
-        return;
-      }
+    void handleRequest(request, response, providerRuntime)
+      .catch((error: unknown) => {
+        const requestContext = {
+          method: request.method ?? "GET",
+          path: getMetricRoute(request.url),
+          requestId: getRequestId(request),
+        };
 
-      if (isApiError(error)) {
-        logWarn("Handled API error", {
+        if (isApiError(error)) {
+          logWarn("Handled API error", {
+            ...requestContext,
+            errorCode: error.code,
+            statusCode: error.statusCode,
+          });
+          sendJson(
+            request,
+            response,
+            error.statusCode,
+            {
+              error: error.code,
+              message: error.message,
+            },
+            {
+              ...getErrorHeaders(error),
+              ...("retryAfterSeconds" in error && typeof error.retryAfterSeconds === "number"
+                ? {
+                    "retry-after": String(error.retryAfterSeconds),
+                  }
+                : {}),
+            },
+          );
+          return;
+        }
+
+        logError("Unhandled API error", {
           ...requestContext,
-          errorCode: error.code,
-          statusCode: error.statusCode,
+          errorName: error instanceof Error ? error.name : "UnknownError",
         });
-        sendJson(
-          request,
-          response,
-          error.statusCode,
-          {
-            error: error.code,
-            message: error.message,
-          },
-          getErrorHeaders(error),
-        );
-        return;
-      }
 
-      logError("Unhandled API error", {
-        ...requestContext,
-        errorName: error instanceof Error ? error.name : "UnknownError",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+        sendJson(request, response, 500, {
+          error: "internal_error",
+          message: "The API could not complete the request.",
+        });
+      })
+      .finally(() => {
+        if (typeof response.once !== "function") {
+          recordCompletion();
+        }
 
-      sendJson(request, response, 500, {
-        error: "internal_error",
-        message: "The API could not complete the request.",
+        const durationMs = performance.now() - startedAt;
+        if (durationMs >= 1_000) {
+          logWarn("Slow API request", {
+            durationMs: Math.round(durationMs),
+            method: request.method ?? "GET",
+            path: getMetricRoute(request.url),
+            requestId: getRequestId(request),
+          });
+        }
       });
-    });
   });
 }

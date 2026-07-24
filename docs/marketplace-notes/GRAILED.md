@@ -1,105 +1,64 @@
 # Grailed Integration Notes
 
-## Current Status
+## Status
 
-Milestone 12 adds the first authorized Grailed provider path for ClosetSearch.
+The adapter, fixtures, normalization, pagination, credential refresh, resilience,
+and contract tests are implemented. **Live access is blocked.** No retained
+written-authorization reference exists in this checkout.
 
-Current state:
+The current approach reads public-page configuration and accesses undocumented
+Algolia indices. Grailed terms/robots considerations are recorded in the
+[provider acquisition matrix](../provider-acquisition-matrix.md). Technical
+reachability is not permission.
 
-- registered in the shared provider registry as `grailed`
-- disabled by default
-- fixture-backed for tests and local development
-- authorized live scraping only activates when explicit runtime flags are enabled
-- mock provider remains available as fallback
+## Activation gate
 
-Live mode was not exercised against Grailed during this sandboxed implementation pass, so the integration should still be treated as controlled rollout work rather than broad production readiness.
+Both must be present:
 
-## Authorization Requirement
+```sh
+GRAILED_SCRAPING_ALLOWED=true
+GRAILED_AUTHORIZATION_REFERENCE=<retained-non-secret-reference>
+```
 
-ClosetSearch must retain written permission from Grailed before enabling live scraping.
+The underlying written approval must cover hosts/endpoints, request profile,
+deployment identities/regions, active/sold fields, seller data, attribution,
+caching, retention/deletion, price history, analytics/ML, concurrency/rate
+limits, dates, and revocation contact.
 
-Operational rule:
+Keep `GRAILED_PROVIDER_ENABLED=false` until that record exists. Review
+permission/terms/robots changes continuously and disable immediately if scope is
+uncertain.
 
-- keep `GRAILED_PROVIDER_ENABLED=false` or `GRAILED_SCRAPING_ALLOWED=false` until that written approval is on file for the current deployment and request profile
+## Prohibited behavior
 
-## Compliance Rules
+- authentication/paywall/CAPTCHA/access-control bypass
+- logged-in/private data collection
+- identity/proxy rotation or browser automation to evade blocks
+- increasing request volume beyond written limits
+- treating public JavaScript credentials as an authorization grant
+- returning raw HTML/Algolia payloads to clients
 
-The Grailed adapter must not:
+## Normalized scope
 
-- bypass login walls or paywalls
-- solve CAPTCHA or interact with anti-bot challenges
-- rotate proxies or hide automation
-- spoof user identity
-- use private, internal, or reverse-engineered APIs
-- scrape logged-in-only data
-- collect personal seller data beyond what is explicitly permitted
+Fixture tests cover stable listing identity, validated URLs/images, exact
+price/currency, active/sold state, category/size/condition/type, optional seller
+metadata, timestamps, attribution, analytics exclusion, and page continuation.
 
-The adapter does:
+Default technical guardrails include a 5-second timeout, 3-second minimum
+request interval, concurrency `2`, two retries with a 250 ms base backoff, a
+60-second maximum honored `Retry-After`, a five-failure circuit threshold with
+a 30-second cooldown, and a 24-result normalization cap. One persistent client
+per provider instance keeps pacing/concurrency/circuit state across searches.
+Written limits always override defaults.
 
-- use server-side HTTP requests only inside the provider layer
-- identify itself with a clear ClosetSearch user agent
-- pace requests conservatively
-- fail closed when authorization flags are missing
+Authorized-live construction accepts only the canonical
+`https://www.grailed.com` origin. Script credential discovery is restricted to
+that exact HTTPS origin, Algolia application IDs are validated before hostname
+construction, and redirects are not followed implicitly. A hostile page value
+therefore cannot turn the adapter into an arbitrary/private-host request.
 
-## Data Collected
+## Disable and incident handling
 
-From approved public listing cards, the current parser attempts to collect only:
-
-- title
-- brand
-- price text and currency clues
-- image URL
-- source listing URL
-- source listing id when visible
-- category when visible
-- size when visible
-- condition when visible
-- listing type when visible
-
-No raw HTML is returned to the frontend-facing API response.
-
-## Required Environment Variables
-
-- `GRAILED_PROVIDER_ENABLED`
-- `GRAILED_SCRAPING_ALLOWED`
-- `GRAILED_BASE_URL`
-- `GRAILED_REQUEST_TIMEOUT_MS`
-- `GRAILED_MIN_REQUEST_INTERVAL_MS`
-- `GRAILED_MAX_RESULTS_PER_SEARCH`
-- `GRAILED_USER_AGENT`
-
-## Request Volume and Pacing
-
-Current default guardrails:
-
-- one Grailed request at a time per provider instance
-- minimum `3000ms` between requests
-- `5000ms` request timeout by default
-- up to `24` normalized results per search pass
-
-If Grailed provides stricter written limits, those limits should override the defaults immediately.
-
-## How To Disable Immediately
-
-Use either of these switches:
-
-- set `GRAILED_PROVIDER_ENABLED=false`
-- set `GRAILED_SCRAPING_ALLOWED=false`
-
-Either one disables live scraping and keeps the mock provider path available when runtime fallback allows it.
-
-## Known Limitations
-
-- selector coverage is based on saved fixture HTML and may need refinement against approved fresh samples
-- only a minimal public search path is implemented today
-- provider-native pagination is intentionally lightweight and still belongs to the next milestone
-- no shared caching or retry strategy exists yet beyond conservative pacing and timeout behavior
-
-## Future Milestones
-
-Later work should:
-
-- validate live public-search HTML against approved Grailed samples
-- expand safe pagination handling
-- add light caching and retry/backoff behavior where permitted
-- revisit parser resilience as the public markup evolves
+Set either provider enabled or scraping allowed to false. In production, return
+explicit partial/unavailable state; never fall back to mock. Do not introduce a
+proxy to conceal a provider block.

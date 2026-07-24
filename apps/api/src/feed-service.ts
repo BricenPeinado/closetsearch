@@ -1,7 +1,7 @@
 import type { FeedQuery, FeedResponse, Listing, SearchQuery } from "@closetsearch/shared";
 import { ApiError } from "./api-error.js";
 import { getLikedListingsByUserId } from "./like-service.js";
-import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
+import type { ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
 import { getSavedFiltersByUserId } from "./saved-filter-service.js";
 import { getSavedSearchesByUserId } from "./saved-search-service.js";
@@ -9,22 +9,19 @@ import { getUserById } from "./user-service.js";
 import { getSettingsByUserId } from "./user-settings-service.js";
 import { getWatchlistsByUserId } from "./watchlist-service.js";
 import { logWarn } from "./logger.js";
-import { recordListingImpressions } from "./services/engagementService.js";
+import { resolvePersistenceDriver } from "./db/persistence-driver.js";
+import { getPostgresDataPlane } from "./db/persistence-runtime.js";
 import { rememberListings } from "./services/listingCatalogService.js";
+import { getMlRecommendationRuntime } from "./services/mlRecommendationRuntimeService.js";
 import { buildPersonalizationProfile } from "./services/personalizationSignalsService.js";
+import { listPostgresLikedListings } from "./services/postgresLikedListingService.js";
+import { persistProviderListings } from "./services/providerListingPersistenceService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
-import { rankListings } from "./services/recommendationService.js";
 import { generateRiskSignal } from "./services/riskService.js";
+import { applyDisplayCurrency } from "./services/exchangeRateService.js";
 
 const defaultFeedSort: SearchQuery["sort"] = "newest";
 const defaultFeedPageSize = 12;
-
-function sortListings(listings: Listing[]) {
-  return [...listings].sort(
-    (left, right) =>
-      new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime(),
-  );
-}
 
 function attachRiskSignal(listing: Listing): Listing {
   return {
@@ -34,14 +31,65 @@ function attachRiskSignal(listing: Listing): Listing {
 }
 
 function rememberAnalyticsListings(listings: Listing[]) {
+  if (resolvePersistenceDriver() === "postgres") {
+    return;
+  }
+
   try {
     recordObservedListings(listings);
   } catch (error) {
     logWarn("Analytics snapshot recording failed", {
-      message: error instanceof Error ? error.message : "Unknown analytics snapshot error",
+      errorName: error instanceof Error ? error.name : "UnknownAnalyticsSnapshotError",
       route: "feed",
     });
   }
+}
+
+async function loadPersonalizationInputs(userId: string) {
+  if (resolvePersistenceDriver() !== "postgres") {
+    const user = getUserById(userId);
+
+    return user
+      ? {
+          engagementByListingId: undefined,
+          likedListings: getLikedListingsByUserId(user.id),
+          savedFilters: getSavedFiltersByUserId(user.id),
+          savedSearches: getSavedSearchesByUserId(user.id),
+          settings: getSettingsByUserId(user.id),
+          user,
+          watchlists: getWatchlistsByUserId(user.id),
+        }
+      : undefined;
+  }
+
+  const dataPlane = await getPostgresDataPlane();
+  const user = await dataPlane.requestStore.findUserById(userId);
+
+  if (!user) {
+    return undefined;
+  }
+
+  const engagementSince = new Date();
+  engagementSince.setUTCDate(engagementSince.getUTCDate() - 90);
+  const [engagementByListingId, likedListings, savedFilters, savedSearches, settings, watchlists] =
+    await Promise.all([
+      dataPlane.engagement.getUserListingScores(user.id, engagementSince),
+      listPostgresLikedListings(dataPlane, user.id),
+      dataPlane.requestStore.listSavedFiltersByUserId(user.id),
+      dataPlane.requestStore.listSavedSearchesByUserId(user.id),
+      dataPlane.requestStore.getUserSettings(user.id),
+      dataPlane.requestStore.listWatchlistsByUserId(user.id),
+    ]);
+
+  return {
+    engagementByListingId,
+    likedListings,
+    savedFilters,
+    savedSearches,
+    settings,
+    user,
+    watchlists,
+  };
 }
 
 function shouldThrowProviderUnavailable(
@@ -55,10 +103,7 @@ function shouldThrowProviderUnavailable(
   );
 }
 
-export async function getFeed(
-  query: FeedQuery,
-  runtime: ProviderRuntime = createProviderRuntime(),
-): Promise<FeedResponse> {
+export async function getFeed(query: FeedQuery, runtime: ProviderRuntime): Promise<FeedResponse> {
   const execution = await runProviderSearch(
     {
       text: "",
@@ -75,51 +120,54 @@ export async function getFeed(
     throw new ApiError(502, "feed_unavailable", "The feed could not be loaded right now.");
   }
 
-  const listings = execution.listings.map(attachRiskSignal);
+  const providerListings = execution.listings.map(attachRiskSignal);
 
-  rememberListings(listings);
-  rememberAnalyticsListings(listings);
+  if (resolvePersistenceDriver() !== "postgres") {
+    rememberListings(providerListings);
+  } else {
+    await persistProviderListings(providerListings);
+  }
+  rememberAnalyticsListings(providerListings);
 
-  const user = query.userId ? getUserById(query.userId) : undefined;
+  const personalizationInputs = query.userId
+    ? await loadPersonalizationInputs(query.userId)
+    : undefined;
+  const user = personalizationInputs?.user;
+  const listings = await applyDisplayCurrency(providerListings, user?.currencyPreference);
 
-  if (user === undefined) {
-    const rankedListings = sortListings(listings);
-    recordListingImpressions(rankedListings);
+  if (personalizationInputs === undefined || user === undefined) {
+    const recommendation = getMlRecommendationRuntime().rank({
+      includeDebug: Boolean(query.debugPersonalization),
+      listings,
+      userId: "anonymous",
+    });
 
     return {
-      listings: rankedListings,
-      isPersonalized: false,
+      listings: recommendation.listings,
+      isPersonalized: recommendation.isPersonalized,
       pagination: execution.pagination,
-      personalizationSummary: {
-        isPersonalized: false,
-        message: "Popular finds across resale marketplaces.",
-        signalCount: 0,
-        signalLabels: [],
-      },
+      personalizationSummary: recommendation.personalizationSummary,
       providers: execution.providers,
-      debugPersonalization: query.debugPersonalization
-        ? {
-            scoreBreakdowns: [],
-          }
-        : undefined,
+      debugPersonalization: recommendation.debugPersonalization,
+      recommendation: recommendation.recommendation,
     };
   }
 
   const personalizationProfile = buildPersonalizationProfile({
+    likedListings: personalizationInputs.likedListings,
+    savedFilters: personalizationInputs.savedFilters,
+    savedSearches: personalizationInputs.savedSearches,
+    settings: personalizationInputs.settings,
     user,
-    likedListings: getLikedListingsByUserId(user.id),
-    savedSearches: getSavedSearchesByUserId(user.id),
-    savedFilters: getSavedFiltersByUserId(user.id),
-    watchlists: getWatchlistsByUserId(user.id),
-    settings: getSettingsByUserId(user.id),
+    watchlists: personalizationInputs.watchlists,
   });
-  const recommendation = rankListings({
+  const recommendation = getMlRecommendationRuntime().rank({
+    engagementByListingId: personalizationInputs.engagementByListingId,
     listings,
     profile: personalizationProfile,
     includeDebug: Boolean(query.debugPersonalization),
+    userId: user.id,
   });
-
-  recordListingImpressions(recommendation.listings);
 
   return {
     listings: recommendation.listings,
@@ -128,5 +176,6 @@ export async function getFeed(
     personalizationSummary: recommendation.personalizationSummary,
     providers: execution.providers,
     debugPersonalization: recommendation.debugPersonalization,
+    recommendation: recommendation.recommendation,
   };
 }
