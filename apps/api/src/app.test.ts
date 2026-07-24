@@ -12,7 +12,6 @@ import { resetSavedSearchStore } from "./saved-search-service.js";
 import { resetSavedFilterStore } from "./saved-filter-service.js";
 import { resetUserSettingsStore } from "./user-settings-service.js";
 import { resetWatchlistStore } from "./watchlist-service.js";
-import { resetEngagementStore } from "./services/engagementService.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
 import {
   getObservedPriceSnapshots,
@@ -208,7 +207,6 @@ describe("handleRequest", () => {
     resetSavedFilterStore();
     resetWatchlistStore();
     resetUserSettingsStore();
-    resetEngagementStore();
     resetListingCatalog();
     resetPriceSnapshotStore();
     resetRecentSearchStore();
@@ -241,6 +239,45 @@ describe("handleRequest", () => {
     expect(JSON.parse(snapshot.body)).toMatchObject({
       service: "closetsearch-api",
       status: "ok",
+    });
+  });
+
+  it("validates the durable client-event boundary without counting server responses", async () => {
+    const missingSession = await runRequest(
+      createJsonRequest("POST", "/events", {
+        eventId: "647613b8-5101-4ad4-87c5-c99fd45a3d5c",
+        eventType: "listing_view",
+        listingId: "mock:mock-jacket-001",
+        occurredAt: new Date().toISOString(),
+        viewportDurationMs: 1_000,
+      }),
+    );
+
+    expect(missingSession.statusCode).toBe(400);
+    expect(JSON.parse(missingSession.body)).toMatchObject({
+      error: "invalid_privacy_session",
+    });
+
+    const sqliteCompatibilityMode = await runRequest(
+      createJsonRequest(
+        "POST",
+        "/events",
+        {
+          eventId: "647613b8-5101-4ad4-87c5-c99fd45a3d5c",
+          eventType: "listing_view",
+          listingId: "mock:mock-jacket-001",
+          occurredAt: new Date().toISOString(),
+          viewportDurationMs: 1_000,
+        },
+        {
+          "x-privacy-session-id": "opaque-test-session-123456",
+        },
+      ),
+    );
+
+    expect(sqliteCompatibilityMode.statusCode).toBe(503);
+    expect(JSON.parse(sqliteCompatibilityMode.body)).toMatchObject({
+      error: "durable_events_unavailable",
     });
   });
 

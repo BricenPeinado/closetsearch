@@ -9,7 +9,6 @@ import { getUserById } from "./user-service.js";
 import { getSettingsByUserId } from "./user-settings-service.js";
 import { getWatchlistsByUserId } from "./watchlist-service.js";
 import { logWarn } from "./logger.js";
-import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
 import { buildPersonalizationProfile } from "./services/personalizationSignalsService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
@@ -89,7 +88,6 @@ export async function getFeed(
 
   if (user === undefined) {
     const rankedListings = sortListings(listings);
-    recordListingImpressions(rankedListings);
 
     return {
       listings: rankedListings,
@@ -123,8 +121,6 @@ export async function getFeed(
     profile: personalizationProfile,
     includeDebug: Boolean(query.debugPersonalization),
   });
-
-  recordListingImpressions(recommendation.listings);
 
   return {
     listings: recommendation.listings,

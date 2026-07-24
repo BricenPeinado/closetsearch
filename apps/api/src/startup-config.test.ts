@@ -5,6 +5,7 @@ const validProductionEnvironment = {
   AUTH_ALLOWED_ORIGINS: "https://closetsearch.example",
   AUTH_COOKIE_SECURE: "true",
   AUTH_SESSION_PEPPER: "a".repeat(32),
+  ENGAGEMENT_SESSION_PEPPER: "e".repeat(32),
   NODE_ENV: "production",
   DATABASE_URL: "postgresql://closetsearch:test@database:5432/closetsearch",
   PERSISTENCE_DRIVER: "postgres",
@@ -59,6 +60,15 @@ describe("startup environment validation", () => {
         DATABASE_URL: undefined,
       }),
     ).toThrowError("DATABASE_URL");
+  });
+
+  it("requires a dedicated engagement hashing pepper in production", () => {
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        ENGAGEMENT_SESSION_PEPPER: undefined,
+      }),
+    ).toThrowError("ENGAGEMENT_SESSION_PEPPER");
   });
 
   it("allows SQLite only when explicitly selected outside production", () => {

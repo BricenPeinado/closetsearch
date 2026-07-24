@@ -4,6 +4,7 @@ import {
   type PersistenceDriver,
 } from "./db/persistence-driver.js";
 import { loadPostgresRuntimeConfig } from "./db/postgres/config.js";
+import { getEngagementRuntimeConfig } from "./services/durableEngagementService.js";
 
 export interface StartupConfig {
   host: string;
@@ -46,6 +47,7 @@ export function validateStartupEnvironment(
 ): StartupConfig {
   const authConfig = getAuthConfig(env);
   const persistenceDriver = resolvePersistenceDriver(env);
+  getEngagementRuntimeConfig(env);
 
   if (persistenceDriver === "postgres") {
     loadPostgresRuntimeConfig(env);

@@ -1,10 +1,13 @@
-import { closeDatabaseConnection, getDatabase } from "./db/database.js";
 import { createApp } from "./app.js";
+import {
+  closePersistenceRuntime,
+  getPersistenceRuntime,
+} from "./db/persistence-runtime.js";
 import { logError, logInfo } from "./logger.js";
 import { validateStartupEnvironment } from "./startup-config.js";
 
 const startupConfig = validateStartupEnvironment();
-getDatabase();
+await getPersistenceRuntime();
 
 const server = createApp();
 
@@ -32,14 +35,13 @@ function shutdown(signal: NodeJS.Signals) {
       timeoutMs: startupConfig.shutdownTimeoutMs,
     });
     server.closeAllConnections();
-    closeDatabaseConnection();
+    void closePersistenceRuntime();
     process.exitCode = 1;
   }, startupConfig.shutdownTimeoutMs);
   forceTimer.unref();
 
-  server.close((error) => {
+  server.close(async (error) => {
     clearTimeout(forceTimer);
-    closeDatabaseConnection();
 
     if (error) {
       logError("Graceful shutdown failed", {
@@ -51,6 +53,7 @@ function shutdown(signal: NodeJS.Signals) {
       return;
     }
 
+    await closePersistenceRuntime();
     logInfo("Graceful shutdown completed", { signal });
   });
 }

@@ -8,7 +8,6 @@ import type { ProviderRuntime } from "./providers/registry.js";
 import { createProviderRuntime } from "./providers/registry.js";
 import { loadProviderRuntimeConfig } from "./providers/runtime-config.js";
 import { searchListings } from "./search-service.js";
-import { resetEngagementStore } from "./services/engagementService.js";
 import { resetListingCatalog } from "./services/listingCatalogService.js";
 import { resetLikeStore } from "./like-service.js";
 import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.js";
@@ -31,7 +30,6 @@ describe("feed and search pagination", () => {
   beforeEach(() => {
     databasePath = useIsolatedDatabase("pagination");
     resetProviderSearchCache();
-    resetEngagementStore();
     resetListingCatalog();
     resetLikeStore();
     resetUserStore();

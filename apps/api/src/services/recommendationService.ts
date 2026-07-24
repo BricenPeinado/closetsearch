@@ -5,10 +5,10 @@ import type {
   RecommendationReason,
   RecommendationScoreBreakdown,
 } from "@closetsearch/shared";
-import { getListingImpressionCount } from "./engagementService.js";
 import type { PersonalizationProfile } from "./personalizationSignalsService.js";
 
 interface RecommendationServiceInput {
+  engagementByListingId?: ReadonlyMap<string, number>;
   includeDebug?: boolean;
   listings: Listing[];
   profile?: PersonalizationProfile;
@@ -176,8 +176,11 @@ function getListingQualityScore(listing: Listing) {
   return score - 0.4;
 }
 
-function getEngagementScore(listing: Listing) {
-  return Math.min(getListingImpressionCount(listing.id) * 0.08, 0.45);
+function getEngagementScore(
+  listing: Listing,
+  engagementByListingId?: ReadonlyMap<string, number>,
+) {
+  return Math.min((engagementByListingId?.get(listing.id) ?? 0) * 0.08, 0.45);
 }
 
 function getPriceAffinityScore(listing: Listing, profile: PersonalizationProfile) {
@@ -206,11 +209,18 @@ function getPriceAffinityScore(listing: Listing, profile: PersonalizationProfile
   return Math.min(bestScore, 1.25);
 }
 
-function createGenericBreakdown(listing: Listing, newestTimestamp: number) {
+function createGenericBreakdown(
+  listing: Listing,
+  newestTimestamp: number,
+  engagementByListingId?: ReadonlyMap<string, number>,
+) {
   const reasons: RecommendationReason[] = [];
   const freshnessScore = getFreshnessScore(listing, newestTimestamp);
   const qualityScore = getListingQualityScore(listing);
-  const engagementScore = getEngagementScore(listing);
+  const engagementScore = getEngagementScore(
+    listing,
+    engagementByListingId,
+  );
 
   addReason(
     reasons,
@@ -237,6 +247,7 @@ function createPersonalizedBreakdown(
   listing: Listing,
   newestTimestamp: number,
   profile: PersonalizationProfile,
+  engagementByListingId?: ReadonlyMap<string, number>,
 ) {
   const reasons: RecommendationReason[] = [];
 
@@ -258,7 +269,10 @@ function createPersonalizedBreakdown(
   const priceAffinity = getPriceAffinityScore(listing, profile);
   const freshnessScore = getFreshnessScore(listing, newestTimestamp);
   const qualityScore = getListingQualityScore(listing);
-  const engagementScore = getEngagementScore(listing);
+  const engagementScore = getEngagementScore(
+    listing,
+    engagementByListingId,
+  );
 
   addReason(reasons, "brand_affinity", "Matches your brand preferences", brandAffinity);
   addReason(reasons, "category_affinity", "Matches your category preferences", categoryAffinity);
@@ -513,6 +527,7 @@ function toSummary(profile?: PersonalizationProfile): PersonalizationSummary {
 }
 
 export function rankListings({
+  engagementByListingId,
   includeDebug = false,
   listings,
   profile,
@@ -538,11 +553,20 @@ export function rankListings({
   const newestTimestamp = getNewestTimestamp(uniqueListings);
   const personalizedCandidates = uniqueListings.map((listing) => ({
     listing,
-    breakdown: createPersonalizedBreakdown(listing, newestTimestamp, profile),
+    breakdown: createPersonalizedBreakdown(
+      listing,
+      newestTimestamp,
+      profile,
+      engagementByListingId,
+    ),
   }));
   const explorationCandidates = uniqueListings.map((listing) => ({
     listing,
-    breakdown: createGenericBreakdown(listing, newestTimestamp),
+    breakdown: createGenericBreakdown(
+      listing,
+      newestTimestamp,
+      engagementByListingId,
+    ),
   }));
 
   const personalizedRanked = selectWithDiversity(personalizedCandidates);

@@ -3,6 +3,7 @@ interface MetricLabels {
 }
 
 const counters = new Map<string, number>();
+const gauges = new Map<string, number>();
 
 function escapeLabel(value: string) {
   return value.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll('"', '\\"');
@@ -26,6 +27,18 @@ export function incrementCounter(
   counters.set(key, (counters.get(key) ?? 0) + amount);
 }
 
+export function setGauge(
+  name: string,
+  labels: MetricLabels = {},
+  value: number,
+) {
+  if (!Number.isFinite(value)) {
+    return;
+  }
+
+  gauges.set(metricKey(name, labels), value);
+}
+
 export function renderMetrics() {
   const lines = [
     "# HELP closetsearch_http_requests_total Completed HTTP requests.",
@@ -38,9 +51,23 @@ export function renderMetrics() {
     lines.push(`${key} ${value}`);
   }
 
+  if (gauges.size > 0) {
+    lines.push(
+      "# HELP closetsearch_runtime_gauge Current bounded runtime measurements.",
+      "# TYPE closetsearch_runtime_gauge gauge",
+    );
+
+    for (const [key, value] of Array.from(gauges.entries()).sort(
+      ([left], [right]) => left.localeCompare(right),
+    )) {
+      lines.push(`${key} ${value}`);
+    }
+  }
+
   return `${lines.join("\n")}\n`;
 }
 
 export function resetMetrics() {
   counters.clear();
+  gauges.clear();
 }

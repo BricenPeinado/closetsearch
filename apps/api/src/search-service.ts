@@ -3,7 +3,6 @@ import { ApiError } from "./api-error.js";
 import { logWarn } from "./logger.js";
 import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
-import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { generateRiskSignal } from "./services/riskService.js";
@@ -105,7 +104,6 @@ export async function searchListings(
 
   rememberListings(providerListings);
   rememberAnalyticsListings(providerListings);
-  recordListingImpressions(responseListings);
 
   return {
     query: {

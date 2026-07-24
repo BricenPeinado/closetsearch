@@ -6,8 +6,7 @@ import type {
   UserSettings,
   Watchlist,
 } from "@closetsearch/shared";
-import { beforeEach, describe, expect, it } from "vitest";
-import { resetEngagementStore } from "./engagementService.js";
+import { describe, expect, it } from "vitest";
 import {
   buildPersonalizationProfile,
   type PersonalizationProfile,
@@ -100,10 +99,6 @@ function createProfile(options?: {
 }
 
 describe("rankListings", () => {
-  beforeEach(() => {
-    resetEngagementStore();
-  });
-
   it("boosts listings that match liked brands", () => {
     const likedListing = createListing({
       id: "grailed:liked-kapital",
