@@ -64,6 +64,9 @@ export async function createPostgresTestHarness(memory = newDb()) {
     jobs: {
       supportsSkipLocked: false,
     },
+    listings: {
+      useAdvisoryLocks: false,
+    },
   });
 
   return {

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
 import type { PostgresDatabase } from "../database.js";
 import type {
@@ -35,6 +35,10 @@ interface ObservationRow extends QueryResultRow {
   market_status: ListingObservationInput["marketStatus"];
 }
 
+export interface ListingRepositoryOptions {
+  useAdvisoryLocks?: boolean;
+}
+
 function asBigInt(value: string | number | bigint | null | undefined) {
   if (value === null || value === undefined) {
     return undefined;
@@ -45,6 +49,18 @@ function asBigInt(value: string | number | bigint | null | undefined) {
 
 function normalizedCurrency(currency: string) {
   return currency.trim().toUpperCase();
+}
+
+function listingAdvisoryLockKey(
+  input: Pick<ListingObservationInput, "providerId" | "sourceListingId">,
+) {
+  return createHash("sha256")
+    .update(input.providerId)
+    .update("\0")
+    .update(input.sourceListingId)
+    .digest()
+    .readBigInt64BE(0)
+    .toString();
 }
 
 function sameNullableBigInt(
@@ -411,7 +427,14 @@ async function recordPriceObservation(
 }
 
 export class ListingRepository {
-  constructor(private readonly database: PostgresDatabase) {}
+  private readonly useAdvisoryLocks: boolean;
+
+  constructor(
+    private readonly database: PostgresDatabase,
+    options: ListingRepositoryOptions = {},
+  ) {
+    this.useAdvisoryLocks = options.useAdvisoryLocks ?? true;
+  }
 
   async resolveInternalId(
     providerId: string,
@@ -432,6 +455,13 @@ export class ListingRepository {
     input: ListingObservationInput,
   ): Promise<ListingObservationResult> {
     return this.database.withTransaction(async (client) => {
+      if (this.useAdvisoryLocks) {
+        await client.query(
+          "SELECT pg_advisory_xact_lock($1::bigint)",
+          [listingAdvisoryLockKey(input)],
+        );
+      }
+
       const ingestionEventId = randomUUID();
       const priorEvent = await client.query(
         `SELECT id
