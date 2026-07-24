@@ -43,6 +43,8 @@ import {
 import { fetchJson, sendJson } from "./api-client";
 import { mergeUniqueListings } from "./listing-pagination";
 import { ListingCard } from "./components/listing-card";
+import { InfiniteScrollSentinel } from "./components/infinite-scroll-sentinel";
+import { ScrollPositionRestoration } from "./components/scroll-position-restoration";
 import {
   buildSearchPath,
   clearRecentSearches,
@@ -80,16 +82,29 @@ const sortOptions: Array<{ label: string; value: SearchSortMode }> = [
   { label: "Price high to low", value: "price_desc" },
   { label: "Newest first", value: "newest" },
 ];
-const sourceOptions = [
-  { label: "All marketplaces", value: "" },
-  { label: "Mock Closet", value: "mock" },
-  { label: "Grailed", value: "grailed" },
-];
+const allMarketplaceOption = {
+  label: "All available marketplaces",
+  value: "",
+};
 const listingTypeOptions = [
   { label: "All listing types", value: "" },
   { label: "Fixed price", value: "buy_now" },
   { label: "Auction", value: "auction" },
 ];
+const conditionOptions = [
+  { label: "All conditions", value: "" },
+  { label: "New with tags", value: "new_with_tags" },
+  { label: "New without tags", value: "new_without_tags" },
+  { label: "Excellent", value: "excellent" },
+  { label: "Good", value: "good" },
+  { label: "Fair", value: "fair" },
+];
+const marketStatusOptions = [
+  { label: "Active and sold", value: "" },
+  { label: "Active", value: "active" },
+  { label: "Sold", value: "sold" },
+];
+const currencyOptions = ["", "USD", "EUR", "GBP", "CAD", "AUD", "JPY"];
 interface PageTemplateProps {
   title?: string;
   description?: string;
@@ -106,6 +121,51 @@ interface FeedRequestState {
   personalizationSummary?: PersonalizationSummary;
   providers?: SearchProviderSummary[];
   status: "loading" | "success" | "error";
+}
+
+interface ProviderHealthResponse {
+  providers: Array<{
+    active: boolean;
+    displayName: string;
+    id: string;
+    implementationStatus: string;
+  }>;
+}
+
+function useMarketplaceOptions() {
+  const [marketplaceOptions, setMarketplaceOptions] = useState([
+    allMarketplaceOption,
+  ]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void fetchJson<ProviderHealthResponse>(
+      "/providers/health",
+      controller.signal,
+    )
+      .then((response) => {
+        const availableOptions = response.providers
+          .filter(
+            (provider) =>
+              provider.active && provider.implementationStatus === "available",
+          )
+          .map((provider) => ({
+            label: provider.displayName,
+            value: provider.id,
+          }))
+          .sort((left, right) => left.label.localeCompare(right.label));
+
+        setMarketplaceOptions([allMarketplaceOption, ...availableOptions]);
+      })
+      .catch(() => {
+        // Forms remain usable when provider health metadata is unavailable.
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  return marketplaceOptions;
 }
 
 interface SearchRequestState {
@@ -320,18 +380,40 @@ export function getProviderAvailabilityMessage(
   }
 
   const failedProviders = providers.filter((provider) => provider.status === "failure");
+  const staleProviders = providers.filter(
+    (provider) =>
+      provider.status === "success" &&
+      (provider.freshness === "stale" || provider.cacheStatus === "stale"),
+  );
+  const degradedProviders = providers.filter(
+    (provider) => provider.status === "success" && provider.degraded,
+  );
   const actionLabel =
     surface === "feed" ? "while loading the feed" : "during this search";
 
-  if (failedProviders.length === 0) {
-    return undefined;
+  if (failedProviders.length > 0) {
+    if (failedProviders.length === 1) {
+      const failedProvider = failedProviders[0];
+      const reason =
+        failedProvider?.failure?.code === "rate_limited"
+          ? "was rate limited"
+          : "was unavailable";
+
+      return `Partial results: ${failedProvider?.providerName} ${reason} ${actionLabel}. You can retry without losing successful results.`;
+    }
+
+    return `Partial results: ${failedProviders.length} marketplaces were unavailable ${actionLabel}. Successful marketplace results are still shown.`;
   }
 
-  if (failedProviders.length === 1) {
-    return `Results may be limited right now because ${failedProviders[0]?.providerName} was unavailable ${actionLabel}.`;
+  if (staleProviders.length > 0) {
+    return `Showing cached data from ${staleProviders.map((provider) => provider.providerName).join(", ")} while fresh marketplace data is unavailable.`;
   }
 
-  return `Results may be limited right now because ${failedProviders.length} marketplaces were unavailable ${actionLabel}.`;
+  if (degradedProviders.length > 0) {
+    return `Results are limited by current ${degradedProviders.map((provider) => provider.providerName).join(", ")} capabilities.`;
+  }
+
+  return undefined;
 }
 
 function getSearchEmptyStateMessage(
@@ -441,10 +523,15 @@ export function createWatchlistDraftFromSearch(
 ): WatchlistFormState {
   return {
     ...createEmptyWatchlistForm(currency),
+    brand: values.brand?.trim() ?? "",
+    category: values.category?.trim() ?? "",
+    condition: values.condition ?? "",
     listingType: values.listingType,
     maxPriceAmount: values.maxPrice,
     minPriceAmount: values.minPrice,
+    priceCurrency: values.currency?.trim() || currency,
     queryText: values.query.trim(),
+    size: values.size?.trim() ?? "",
     source: values.source.trim(),
   };
 }
@@ -1038,6 +1125,12 @@ function HomePage({
               title="Could not load more listings"
             />
           ) : null}
+          <InfiniteScrollSentinel
+            hasMore={Boolean(state.pagination?.hasMore)}
+            isLoading={state.isLoadingMore}
+            label="more feed listings"
+            onLoadMore={handleLoadMore}
+          />
           <div className="feed-results__footer">
             {state.pagination?.hasMore ? (
               <button
@@ -1170,10 +1263,12 @@ function NotFoundPage() {
 
 function SearchControlPanel({
   initialValues,
+  marketplaceOptions,
   onSubmit,
   secondaryActions,
 }: {
   initialValues: SearchFormValues;
+  marketplaceOptions: Array<{ label: string; value: string }>;
   onSubmit: (values: SearchFormValues) => void;
   secondaryActions?: ReactNode;
 }) {
@@ -1182,10 +1277,16 @@ function SearchControlPanel({
   useEffect(() => {
     setValues(initialValues);
   }, [
+    initialValues.brand,
+    initialValues.category,
+    initialValues.condition,
+    initialValues.currency,
     initialValues.listingType,
+    initialValues.marketStatus,
     initialValues.maxPrice,
     initialValues.minPrice,
     initialValues.query,
+    initialValues.size,
     initialValues.sort,
     initialValues.source,
   ]);
@@ -1241,7 +1342,7 @@ function SearchControlPanel({
             onChange={(event) => updateValue("source", event.target.value)}
             value={values.source}
           >
-            {sourceOptions.map((option) => (
+            {marketplaceOptions.map((option) => (
               <option key={option.value || "all"} value={option.value}>
                 {option.label}
               </option>
@@ -1266,6 +1367,76 @@ function SearchControlPanel({
           </select>
         </label>
 
+        <label className="field-group" htmlFor="search-page-brand">
+          <span>Brand</span>
+          <input
+            id="search-page-brand"
+            onChange={(event) => updateValue("brand", event.target.value)}
+            placeholder="Rick Owens"
+            value={values.brand ?? ""}
+          />
+        </label>
+
+        <label className="field-group" htmlFor="search-page-category">
+          <span>Category</span>
+          <input
+            id="search-page-category"
+            onChange={(event) => updateValue("category", event.target.value)}
+            placeholder="Jackets"
+            value={values.category ?? ""}
+          />
+        </label>
+
+        <label className="field-group" htmlFor="search-page-size">
+          <span>Size</span>
+          <input
+            id="search-page-size"
+            onChange={(event) => updateValue("size", event.target.value)}
+            placeholder="M, 32, 44"
+            value={values.size ?? ""}
+          />
+        </label>
+
+        <label className="field-group" htmlFor="search-page-condition">
+          <span>Condition</span>
+          <select
+            id="search-page-condition"
+            onChange={(event) =>
+              updateValue(
+                "condition",
+                event.target.value as SearchFormValues["condition"],
+              )
+            }
+            value={values.condition ?? ""}
+          >
+            {conditionOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field-group" htmlFor="search-page-status">
+          <span>Market status</span>
+          <select
+            id="search-page-status"
+            onChange={(event) =>
+              updateValue(
+                "marketStatus",
+                event.target.value as SearchFormValues["marketStatus"],
+              )
+            }
+            value={values.marketStatus ?? ""}
+          >
+            {marketStatusOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="field-group" htmlFor="search-page-sort">
           <span>Sort</span>
           <select
@@ -1276,6 +1447,21 @@ function SearchControlPanel({
             {sortOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field-group" htmlFor="search-page-currency">
+          <span>Comparison currency</span>
+          <select
+            id="search-page-currency"
+            onChange={(event) => updateValue("currency", event.target.value)}
+            value={values.currency ?? ""}
+          >
+            {currencyOptions.map((currency) => (
+              <option key={currency || "original"} value={currency}>
+                {currency || "Original currency"}
               </option>
             ))}
           </select>
@@ -1417,6 +1603,12 @@ function SearchResults({
         />
       ) : null}
 
+      <InfiniteScrollSentinel
+        hasMore={response.pagination.hasMore}
+        isLoading={state.isLoadingMore}
+        label="more search results"
+        onLoadMore={onLoadMore}
+      />
       <div className="feed-results__footer">
         {response.pagination.hasMore ? (
           <button
@@ -1450,6 +1642,7 @@ function SearchRoutePage({
   const hasActiveSearch = hasActiveSearchValues(values);
   const query = values.query;
   const [reloadCount, setReloadCount] = useState(0);
+  const marketplaceOptions = useMarketplaceOptions();
   const [saveFeedback, setSaveFeedback] = useState<string | undefined>();
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | undefined>();
   const [savingAction, setSavingAction] = useState<"search" | "filters" | "watchlist" | null>(null);
@@ -1771,6 +1964,7 @@ function SearchRoutePage({
       <section className="search-layout">
         <SearchControlPanel
           initialValues={values}
+          marketplaceOptions={marketplaceOptions}
           onSubmit={handleSubmit}
           secondaryActions={saveActions}
         />
@@ -2368,6 +2562,7 @@ function ProfileRoutePage({
   onAuthFailure: () => void;
   session: AuthResponse | null;
 }) {
+  const marketplaceOptions = useMarketplaceOptions();
   const navigate = useNavigate();
   const { likes, likedListingIds, likedListings, toggleLike } = useLikes(session, onAuthFailure);
   const [reloadCount, setReloadCount] = useState(0);
@@ -3059,7 +3254,7 @@ function ProfileRoutePage({
                 }
                 value={watchlistForm.source}
               >
-                {sourceOptions.map((option) => (
+                {marketplaceOptions.map((option) => (
                   <option key={option.value || "all"} value={option.value}>
                     {option.label}
                   </option>
@@ -3406,7 +3601,7 @@ function ProfileRoutePage({
             <fieldset className="field-group">
               <span>Preferred sources</span>
               <div className="chip-row">
-                {sourceOptions
+                {marketplaceOptions
                   .filter((option) => option.value)
                   .map((option) => {
                     const checked = settingsForm.preferredSources.includes(option.value);
@@ -4054,6 +4249,7 @@ export function AppLayout() {
 
   return (
     <div className="app-shell">
+      <ScrollPositionRestoration />
       <header className="topbar">
         <Link className="topbar-mark" to="/">
           <div className="mark-badge" aria-hidden="true">

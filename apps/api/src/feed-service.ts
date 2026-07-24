@@ -15,6 +15,7 @@ import { buildPersonalizationProfile } from "./services/personalizationSignalsSe
 import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { rankListings } from "./services/recommendationService.js";
 import { generateRiskSignal } from "./services/riskService.js";
+import { applyDisplayCurrency } from "./services/exchangeRateService.js";
 
 const defaultFeedSort: SearchQuery["sort"] = "newest";
 const defaultFeedPageSize = 12;
@@ -75,12 +76,16 @@ export async function getFeed(
     throw new ApiError(502, "feed_unavailable", "The feed could not be loaded right now.");
   }
 
-  const listings = execution.listings.map(attachRiskSignal);
+  const providerListings = execution.listings.map(attachRiskSignal);
 
-  rememberListings(listings);
-  rememberAnalyticsListings(listings);
+  rememberListings(providerListings);
+  rememberAnalyticsListings(providerListings);
 
   const user = query.userId ? getUserById(query.userId) : undefined;
+  const listings = await applyDisplayCurrency(
+    providerListings,
+    user?.currencyPreference,
+  );
 
   if (user === undefined) {
     const rankedListings = sortListings(listings);

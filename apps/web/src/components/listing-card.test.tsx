@@ -44,13 +44,55 @@ const listing: Listing = {
 };
 
 describe("ListingCard", () => {
-  it("renders the subtle risk estimate and disclaimer when risk info exists", () => {
+  it("hides placeholder risk output unless the experimental flag is enabled", () => {
     const html = renderToString(<ListingCard listing={listing} />);
 
-    expect(html).toContain("Medium review signal");
-    expect(html).toContain("Listing signal estimate");
-    expect(html).toContain(
-      "This is an estimate based on limited listing signals. It is not an authenticity guarantee.",
+    expect(html).not.toContain("review signal");
+    expect(html).not.toContain("authenticity guarantee");
+  });
+
+  it("renders normalized status, seller, marketplace action, and converted price", () => {
+    const html = renderToString(
+      <ListingCard
+        listing={{
+          ...listing,
+          lifecycle: {
+            observedAt: listing.fetchedAt,
+            status: "active",
+          },
+          pricing: {
+            original: {
+              amount: 180,
+              amountMinor: 18_000,
+              currency: "USD",
+              fractionDigits: 2,
+            },
+            display: {
+              amount: 165,
+              amountMinor: 16_500,
+              currency: "EUR",
+              exchangeRate: "0.91666667",
+              exchangeRateSource: "fixture",
+              exchangeRateTimestamp: listing.fetchedAt,
+              fractionDigits: 2,
+              sourceAmountMinor: 18_000,
+              sourceCurrency: "USD",
+            },
+          },
+          seller: {
+            displayName: "Archive Seller",
+          },
+        }}
+      />,
     );
+
+    expect(html).toContain("€165.00");
+    expect(html).toContain("Originally");
+    expect(html).toContain("$180.00");
+    expect(html).toContain("Seller:");
+    expect(html).toContain("Archive Seller");
+    expect(html).toContain("View on");
+    expect(html).toContain("Mock Closet");
+    expect(html).toContain(">active<");
   });
 });

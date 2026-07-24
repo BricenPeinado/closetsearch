@@ -196,6 +196,18 @@ function parseListingTypes(value: string | null): ListingType[] | undefined {
   return listingTypes && listingTypes.length > 0 ? listingTypes : undefined;
 }
 
+function parseListingConditions(
+  value: string | null,
+): ListingCondition[] | undefined {
+  const conditions = parseListParameter(value)
+    ?.map((item) => toOptionalListingCondition(item))
+    .filter(
+      (condition): condition is ListingCondition => condition !== undefined,
+    );
+
+  return conditions && conditions.length > 0 ? conditions : undefined;
+}
+
 function parsePositiveInteger(value: string | null, fallback: number) {
   if (!value) {
     return fallback;
@@ -226,6 +238,8 @@ function hasSearchCriteria(requestUrl: URL) {
     (searchParams.get("brands")?.trim().length ?? 0) > 0 ||
     (searchParams.get("categories")?.trim().length ?? 0) > 0 ||
     (searchParams.get("sizes")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("conditions")?.trim().length ?? 0) > 0 ||
+    (searchParams.get("currency")?.trim().length ?? 0) > 0 ||
     parseSearchSortMode(searchParams.get("sort")) !== "relevance"
   );
 }
@@ -249,6 +263,9 @@ function parseSearchQuery(requestUrl: URL): SearchQuery | null {
     brandSlugs: parseListParameter(requestUrl.searchParams.get("brands")),
     categories: parseListParameter(requestUrl.searchParams.get("categories")),
     sizes: parseListParameter(requestUrl.searchParams.get("sizes")),
+    conditions: parseListingConditions(
+      requestUrl.searchParams.get("conditions"),
+    ),
     sourceIds:
       parseListParameter(requestUrl.searchParams.get("source")) ??
       parseListParameter(requestUrl.searchParams.get("sources")),

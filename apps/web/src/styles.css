@@ -503,6 +503,28 @@ a {
   color: #fbfaf8;
 }
 
+.listing-card__status {
+  position: absolute;
+  bottom: 0.65rem;
+  left: 0.65rem;
+  padding: 0.3rem 0.52rem;
+  border-radius: 999px;
+  background: rgba(251, 250, 248, 0.9);
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.listing-card__status--sold,
+.listing-card__status--removed,
+.listing-card__status--unavailable,
+.listing-card__status--stale {
+  background: rgba(52, 47, 43, 0.82);
+  color: #fbfaf8;
+}
+
 .listing-card__body {
   display: grid;
   gap: 0.28rem;
@@ -548,9 +570,47 @@ a {
   min-height: 2.2rem;
 }
 
+.listing-card__seller {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+.listing-card__prices {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.listing-card__prices span,
+.listing-card__marketplace-action {
+  color: var(--text-soft);
+  font-size: 0.74rem;
+}
+
 .listing-card__footer strong {
   font-size: 1.1rem;
   letter-spacing: -0.04em;
+}
+
+.listing-card__marketplace-action {
+  max-width: 46%;
+  text-align: right;
+}
+
+.infinite-scroll-sentinel {
+  min-height: 1px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .heart-button {

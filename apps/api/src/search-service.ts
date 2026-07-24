@@ -7,23 +7,54 @@ import { recordListingImpressions } from "./services/engagementService.js";
 import { rememberListings } from "./services/listingCatalogService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { generateRiskSignal } from "./services/riskService.js";
+import { applyDisplayCurrency } from "./services/exchangeRateService.js";
 
-function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
+function getComparisonMoney(listing: Listing) {
+  return (
+    listing.pricing?.display ??
+    listing.pricing?.comparison ??
+    listing.pricing?.original ??
+    listing.price
+  );
+}
+
+export function sortListingsForSearch(
+  listings: Listing[],
+  sort: SearchQuery["sort"],
+) {
   const sorted = [...listings];
+  const comparisonCurrencies = new Set(
+    sorted.map((listing) => getComparisonMoney(listing).currency.toUpperCase()),
+  );
+  const canComparePrices = comparisonCurrencies.size <= 1;
 
   switch (sort) {
     case "price_asc":
-      sorted.sort((left, right) => left.price.amount - right.price.amount);
+      if (canComparePrices) {
+        sorted.sort(
+          (left, right) =>
+            getComparisonMoney(left).amount - getComparisonMoney(right).amount ||
+            left.id.localeCompare(right.id),
+        );
+      }
       break;
     case "price_desc":
-      sorted.sort((left, right) => right.price.amount - left.price.amount);
+      if (canComparePrices) {
+        sorted.sort(
+          (left, right) =>
+            getComparisonMoney(right).amount - getComparisonMoney(left).amount ||
+            left.id.localeCompare(right.id),
+        );
+      }
       break;
     case "newest":
     case "relevance":
     default:
       sorted.sort(
         (left, right) =>
-          new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime(),
+          new Date(right.fetchedAt).getTime() -
+            new Date(left.fetchedAt).getTime() ||
+          left.id.localeCompare(right.id),
       );
       break;
   }
@@ -66,10 +97,14 @@ export async function searchListings(
     throw new ApiError(502, "search_unavailable", "The search request could not be completed right now.");
   }
 
-  const responseListings = sortListings(execution.listings.map(attachRiskSignal), query.sort);
+  const providerListings = execution.listings.map(attachRiskSignal);
+  const responseListings = sortListingsForSearch(
+    await applyDisplayCurrency(providerListings, query.currency),
+    query.sort,
+  );
 
-  rememberListings(responseListings);
-  rememberAnalyticsListings(responseListings);
+  rememberListings(providerListings);
+  rememberAnalyticsListings(providerListings);
   recordListingImpressions(responseListings);
 
   return {

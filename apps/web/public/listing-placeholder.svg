@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-labelledby="title description">
+  <title id="title">Listing image unavailable</title>
+  <desc id="description">A neutral clothing hanger placeholder.</desc>
+  <rect width="800" height="1000" fill="#ece7df"/>
+  <path d="M330 365c0-48 32-85 78-85 43 0 76 30 76 70 0 31-16 50-48 70l-17 11v29" fill="none" stroke="#8a8178" stroke-width="24" stroke-linecap="round"/>
+  <path d="m404 459-222 183c-25 21-10 62 23 62h398c33 0 48-41 23-62L404 459Z" fill="none" stroke="#8a8178" stroke-width="24" stroke-linejoin="round"/>
+  <text x="400" y="790" text-anchor="middle" fill="#5f5852" font-family="system-ui, sans-serif" font-size="34">Image unavailable</text>
+</svg>

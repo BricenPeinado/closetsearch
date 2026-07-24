@@ -1,13 +1,20 @@
 import { useState } from "react";
-import { RISK_LEVEL_LABELS, RISK_SIGNAL_LABEL } from "@closetsearch/shared";
-import type { Listing } from "@closetsearch/shared";
+import type { Listing, Money } from "@closetsearch/shared";
 
-function formatPrice(listing: Listing) {
+const fallbackImageUrl = "/listing-placeholder.svg";
+
+function formatMoney(money: Money) {
+  const amount =
+    typeof money.amountMinor === "number" &&
+    Number.isInteger(money.amountMinor)
+      ? money.amountMinor / 10 ** (money.fractionDigits ?? 2)
+      : money.amount;
+
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: listing.price.currency,
-    maximumFractionDigits: 0,
-  }).format(listing.price.amount);
+    currency: money.currency,
+    maximumFractionDigits: money.fractionDigits ?? 2,
+  }).format(amount);
 }
 
 function formatListingType(listing: Listing) {
@@ -37,8 +44,26 @@ export function ListingCard({
     .filter(Boolean)
     .join(" • ");
   const [isSubmittingLike, setIsSubmittingLike] = useState(false);
-  const riskSignal = listing.riskSignal;
+  const [imageSource, setImageSource] = useState(
+    listing.imageUrl || fallbackImageUrl,
+  );
+  const riskSignal =
+    import.meta.env.VITE_EXPERIMENTAL_METADATA_SIGNALS === "true"
+      ? listing.riskSignal
+      : undefined;
   const hasListingTypeBadge = listing.listingType !== "unknown";
+  const originalPrice = listing.pricing?.original ?? listing.price;
+  const displayPrice = listing.pricing?.display;
+  const convertedPrice =
+    displayPrice &&
+    (displayPrice.currency !== originalPrice.currency ||
+      displayPrice.amountMinor !== originalPrice.amountMinor);
+  const status =
+    listing.lifecycle?.status ?? listing.market?.status ?? "unknown";
+  const marketplaceName = listing.source.name || "Unknown marketplace";
+  const brandName = listing.brand.name.trim() || "Unknown brand";
+  const sellerName = listing.seller?.displayName ?? listing.seller?.username;
+  const isMock = listing.source.isMock || listing.source.dataOrigin === "mock";
 
   async function handleToggleLike() {
     if (!onToggleLike || isSubmittingLike) {
@@ -84,30 +109,50 @@ export function ListingCard({
           <img
             alt={listing.title}
             className="listing-card__image"
+            decoding="async"
             loading="lazy"
-            src={listing.imageUrl}
+            onError={() => setImageSource(fallbackImageUrl)}
+            src={imageSource}
           />
+          {status !== "unknown" ? (
+            <span className={`listing-card__status listing-card__status--${status}`}>
+              {status}
+            </span>
+          ) : null}
         </div>
         <div className="listing-card__body">
           <div className="listing-card__topline">
-            <p>{listing.brand.name}</p>
-            <span>{listing.source.name}</span>
+            <p>{brandName}</p>
+            <span>{isMock ? "Mock fixture" : marketplaceName}</span>
           </div>
           <h2>{listing.title}</h2>
           <p className="listing-card__meta">{metadata || "Curated resale listing"}</p>
+          {sellerName ? (
+            <p className="listing-card__seller">Seller: {sellerName}</p>
+          ) : null}
           <div className="listing-card__footer">
-            <strong>{formatPrice(listing)}</strong>
-            <span>{listing.source.name}</span>
+            <div className="listing-card__prices">
+              <strong>{formatMoney(displayPrice ?? originalPrice)}</strong>
+              {convertedPrice ? (
+                <span>Originally {formatMoney(originalPrice)}</span>
+              ) : null}
+              {listing.pricing?.shipping ? (
+                <span>Shipping {formatMoney(listing.pricing.shipping)}</span>
+              ) : null}
+            </div>
+            <span className="listing-card__marketplace-action">
+              View on {marketplaceName} <span aria-hidden="true">↗</span>
+            </span>
           </div>
         </div>
       </a>
       {riskSignal ? (
         <details className="listing-risk">
           <summary className="listing-risk__summary">
-            <span className={`listing-risk__badge listing-risk__badge--${riskSignal.riskLevel}`}>
-              {RISK_LEVEL_LABELS[riskSignal.riskLevel]}
+            <span className="listing-risk__badge">
+              Experimental metadata quality
             </span>
-            <span className="listing-risk__hint">{RISK_SIGNAL_LABEL}</span>
+            <span className="listing-risk__hint">Not authenticity analysis</span>
           </summary>
           <div className="listing-risk__panel">
             <p>{riskSignal.explanation}</p>
