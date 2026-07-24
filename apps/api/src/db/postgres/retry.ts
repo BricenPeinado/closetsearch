@@ -1,11 +1,4 @@
-const retryableSqlStates = new Set([
-  "40001",
-  "40P01",
-  "53300",
-  "57P01",
-  "57P02",
-  "57P03",
-]);
+const retryableSqlStates = new Set(["40001", "40P01", "53300", "57P01", "57P02", "57P03"]);
 
 export function postgresErrorCode(error: unknown) {
   if (
@@ -22,11 +15,7 @@ export function postgresErrorCode(error: unknown) {
 export function isTransientPostgresError(error: unknown) {
   const code = postgresErrorCode(error);
 
-  return Boolean(
-    code &&
-      (retryableSqlStates.has(code) ||
-        code.startsWith("08")),
-  );
+  return Boolean(code && (retryableSqlStates.has(code) || code.startsWith("08")));
 }
 
 export interface RetryOptions {
@@ -70,22 +59,13 @@ export async function withTransientPostgresRetry<T>(
     try {
       return await operation();
     } catch (error) {
-      if (
-        attempt >= options.attempts ||
-        !isTransientPostgresError(error)
-      ) {
+      if (attempt >= options.attempts || !isTransientPostgresError(error)) {
         throw error;
       }
 
       attempt += 1;
-      const exponentialDelay = Math.min(
-        maxDelayMs,
-        baseDelayMs * 2 ** (attempt - 1),
-      );
-      const delayMs = Math.max(
-        0,
-        Math.round(exponentialDelay * (0.75 + random() * 0.5)),
-      );
+      const exponentialDelay = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+      const delayMs = Math.max(0, Math.round(exponentialDelay * (0.75 + random() * 0.5)));
       options.onRetry?.(error, attempt, delayMs);
       await wait(delayMs, options.signal);
     }

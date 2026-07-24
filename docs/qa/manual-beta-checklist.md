@@ -1,104 +1,91 @@
-# Manual Beta Checklist
+# Manual Product and Staging Checklist
 
-Use this checklist before inviting or expanding constrained beta testers.
+Record environment, commit/image digests, PostgreSQL schema version, provider
+IDs/authorization reference, model mode/version, and whether fixture data is
+present. Public staging must contain no fixtures.
 
-## 1. App Load
+## Health and persistence
 
-- Web app loads without a blank screen.
-- `GET /health` returns `200`.
-- Navigation works across Home, Search, Brands, Analytics, Profile, and Beta Information.
+- [ ] web, `/health/live`, `/health/ready`, `/metrics`,
+      `/operations/status`, `/providers/health`
+- [ ] readiness reports PostgreSQL, no pending/drifted migration, real provider
+- [ ] restart API and verify sessions/saved state persist
+- [ ] restart worker and verify lease/checkpoint resume without duplicate prices
+- [ ] confirm schema migrations `001` through `006`
 
-## 2. Feed
+## Feed/search/listings
 
-- Signed-out feed loads.
-- Signed-in feed loads.
-- Load more works.
-- Feed empty state renders safely.
-- Feed error state renders safely and offers retry.
+- [ ] signed-out and signed-in feed
+- [ ] true infinite scroll and accessible Load More
+- [ ] no duplicate cards across multiple pages/back navigation
+- [ ] URL query/filter/sort/currency survives refresh/share
+- [ ] brand/category/size/condition/source/type/status/price/currency controls
+- [ ] image aspect reservation, lazy load, local failure fallback
+- [ ] original/display price is truthful; no relabeled unconverted amount
+- [ ] status/freshness/seller/shipping/marketplace action only when supported
+- [ ] partial provider, stale cache, all-provider failure, offline, empty, retry
+- [ ] no production mock provider/listing
 
-## 3. Search
+## Accessibility/mobile
 
-- Keyword search works.
-- Source filter works.
-- Listing type filter works.
-- Price filters work.
-- Sorting works.
-- Empty search results render safely.
-- Search error state renders safely and offers retry.
-- Provider failure fallback does not crash the page.
+- [ ] keyboard reaches navigation, filters, cards, likes, Load More, dialogs
+- [ ] visible focus and useful accessible names/state
+- [ ] axe-core A/AA scan passes and contrast is manually reviewed
+- [ ] major pages at narrow and wide viewports
+- [ ] reduced-motion/zoom behavior remains usable
 
-## 4. Brands
+## Auth and account
 
-- Brand directory loads.
-- Brand search/filter works.
-- Brand detail page loads.
-- Brand-to-search handoff works.
+- [ ] signup policy, login, logout, logout-all
+- [ ] expired/revoked session recovers cleanly
+- [ ] cross-origin cookie mutation rejected
+- [ ] email save and verification request
+- [ ] generic password-reset request does not enumerate accounts
+- [ ] one-time verify/reset/export links reject reuse/expiry
+- [ ] password reset revokes all sessions
+- [ ] JSON export excludes credential/token/IP hashes
+- [ ] exact-username deletion removes owned state and clears cookie
+- [ ] disabled email provider copy does not imply delivery
 
-## 5. Auth
+## Saved state and alerts
 
-- Signup works.
-- Login works.
-- Logout works.
-- Expired or cleared session falls back to signed-out state.
-- Protected routes reject signed-out users cleanly.
+- [ ] like/unlike, searches, filters, watchlists, settings survive refresh
+- [ ] watchlist edit/pause/resume/delete
+- [ ] new/changed ingested listing creates one match
+- [ ] inbox unseen/seen/dismissed state
+- [ ] frequency/quiet-hour scheduling
+- [ ] email/push/SMS enable attempts remain unavailable
+- [ ] outbound delivery is not claimed
 
-## 6. Saved User Features
+## Engagement and recommendations
 
-- Likes persist after refresh.
-- Saved searches persist.
-- Saved filters persist.
-- Profile loads saved data without crashing.
-- Preferred currency and settings save.
+- [ ] no view event before 50% visibility for one second
+- [ ] one qualified view per event/card rule
+- [ ] open/like/unlike/search/filter/save/watchlist/recommendation events
+- [ ] duplicate event IDs accepted idempotently
+- [ ] spoofed user/direct identifier/secret properties rejected
+- [ ] disabled/shadow/failure/timeout recommendation returns rules
+- [ ] response metadata contains version/reason but no sensitive feature values
 
-## 7. Personalization
+## Entitlements and analytics
 
-- Signed-in feed shows a personalization state or guidance.
-- Liking items or setting preferences changes ranking enough to notice.
-- A cold-start signed-in user still gets a usable feed.
+- [ ] free, active, expired, revoked entitlement behavior
+- [ ] username cannot grant premium
+- [ ] development grant disabled in production
+- [ ] asking/sold basis is explicit
+- [ ] comparable count, freshness, currency, source coverage, disclaimers
+- [ ] limited/currency-mismatch states
+- [ ] no prediction/profit/investment/authenticity wording
 
-## 8. Analytics
+## Provider/operations
 
-- Analytics page loads.
-- Limited-data or locked state renders safely when applicable.
-- Observed ranges show when data exists.
-- Disclaimers appear.
-- Copy does not claim predictions, profits, or guaranteed underpriced signals.
-
-## 9. Watchlists
-
-- Create a watched brand.
-- Create a watched search.
-- Create a watched price range.
-- Edit a watchlist.
-- Pause and resume a watchlist.
-- Delete a watchlist.
-- Save notification preference shell data.
-- UI still says delivery is not active.
-
-## 10. Mobile and Responsive
-
-- Home, Search, Brands, Analytics, and Profile remain usable at mobile width.
-- Listing cards stay readable.
-- Search and profile forms remain usable.
-- Bottom navigation stays functional.
-
-## 11. Accessibility Basics
-
-- Buttons have readable labels.
-- Form fields have labels.
-- Keyboard navigation works for major flows.
-- Color contrast is acceptable enough for beta review.
-
-## 12. Error and Edge Cases
-
-- API offline state shows a safe error.
-- Provider unavailable state degrades safely.
-- Invalid form input shows structured errors.
-- Expired session does not leave the UI stuck.
-- Empty search results do not look broken.
-
-## Sign-Off
-
-- Record the environment used.
-- Record whether seed/demo data was enabled.
-- Record blockers separately from non-blocking polish items.
+- [ ] intended authorized provider is active; blocked list understood
+- [ ] rate limit honors `Retry-After`; circuit/partial banner appears
+- [ ] worker checkpoint/health/last-success advances
+- [ ] operations status degrades or returns its stable unavailable response when
+      durable state cannot be read; no payload/cursor/raw error is exposed
+- [ ] HTTP metric routes have bounded labels with query strings and IDs removed
+- [ ] stale job/provider/checkpoint gauge series clear after state changes
+- [ ] fresh encrypted backup and isolated restore evidence
+- [ ] canary and rollback to previous immutable images rehearsed
+- [ ] logs/metrics contain no secrets or raw sensitive data

@@ -435,11 +435,7 @@ export class AlertRepository {
                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
              )
              ON CONFLICT (idempotency_key) DO NOTHING`,
-            [
-              randomUUID(),
-              storedMatch.id,
-              `in_app:${candidate.watchlist_id}:${listingId}`,
-            ],
+            [randomUUID(), storedMatch.id, `in_app:${candidate.watchlist_id}:${listingId}`],
           );
         }
 

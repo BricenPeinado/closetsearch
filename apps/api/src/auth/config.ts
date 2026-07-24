@@ -1,7 +1,4 @@
-const defaultAllowedOrigins = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-];
+const defaultAllowedOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
 
 function parseBoolean(value: string | undefined, fallback: boolean) {
   if (value === undefined) {
@@ -54,14 +51,9 @@ export interface AuthConfig {
   tokenPepper: string;
 }
 
-export function getAuthConfig(
-  env: Record<string, string | undefined> = process.env,
-): AuthConfig {
+export function getAuthConfig(env: Record<string, string | undefined> = process.env): AuthConfig {
   const sessionTtlDays = parsePositiveInteger(env.AUTH_SESSION_TTL_DAYS, 14);
-  const cookieSecure = parseBoolean(
-    env.AUTH_COOKIE_SECURE,
-    env.NODE_ENV === "production",
-  );
+  const cookieSecure = parseBoolean(env.AUTH_COOKIE_SECURE, env.NODE_ENV === "production");
 
   return {
     allowedOrigins: new Set(parseAllowedOrigins(env.AUTH_ALLOWED_ORIGINS)),
@@ -70,9 +62,6 @@ export function getAuthConfig(
     sessionTtlDays,
     sessionTtlMs: sessionTtlDays * 24 * 60 * 60 * 1_000,
     sessionTtlSeconds: sessionTtlDays * 24 * 60 * 60,
-    tokenPepper:
-      env.AUTH_SESSION_PEPPER?.trim() ??
-      env.AUTH_TOKEN_PEPPER?.trim() ??
-      "",
+    tokenPepper: env.AUTH_SESSION_PEPPER?.trim() ?? env.AUTH_TOKEN_PEPPER?.trim() ?? "",
   };
 }

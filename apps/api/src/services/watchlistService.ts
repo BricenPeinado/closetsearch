@@ -117,14 +117,14 @@ function buildWatchSubject(input: NormalizedWatchlistInput) {
 function hasMeaningfulCriteria(input: NormalizedWatchlistInput) {
   return Boolean(
     input.queryText ||
-      input.brand ||
-      input.category ||
-      input.source ||
-      input.listingType ||
-      input.minPriceAmount !== undefined ||
-      input.maxPriceAmount !== undefined ||
-      input.size ||
-      input.condition,
+    input.brand ||
+    input.category ||
+    input.source ||
+    input.listingType ||
+    input.minPriceAmount !== undefined ||
+    input.maxPriceAmount !== undefined ||
+    input.size ||
+    input.condition,
   );
 }
 
@@ -184,19 +184,11 @@ function validateWatchlistInput(input: NormalizedWatchlistInput) {
     input.maxPriceAmount !== undefined &&
     input.maxPriceAmount < input.minPriceAmount
   ) {
-    throw new ApiError(
-      400,
-      "invalid_request",
-      "Max price cannot be lower than min price.",
-    );
+    throw new ApiError(400, "invalid_request", "Max price cannot be lower than min price.");
   }
 
   if (input.priceCurrency && input.priceCurrency.length !== 3) {
-    throw new ApiError(
-      400,
-      "invalid_request",
-      "priceCurrency must be a 3-letter currency code.",
-    );
+    throw new ApiError(400, "invalid_request", "priceCurrency must be a 3-letter currency code.");
   }
 }
 

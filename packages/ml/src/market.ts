@@ -11,10 +11,7 @@ import {
   totalVariationDistance,
   toTimestamp,
 } from "./deterministic.js";
-import {
-  FAIR_VALUE_MODEL_VERSION,
-  MARKET_FEATURE_SCHEMA_VERSION,
-} from "./schema.js";
+import { FAIR_VALUE_MODEL_VERSION, MARKET_FEATURE_SCHEMA_VERSION } from "./schema.js";
 import { assertTemporalIsolation, createTemporalSplit } from "./temporal.js";
 import type {
   ComparableListing,
@@ -114,7 +111,9 @@ export function prepareMarketObservations(snapshot: MarketSnapshot) {
 
 export function getEligibleSoldObservations(observations: MarketObservation[]) {
   return observations.filter(
-    (observation): observation is MarketObservation & {
+    (
+      observation,
+    ): observation is MarketObservation & {
       soldAt: string;
       soldPriceMinor: number;
     } =>
@@ -136,9 +135,7 @@ function robustStatistics(values: number[]): RobustSegmentStatistics {
   }
 
   const center = median(values);
-  const medianAbsoluteDeviation = median(
-    values.map((value) => Math.abs(value - center)),
-  );
+  const medianAbsoluteDeviation = median(values.map((value) => Math.abs(value - center)));
   const interquartileRange = quantile(values, 0.75) - quantile(values, 0.25);
   const robustScale =
     medianAbsoluteDeviation > 0
@@ -184,10 +181,7 @@ export function fitRobustOutlierPolicy(
   };
 }
 
-export function isRobustPriceOutlier(
-  observation: MarketObservation,
-  policy: RobustOutlierPolicy,
-) {
+export function isRobustPriceOutlier(observation: MarketObservation, policy: RobustOutlierPolicy) {
   if (observation.status !== "sold" || observation.soldPriceMinor === undefined) {
     return false;
   }
@@ -205,12 +199,8 @@ export function filterRobustPriceOutliers<T extends MarketObservation>(
   policy: RobustOutlierPolicy,
 ) {
   return {
-    excluded: observations.filter((observation) =>
-      isRobustPriceOutlier(observation, policy),
-    ),
-    included: observations.filter(
-      (observation) => !isRobustPriceOutlier(observation, policy),
-    ),
+    excluded: observations.filter((observation) => isRobustPriceOutlier(observation, policy)),
+    included: observations.filter((observation) => !isRobustPriceOutlier(observation, policy)),
   };
 }
 
@@ -298,10 +288,7 @@ function solveLinearSystem(matrix: number[][], vector: number[]) {
     let pivotRow = column;
 
     for (let row = column + 1; row < size; row += 1) {
-      if (
-        Math.abs(augmented[row]?.[column] ?? 0) >
-        Math.abs(augmented[pivotRow]?.[column] ?? 0)
-      ) {
+      if (Math.abs(augmented[row]?.[column] ?? 0) > Math.abs(augmented[pivotRow]?.[column] ?? 0)) {
         pivotRow = row;
       }
     }
@@ -335,8 +322,7 @@ function solveLinearSystem(matrix: number[][], vector: number[]) {
 
       for (let index = column; index <= size; index += 1) {
         augmented[row]![index] =
-          (augmented[row]?.[index] ?? 0) -
-          factor * (augmented[column]?.[index] ?? 0);
+          (augmented[row]?.[index] ?? 0) - factor * (augmented[column]?.[index] ?? 0);
       }
     }
   }
@@ -350,9 +336,7 @@ function fitRidgeRegression(
   ridgeLambda: number,
 ) {
   const dimension = featureNames.length;
-  const gram = Array.from({ length: dimension }, () =>
-    Array.from({ length: dimension }, () => 0),
-  );
+  const gram = Array.from({ length: dimension }, () => Array.from({ length: dimension }, () => 0));
   const targetProjection = Array.from({ length: dimension }, () => 0);
 
   for (const row of rows) {
@@ -360,21 +344,18 @@ function fitRidgeRegression(
     const target = Math.log1p(soldTargetMinor(row));
 
     for (let left = 0; left < dimension; left += 1) {
-      targetProjection[left] =
-        (targetProjection[left] ?? 0) + (vector[left] ?? 0) * target;
+      targetProjection[left] = (targetProjection[left] ?? 0) + (vector[left] ?? 0) * target;
 
       for (let right = 0; right < dimension; right += 1) {
         gram[left]![right] =
-          (gram[left]?.[right] ?? 0) +
-          (vector[left] ?? 0) * (vector[right] ?? 0);
+          (gram[left]?.[right] ?? 0) + (vector[left] ?? 0) * (vector[right] ?? 0);
       }
     }
   }
 
   for (let index = 0; index < dimension; index += 1) {
     gram[index]![index] =
-      (gram[index]?.[index] ?? 0) +
-      (featureNames[index] === "__intercept" ? 1e-8 : ridgeLambda);
+      (gram[index]?.[index] ?? 0) + (featureNames[index] === "__intercept" ? 1e-8 : ridgeLambda);
   }
 
   return solveLinearSystem(gram, targetProjection);
@@ -477,20 +458,12 @@ export function trainFairValueModel(input: TrainFairValueInput): FairValueArtifa
   }
 
   const featureNames = buildFeatureNames(trainRows);
-  const coefficients = fitRidgeRegression(
-    trainRows,
-    featureNames,
-    config.ridgeLambda,
-  );
+  const coefficients = fitRidgeRegression(trainRows, featureNames, config.ridgeLambda);
   const residuals = validationRows.map((row) =>
-    Math.abs(
-      soldTargetMinor(row) - rawPointPrediction(row, featureNames, coefficients),
-    ),
+    Math.abs(soldTargetMinor(row) - rawPointPrediction(row, featureNames, coefficients)),
   );
   const fallbackTrainingResiduals = trainRows.map((row) =>
-    Math.abs(
-      soldTargetMinor(row) - rawPointPrediction(row, featureNames, coefficients),
-    ),
+    Math.abs(soldTargetMinor(row) - rawPointPrediction(row, featureNames, coefficients)),
   );
   const globalIntervalHalfWidthMinor = Math.max(
     100,
@@ -531,8 +504,7 @@ export function trainFairValueModel(input: TrainFairValueInput): FairValueArtifa
   );
   const covered = validationRows.filter((row) => {
     const point = rawPointPrediction(row, featureNames, coefficients);
-    const halfWidth =
-      segmentIntervalHalfWidths[segmentKey(row)] ?? globalIntervalHalfWidthMinor;
+    const halfWidth = segmentIntervalHalfWidths[segmentKey(row)] ?? globalIntervalHalfWidthMinor;
     const target = soldTargetMinor(row);
     return target >= point - halfWidth && target <= point + halfWidth;
   }).length;
@@ -565,9 +537,7 @@ export function trainFairValueModel(input: TrainFairValueInput): FairValueArtifa
     featureNames,
     globalIntervalHalfWidthMinor,
     metadata: {
-      artifactId: `fair-value-${FAIR_VALUE_MODEL_VERSION.replaceAll("/", "-")}-${
-        dataFingerprint
-      }`,
+      artifactId: `fair-value-${FAIR_VALUE_MODEL_VERSION.replaceAll("/", "-")}-${dataFingerprint}`,
       dataFingerprint,
       featureSchemaVersion: MARKET_FEATURE_SCHEMA_VERSION,
       modelKind: "fair_value",
@@ -582,9 +552,7 @@ export function trainFairValueModel(input: TrainFairValueInput): FairValueArtifa
     ridgeLambda: config.ridgeLambda,
     segmentIntervalHalfWidths,
     trainingProfile: {
-      brandDistribution: countDistribution(
-        trainRows.map((row) => row.canonicalBrand),
-      ),
+      brandDistribution: countDistribution(trainRows.map((row) => row.canonicalBrand)),
       categoryDistribution: countDistribution(trainRows.map((row) => row.category)),
       sourceDistribution: countDistribution(trainRows.map((row) => row.source)),
     },
@@ -596,11 +564,7 @@ export function predictFairValue(
   artifact: FairValueArtifact,
   observation: MarketObservation,
 ): FairValuePrediction {
-  const pointMinor = rawPointPrediction(
-    observation,
-    artifact.featureNames,
-    artifact.coefficients,
-  );
+  const pointMinor = rawPointPrediction(observation, artifact.featureNames, artifact.coefficients);
   const intervalHalfWidthMinor =
     artifact.segmentIntervalHalfWidths[segmentKey(observation)] ??
     artifact.globalIntervalHalfWidthMinor;
@@ -647,8 +611,7 @@ export function selectComparableListings(
     .filter(
       (observation) =>
         observation.listingId !== target.listingId &&
-        normalizeToken(observation.canonicalBrand) ===
-          normalizeToken(target.canonicalBrand) &&
+        normalizeToken(observation.canonicalBrand) === normalizeToken(target.canonicalBrand) &&
         normalizeToken(observation.category) === normalizeToken(target.category) &&
         observation.normalizedCurrency === target.normalizedCurrency &&
         toTimestamp(observation.soldAt, "comparable soldAt") < asOfTimestamp,
@@ -663,21 +626,14 @@ export function selectComparableListings(
       return {
         observation,
         similarity:
-          Number(conditionMatch) * 3 +
-          Number(sizeMatch) * 2 +
-          textSimilarity * 2 +
-          recency,
+          Number(conditionMatch) * 3 + Number(sizeMatch) * 2 + textSimilarity * 2 + recency,
       };
     })
     .sort(
       (left, right) =>
         right.similarity - left.similarity ||
-        (right.observation.soldAt ?? "").localeCompare(
-          left.observation.soldAt ?? "",
-        ) ||
-        left.observation.observationId.localeCompare(
-          right.observation.observationId,
-        ),
+        (right.observation.soldAt ?? "").localeCompare(left.observation.soldAt ?? "") ||
+        left.observation.observationId.localeCompare(right.observation.observationId),
     )
     .slice(0, limit);
 }
@@ -694,8 +650,7 @@ export function buildObservedRange(
 
   const robust = robustStatistics(values);
   const filtered = values.filter(
-    (value) =>
-      value >= robust.lowerFenceMinor && value <= robust.upperFenceMinor,
+    (value) => value >= robust.lowerFenceMinor && value <= robust.upperFenceMinor,
   );
   const rangeValues = filtered.length > 0 ? filtered : values;
 
@@ -718,26 +673,13 @@ export function detectFairValueDrift(
     ...defaultDriftConfig,
     ...inputConfig,
   };
-  const brandDistribution = countDistribution(
-    currentRows.map((row) => row.canonicalBrand),
-  );
-  const categoryDistribution = countDistribution(
-    currentRows.map((row) => row.category),
-  );
+  const brandDistribution = countDistribution(currentRows.map((row) => row.canonicalBrand));
+  const categoryDistribution = countDistribution(currentRows.map((row) => row.category));
   const sourceDistribution = countDistribution(currentRows.map((row) => row.source));
   const distances = [
-    totalVariationDistance(
-      artifact.trainingProfile.brandDistribution,
-      brandDistribution,
-    ),
-    totalVariationDistance(
-      artifact.trainingProfile.categoryDistribution,
-      categoryDistribution,
-    ),
-    totalVariationDistance(
-      artifact.trainingProfile.sourceDistribution,
-      sourceDistribution,
-    ),
+    totalVariationDistance(artifact.trainingProfile.brandDistribution, brandDistribution),
+    totalVariationDistance(artifact.trainingProfile.categoryDistribution, categoryDistribution),
+    totalVariationDistance(artifact.trainingProfile.sourceDistribution, sourceDistribution),
   ];
   const maxDistributionDistance = Math.max(0, ...distances);
   const trainingCategoricalFeatures = new Set(
@@ -757,10 +699,9 @@ export function detectFairValueDrift(
     ),
   );
   const unseenCategoricalRate =
-    categoricalFeatures.filter((feature) => !trainingCategoricalFeatures.has(feature))
-      .length / Math.max(categoricalFeatures.length, 1);
-  const stale =
-    daysBetween(artifact.metadata.trainedAt, now) > config.maximumAgeDays;
+    categoricalFeatures.filter((feature) => !trainingCategoricalFeatures.has(feature)).length /
+    Math.max(categoricalFeatures.length, 1);
+  const stale = daysBetween(artifact.metadata.trainedAt, now) > config.maximumAgeDays;
   const reasons: string[] = [];
 
   if (stale) {
@@ -793,14 +734,8 @@ export function estimateMarketValue(input: MarketEstimateInput): MarketEstimate 
     input.target,
     input.observations,
     input.asOf,
-  ).filter(
-    ({ observation }) =>
-      !isRobustPriceOutlier(observation, input.artifact.outlierPolicy),
-  );
-  const observedRange = buildObservedRange(
-    comparableCandidates,
-    input.target.normalizedCurrency,
-  );
+  ).filter(({ observation }) => !isRobustPriceOutlier(observation, input.artifact.outlierPolicy));
+  const observedRange = buildObservedRange(comparableCandidates, input.target.normalizedCurrency);
   const dataFreshnessAt = comparableCandidates
     .map(({ observation }) => observation.observedAt)
     .sort()

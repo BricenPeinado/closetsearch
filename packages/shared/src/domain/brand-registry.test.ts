@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  CANONICAL_BRANDS,
-  resolveCanonicalBrand,
-} from "./brand-registry.js";
+import { CANONICAL_BRANDS, resolveCanonicalBrand } from "./brand-registry.js";
 
 describe("canonical brand registry", () => {
   it("resolves maintained aliases and punctuation consistently", () => {

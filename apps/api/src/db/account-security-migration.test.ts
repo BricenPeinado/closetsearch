@@ -37,9 +37,7 @@ describe("account security migration", () => {
       );
       database.exec(migrationSql);
       database
-        .prepare(
-          "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
-        )
+        .prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
         .run(migrationId, "2026-07-24T11:00:00.000Z");
     }
 
@@ -67,9 +65,7 @@ describe("account security migration", () => {
 
     expect(runMigrations(database)).toEqual(["007_account_security"]);
     expect(
-      database
-        .prepare("SELECT username FROM users WHERE id = ?")
-        .get("existing-user"),
+      database.prepare("SELECT username FROM users WHERE id = ?").get("existing-user"),
     ).toEqual({
       username: "ExistingUser",
     });

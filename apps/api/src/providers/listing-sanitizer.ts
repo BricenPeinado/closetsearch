@@ -24,11 +24,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function sanitizeOptionalString(value: unknown) {
-  return value === undefined
-    ? undefined
-    : isNonEmptyString(value)
-      ? value.trim()
-      : null;
+  return value === undefined ? undefined : isNonEmptyString(value) ? value.trim() : null;
 }
 
 function sanitizeStringArray(value: unknown) {
@@ -50,9 +46,7 @@ function sanitizeHttpUrl(value: unknown) {
 
   try {
     const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.toString()
-      : null;
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
   } catch {
     return null;
   }
@@ -200,11 +194,7 @@ function sanitizeBrand(value: unknown): Brand | null {
 }
 
 function sanitizeSource(value: unknown): ListingSource | null {
-  if (
-    !isRecord(value) ||
-    !isNonEmptyString(value.id) ||
-    !isNonEmptyString(value.name)
-  ) {
+  if (!isRecord(value) || !isNonEmptyString(value.id) || !isNonEmptyString(value.name)) {
     return null;
   }
 
@@ -311,10 +301,7 @@ function sanitizeSeller(value: unknown): ListingSeller | null {
 }
 
 function sanitizeMarket(value: unknown): ListingMarketMetrics | null {
-  if (
-    !isRecord(value) ||
-    (value.status !== "active" && value.status !== "sold")
-  ) {
+  if (!isRecord(value) || (value.status !== "active" && value.status !== "sold")) {
     return null;
   }
 
@@ -332,8 +319,7 @@ function sanitizeMarket(value: unknown): ListingMarketMetrics | null {
       (typeof priceDropsCount !== "number" ||
         !Number.isSafeInteger(priceDropsCount) ||
         priceDropsCount < 0)) ||
-    (isExcludedFromAnalytics !== undefined &&
-      typeof isExcludedFromAnalytics !== "boolean")
+    (isExcludedFromAnalytics !== undefined && typeof isExcludedFromAnalytics !== "boolean")
   ) {
     return null;
   }
@@ -369,18 +355,11 @@ function sanitizeImages(value: unknown): ListingImage[] | null {
     if (
       !url ||
       alt === null ||
-      (role !== undefined &&
-        role !== "primary" &&
-        role !== "alternate" &&
-        role !== "thumbnail") ||
+      (role !== undefined && role !== "primary" && role !== "alternate" && role !== "thumbnail") ||
       (width !== undefined &&
-        (typeof width !== "number" ||
-          !Number.isSafeInteger(width) ||
-          width <= 0)) ||
+        (typeof width !== "number" || !Number.isSafeInteger(width) || width <= 0)) ||
       (height !== undefined &&
-        (typeof height !== "number" ||
-          !Number.isSafeInteger(height) ||
-          height <= 0))
+        (typeof height !== "number" || !Number.isSafeInteger(height) || height <= 0))
     ) {
       return null;
     }
@@ -398,11 +377,8 @@ function sanitizePricing(value: unknown, legacyPrice: Money): ListingPricing | n
 
   const original = sanitizeMoney(value.original);
   const comparison =
-    value.comparison === undefined
-      ? undefined
-      : sanitizeConvertedMoney(value.comparison);
-  const display =
-    value.display === undefined ? undefined : sanitizeConvertedMoney(value.display);
+    value.comparison === undefined ? undefined : sanitizeConvertedMoney(value.comparison);
+  const display = value.display === undefined ? undefined : sanitizeConvertedMoney(value.display);
   const shipping = sanitizeOptionalMoney(value.shipping);
   const landed = sanitizeOptionalMoney(value.landed);
 
@@ -436,12 +412,8 @@ function sanitizeShipping(value: unknown): ListingShipping | null {
   const destinationCountry = sanitizeOptionalString(value.destinationCountry);
   const originCountry = sanitizeOptionalString(value.originCountry);
   const type = sanitizeOptionalString(value.type);
-  const minEstimatedDeliveryAt = sanitizeOptionalTimestamp(
-    value.minEstimatedDeliveryAt,
-  );
-  const maxEstimatedDeliveryAt = sanitizeOptionalTimestamp(
-    value.maxEstimatedDeliveryAt,
-  );
+  const minEstimatedDeliveryAt = sanitizeOptionalTimestamp(value.minEstimatedDeliveryAt);
+  const maxEstimatedDeliveryAt = sanitizeOptionalTimestamp(value.maxEstimatedDeliveryAt);
 
   if (
     cost === null ||
@@ -517,9 +489,7 @@ function sanitizeLifecycle(value: unknown): ListingLifecycle | null {
 function sanitizeFreshness(value: unknown): ListingFreshness | null {
   if (
     !isRecord(value) ||
-    (value.status !== "fresh" &&
-      value.status !== "stale" &&
-      value.status !== "unknown")
+    (value.status !== "fresh" && value.status !== "stale" && value.status !== "unknown")
   ) {
     return null;
   }
@@ -571,9 +541,7 @@ function sanitizeAttribution(value: unknown): ListingAttribution | null {
   };
 }
 
-function sanitizeAnalyticsEligibility(
-  value: unknown,
-): ListingAnalyticsEligibility | null {
+function sanitizeAnalyticsEligibility(value: unknown): ListingAnalyticsEligibility | null {
   if (!isRecord(value) || typeof value.eligible !== "boolean") {
     return null;
   }
@@ -619,30 +587,16 @@ export function sanitizeProviderListing(value: unknown): Listing | null {
   const fetchedAt = sanitizeTimestamp(value.fetchedAt);
   const category = sanitizeOptionalString(value.category);
   const size = sanitizeOptionalString(value.size);
-  const seller =
-    value.seller === undefined ? undefined : sanitizeSeller(value.seller);
-  const market =
-    value.market === undefined ? undefined : sanitizeMarket(value.market);
-  const images =
-    value.images === undefined ? undefined : sanitizeImages(value.images);
+  const seller = value.seller === undefined ? undefined : sanitizeSeller(value.seller);
+  const market = value.market === undefined ? undefined : sanitizeMarket(value.market);
+  const images = value.images === undefined ? undefined : sanitizeImages(value.images);
   const pricing =
-    value.pricing === undefined || !price
-      ? undefined
-      : sanitizePricing(value.pricing, price);
-  const shipping =
-    value.shipping === undefined ? undefined : sanitizeShipping(value.shipping);
-  const lifecycle =
-    value.lifecycle === undefined
-      ? undefined
-      : sanitizeLifecycle(value.lifecycle);
-  const freshness =
-    value.freshness === undefined
-      ? undefined
-      : sanitizeFreshness(value.freshness);
+    value.pricing === undefined || !price ? undefined : sanitizePricing(value.pricing, price);
+  const shipping = value.shipping === undefined ? undefined : sanitizeShipping(value.shipping);
+  const lifecycle = value.lifecycle === undefined ? undefined : sanitizeLifecycle(value.lifecycle);
+  const freshness = value.freshness === undefined ? undefined : sanitizeFreshness(value.freshness);
   const attribution =
-    value.attribution === undefined
-      ? undefined
-      : sanitizeAttribution(value.attribution);
+    value.attribution === undefined ? undefined : sanitizeAttribution(value.attribution);
   const analyticsEligibility =
     value.analyticsEligibility === undefined
       ? undefined

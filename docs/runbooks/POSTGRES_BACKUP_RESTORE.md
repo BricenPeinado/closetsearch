@@ -25,7 +25,9 @@ BACKUP_AGE_RECIPIENT='age1...' \
 sh scripts/postgres-backup.sh
 ```
 
-Production encryption is fail-closed. The runtime needs `pg_dump`, `pg_restore`, `sha256sum`, and `age`. Database URLs and age identities belong in secret management and must not be logged.
+Production encryption is fail-closed. The runtime needs `pg_dump`, `pg_restore`,
+either `sha256sum` or `shasum`, and `age`. Database URLs and age identities
+belong in secret management and must not be logged.
 
 The Compose operations profile is a local one-shot demonstration:
 
@@ -71,7 +73,10 @@ SELECT COUNT(*) FROM worker_jobs;
 7. Record archive id, checksum, start/end time, schema version, row-count checks, operator, and outcome.
 8. Destroy the scratch database only after evidence is retained.
 
-The restore script requires an exact database-name confirmation, checksum, readable custom archive, and a single transaction. It refuses PostgreSQL system databases.
+The restore script requires an exact database-name confirmation, verifies that
+`RESTORE_DATABASE_URL` reports that same name through `current_database()`,
+requires a checksum and readable custom archive, and restores in one
+transaction. It refuses PostgreSQL system databases.
 
 ## Production recovery
 
@@ -89,3 +94,17 @@ Before production restore:
 - rotate credentials if compromise is suspected
 
 See [Production rollback](PRODUCTION_ROLLBACK.md).
+
+## Evidence status
+
+CI is configured to migrate PostgreSQL, create a custom-format archive, restore
+it into an isolated database, and verify the migration ledger. Retain the
+successful current-run URL, archive checksum, schema versions `001` through
+`006`, row counts, and elapsed restore time as release evidence.
+
+On 2026-07-24 an ephemeral local PostgreSQL 17.10 instance was migrated through
+`006`; the backup script produced and checksummed a custom archive; and the
+restore script restored it to an isolated database whose migration ledger count
+and maximum version were both verified as `6`. That proves the local logical
+path, not encryption, off-host retention, managed PITR/HA, a destructive
+incident cutover, or the documented production RPO/RTO.

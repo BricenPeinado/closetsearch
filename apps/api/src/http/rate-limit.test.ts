@@ -10,9 +10,7 @@ describe("FixedWindowRateLimiter", () => {
 
     expect(limiter.consume("client", 1_000).remaining).toBe(1);
     expect(limiter.consume("client", 1_001).remaining).toBe(0);
-    expect(() => limiter.consume("client", 1_002)).toThrowError(
-      "Too many requests",
-    );
+    expect(() => limiter.consume("client", 1_002)).toThrowError("Too many requests");
 
     try {
       limiter.consume("client", 1_002);

@@ -23,8 +23,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.stderr.write(
       `${JSON.stringify({
         event: "postgres_migrations_failed",
-        error:
-          error instanceof Error ? error.message : "Unknown migration error.",
+        error: error instanceof Error ? error.message : "Unknown migration error.",
       })}\n`,
     );
     process.exitCode = 1;

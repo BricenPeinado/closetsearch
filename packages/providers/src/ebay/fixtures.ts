@@ -3,8 +3,7 @@ import type { EbayRawBrowseResponse } from "./raw.js";
 export const ebayBrowseSearchFixture = {
   href: "https://api.ebay.com/buy/browse/v1/item_summary/search?q=kapital&limit=2&offset=0",
   total: 3,
-  next:
-    "https://api.ebay.com/buy/browse/v1/item_summary/search?q=kapital&limit=2&offset=2",
+  next: "https://api.ebay.com/buy/browse/v1/item_summary/search?q=kapital&limit=2&offset=2",
   limit: 2,
   offset: 0,
   itemSummaries: [
@@ -12,8 +11,7 @@ export const ebayBrowseSearchFixture = {
       itemId: "v1|145100000001|0",
       legacyItemId: "145100000001",
       title: "Kapital patchwork denim jacket",
-      itemAffiliateWebUrl:
-        "https://www.ebay.com/itm/145100000001?campid=fixture-campaign",
+      itemAffiliateWebUrl: "https://www.ebay.com/itm/145100000001?campid=fixture-campaign",
       itemWebUrl: "https://www.ebay.com/itm/145100000001",
       image: {
         imageUrl: "https://i.ebayimg.com/images/g/fixture-1/s-l1600.jpg",

@@ -80,7 +80,6 @@ describe("search utils", () => {
     expect(hasActiveSearchValues(values)).toBe(true);
   });
 
-
   it("builds a filter-only search path when query text is empty", () => {
     const values = {
       query: "",

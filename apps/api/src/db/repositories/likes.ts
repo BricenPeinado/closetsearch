@@ -114,14 +114,16 @@ export function deleteLikeById(userId: string, id: string) {
 }
 
 export function listLikesByUserId(userId: string) {
-  return ((getDatabase()
-    .prepare(
-      `SELECT id, user_id, listing_id, source, created_at, listing_snapshot_json
+  return (
+    getDatabase()
+      .prepare(
+        `SELECT id, user_id, listing_id, source, created_at, listing_snapshot_json
       FROM likes
       WHERE user_id = ?
       ORDER BY created_at DESC, id DESC`,
-    )
-    .all(userId) as unknown as LikeRow[])).map(mapLikeRow);
+      )
+      .all(userId) as unknown as LikeRow[]
+  ).map(mapLikeRow);
 }
 
 export function clearLikes() {

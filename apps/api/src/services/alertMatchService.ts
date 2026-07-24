@@ -57,13 +57,7 @@ function matchesQueryText(queryText: string | undefined, listing: Listing) {
   }
 
   const searchableText = normalizeText(
-    [
-      listing.title,
-      listing.brand.name,
-      listing.category,
-      listing.source.id,
-      listing.source.name,
-    ]
+    [listing.title, listing.brand.name, listing.category, listing.source.id, listing.source.name]
       .filter(Boolean)
       .join(" "),
   );

@@ -5,10 +5,7 @@ import {
   roundMetric,
   seededUnitInterval,
 } from "./deterministic.js";
-import {
-  generateRecommendationCandidates,
-  rankRecommendations,
-} from "./recommender.js";
+import { generateRecommendationCandidates, rankRecommendations } from "./recommender.js";
 import type {
   PromotionCheck,
   PromotionDecision,
@@ -36,10 +33,7 @@ interface EvaluateRankerInput {
   k: number;
   listings: RecommendationListing[];
   preferences: RecommendationPreference[];
-  ranker: (
-    userId: string,
-    preference: RecommendationPreference | undefined,
-  ) => string[];
+  ranker: (userId: string, preference: RecommendationPreference | undefined) => string[];
 }
 
 export interface PromotionGateInput {
@@ -79,10 +73,7 @@ function hhi(values: string[]) {
   }, 0);
 }
 
-function pairwiseDiversity(
-  ranking: string[],
-  listingById: Map<string, RecommendationListing>,
-) {
+function pairwiseDiversity(ranking: string[], listingById: Map<string, RecommendationListing>) {
   const distances: number[] = [];
 
   for (let leftIndex = 0; leftIndex < ranking.length; leftIndex += 1) {
@@ -128,10 +119,7 @@ function evaluateRanker(input: EvaluateRankerInput): RecommendationEvaluation {
 
   const listingById = new Map(input.listings.map((listing) => [listing.listingId, listing]));
   const catalog = generateRecommendationCandidates(input.listings, input.asOf);
-  const maximumPopularity = Math.max(
-    1,
-    ...Object.values(input.artifact.itemPopularity),
-  );
+  const maximumPopularity = Math.max(1, ...Object.values(input.artifact.itemPopularity));
 
   function metricsForUsers(userIds: string[]): RecommendationMetrics {
     const recalls: number[] = [];
@@ -145,9 +133,7 @@ function evaluateRanker(input: EvaluateRankerInput): RecommendationEvaluation {
 
     for (const userId of userIds) {
       const relevant = relevantByUser.get(userId) ?? new Set<string>();
-      const ranking = input
-        .ranker(userId, preferenceByUser.get(userId))
-        .slice(0, input.k);
+      const ranking = input.ranker(userId, preferenceByUser.get(userId)).slice(0, input.k);
       let hits = 0;
       let dcg = 0;
       let precisionSum = 0;
@@ -176,15 +162,9 @@ function evaluateRanker(input: EvaluateRankerInput): RecommendationEvaluation {
 
       recalls.push(relevant.size > 0 ? hits / relevant.size : 0);
       ndcgs.push(
-        relevant.size > 0
-          ? dcg / Math.max(idealDcg(relevant.size, input.k), Number.EPSILON)
-          : 0,
+        relevant.size > 0 ? dcg / Math.max(idealDcg(relevant.size, input.k), Number.EPSILON) : 0,
       );
-      maps.push(
-        relevant.size > 0
-          ? precisionSum / Math.min(relevant.size, input.k)
-          : 0,
-      );
+      maps.push(relevant.size > 0 ? precisionSum / Math.min(relevant.size, input.k) : 0);
       diversities.push(pairwiseDiversity(ranking, listingById));
     }
 
@@ -233,8 +213,8 @@ export function rankPopularityFreshnessBaseline(
     .map((listing) => ({
       listing,
       score:
-        Math.log1p(artifact.itemPopularity[listing.listingId] ?? 0) /
-          Math.log1p(maximumPopularity) *
+        (Math.log1p(artifact.itemPopularity[listing.listingId] ?? 0) /
+          Math.log1p(maximumPopularity)) *
           0.7 +
         Math.max(0, 1 - daysBetween(listing.availableAt, asOf) / 45) * 0.3,
     }))
@@ -246,15 +226,11 @@ export function rankPopularityFreshnessBaseline(
       }
 
       return (
-        seededUnitInterval(
-          artifact.metadata.seed,
-          `${userId}:baseline:${left.listing.listingId}`,
-        ) -
+        seededUnitInterval(artifact.metadata.seed, `${userId}:baseline:${left.listing.listingId}`) -
           seededUnitInterval(
             artifact.metadata.seed,
             `${userId}:baseline:${right.listing.listingId}`,
-          ) ||
-        left.listing.listingId.localeCompare(right.listing.listingId)
+          ) || left.listing.listingId.localeCompare(right.listing.listingId)
       );
     })
     .slice(0, topK)
@@ -323,9 +299,7 @@ function createCheck(
   };
 }
 
-export function evaluateRecommendationPromotion(
-  input: PromotionGateInput,
-): PromotionDecision {
+export function evaluateRecommendationPromotion(input: PromotionGateInput): PromotionDecision {
   const minimumEvaluatedUsers = input.minimumEvaluatedUsers ?? 100;
   const minimumSnapshots = input.minimumSnapshots ?? 3;
   const checks = [
@@ -355,8 +329,7 @@ export function evaluateRecommendationPromotion(
     ),
     createCheck(
       "diversity_non_degradation",
-      input.candidate.allUsers.intraListDiversity -
-        input.baseline.allUsers.intraListDiversity,
+      input.candidate.allUsers.intraListDiversity - input.baseline.allUsers.intraListDiversity,
       input.candidate.allUsers.intraListDiversity >=
         input.baseline.allUsers.intraListDiversity - 0.02,
       "no worse than baseline - 0.02",
@@ -364,8 +337,7 @@ export function evaluateRecommendationPromotion(
     createCheck(
       "catalog_coverage",
       input.candidate.allUsers.catalogCoverage,
-      input.candidate.allUsers.catalogCoverage >=
-        input.baseline.allUsers.catalogCoverage * 0.95,
+      input.candidate.allUsers.catalogCoverage >= input.baseline.allUsers.catalogCoverage * 0.95,
       ">= 95% of baseline",
     ),
     createCheck(
@@ -384,10 +356,8 @@ export function evaluateRecommendationPromotion(
     ),
     createCheck(
       "cold_start_ndcg",
-      input.candidate.coldStartUsers.ndcgAtK -
-        input.baseline.coldStartUsers.ndcgAtK,
-      input.candidate.coldStartUsers.ndcgAtK >=
-        input.baseline.coldStartUsers.ndcgAtK - 0.02,
+      input.candidate.coldStartUsers.ndcgAtK - input.baseline.coldStartUsers.ndcgAtK,
+      input.candidate.coldStartUsers.ndcgAtK >= input.baseline.coldStartUsers.ndcgAtK - 0.02,
       "no worse than baseline - 0.02",
     ),
     createCheck(

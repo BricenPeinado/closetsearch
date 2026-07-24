@@ -1,18 +1,23 @@
 # Providers Package
 
-This package contains provider-facing contracts and examples.
+`@closetsearch/providers` owns the marketplace contract and every raw provider
+shape.
 
-Current source of truth:
+Implemented adapters:
 
-- `src/types.ts`: provider adapter contract
-- `src/index.ts`: public export surface
-- `src/examples`: no-network examples that demonstrate the contract shape
+- deterministic mock fixtures for local/test use
+- eBay Browse official API adapter (active inventory only)
+- Grailed fixture/live-capable adapter gated by explicit written authorization
 
-Provider implementations must accept normalized shared `SearchQuery` input and return normalized shared `Listing` objects through the provider response wrapper.
+Shared resilient HTTP support covers pacing, bounded concurrency, timeout,
+`Retry-After`, exponential retry, and circuit behavior. Adapters normalize
+identity, URLs/images, exact prices, marketplace metadata, lifecycle,
+seller/shipping data when supported, attribution, analytics eligibility,
+capabilities, native pagination, latency/freshness, and terminal/retryable
+errors.
 
-Do not put these here yet:
+Provider fixtures and contract tests never prove live authorization. Normal CI
+must not call marketplaces. See the
+[provider acquisition matrix](../../docs/provider-acquisition-matrix.md).
 
-- real marketplace integrations
-- network clients
-- provider registry or plugin system
-- API orchestration logic
+Raw eBay/Grailed types must not be exported into API or web product contracts.

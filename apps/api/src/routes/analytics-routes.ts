@@ -32,9 +32,7 @@ function lockedResult(userId?: string): RouteResult {
   };
 }
 
-async function resolvePremiumAccess(
-  userId: string,
-): Promise<PremiumAccess> {
+async function resolvePremiumAccess(userId: string): Promise<PremiumAccess> {
   if (resolvePersistenceDriver() !== "postgres") {
     return {
       isPremium: false,
@@ -43,19 +41,14 @@ async function resolvePremiumAccess(
     };
   }
 
-  return new PersistedEntitlementService(
-    await getPostgresDataPlane(),
-  ).getPremiumAccess(userId);
+  return new PersistedEntitlementService(await getPostgresDataPlane()).getPremiumAccess(userId);
 }
 
 export async function handleAnalyticsRoute(
   request: IncomingMessage,
   requestUrl: URL,
 ): Promise<RouteResult | undefined> {
-  if (
-    (request.method ?? "GET") !== "GET" ||
-    !analyticsPaths.has(requestUrl.pathname)
-  ) {
+  if ((request.method ?? "GET") !== "GET" || !analyticsPaths.has(requestUrl.pathname)) {
     return undefined;
   }
 
@@ -71,9 +64,7 @@ export async function handleAnalyticsRoute(
     return lockedResult(user.id);
   }
 
-  const analytics = new PostgresObservedAnalyticsService(
-    await getPostgresDataPlane(),
-  );
+  const analytics = new PostgresObservedAnalyticsService(await getPostgresDataPlane());
 
   if (requestUrl.pathname === "/analytics/overview") {
     return {

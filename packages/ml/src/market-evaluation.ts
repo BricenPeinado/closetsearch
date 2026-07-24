@@ -34,9 +34,7 @@ export interface FairValuePromotionGateInput {
   stale: boolean;
 }
 
-function metricsFromPredictions(
-  predictions: EvaluatedPrediction[],
-): MarketEvaluationMetrics {
+function metricsFromPredictions(predictions: EvaluatedPrediction[]): MarketEvaluationMetrics {
   const eligibleMape = predictions
     .map((prediction) => prediction.percentageError)
     .filter((value): value is number => value !== undefined);
@@ -46,15 +44,9 @@ function metricsFromPredictions(
       predictions.filter((prediction) => prediction.covered).length /
         Math.max(predictions.length, 1),
     ),
-    maeMinor: roundMetric(
-      mean(predictions.map((prediction) => prediction.absoluteErrorMinor)),
-      2,
-    ),
+    maeMinor: roundMetric(mean(predictions.map((prediction) => prediction.absoluteErrorMinor)), 2),
     mapeEligibleCount: eligibleMape.length,
-    mapePercent:
-      eligibleMape.length > 0
-        ? roundMetric(mean(eligibleMape) * 100, 3)
-        : undefined,
+    mapePercent: eligibleMape.length > 0 ? roundMetric(mean(eligibleMape) * 100, 3) : undefined,
     medianAbsoluteErrorMinor: roundMetric(
       median(predictions.map((prediction) => prediction.absoluteErrorMinor)),
       2,
@@ -120,12 +112,8 @@ export function evaluateFairValueModel(
       absoluteErrorMinor,
       brand: row.canonicalBrand,
       category: row.category,
-      covered:
-        target >= prediction.lowMinor && target <= prediction.highMinor,
-      percentageError:
-        target >= minimumMapeTargetMinor
-          ? absoluteErrorMinor / target
-          : undefined,
+      covered: target >= prediction.lowMinor && target <= prediction.highMinor,
+      percentageError: target >= minimumMapeTargetMinor ? absoluteErrorMinor / target : undefined,
       source: row.source,
     };
   });
@@ -142,10 +130,7 @@ export function evaluateObservedMedianBaseline(
 
   for (const row of getEligibleSoldObservations(testRows)) {
     const comparables = selectComparableListings(row, history, row.soldAt);
-    const observedRange = buildObservedRange(
-      comparables,
-      row.normalizedCurrency,
-    );
+    const observedRange = buildObservedRange(comparables, row.normalizedCurrency);
 
     if (!observedRange || observedRange.comparableCount < 4) {
       continue;
@@ -157,12 +142,8 @@ export function evaluateObservedMedianBaseline(
       absoluteErrorMinor,
       brand: row.canonicalBrand,
       category: row.category,
-      covered:
-        target >= observedRange.lowMinor && target <= observedRange.highMinor,
-      percentageError:
-        target >= minimumMapeTargetMinor
-          ? absoluteErrorMinor / target
-          : undefined,
+      covered: target >= observedRange.lowMinor && target <= observedRange.highMinor,
+      percentageError: target >= minimumMapeTargetMinor ? absoluteErrorMinor / target : undefined,
       source: row.source,
     });
   }
@@ -184,9 +165,7 @@ function promotionCheck(
   };
 }
 
-export function evaluateFairValuePromotion(
-  input: FairValuePromotionGateInput,
-): PromotionDecision {
+export function evaluateFairValuePromotion(input: FairValuePromotionGateInput): PromotionDecision {
   const minimumTestSamples = input.minimumTestSamples ?? 100;
   const checks = [
     promotionCheck(
@@ -209,10 +188,8 @@ export function evaluateFairValuePromotion(
     ),
     promotionCheck(
       "median_absolute_error_non_degradation",
-      input.baseline.medianAbsoluteErrorMinor -
-        input.candidate.medianAbsoluteErrorMinor,
-      input.candidate.medianAbsoluteErrorMinor <=
-        input.baseline.medianAbsoluteErrorMinor,
+      input.baseline.medianAbsoluteErrorMinor - input.candidate.medianAbsoluteErrorMinor,
+      input.candidate.medianAbsoluteErrorMinor <= input.baseline.medianAbsoluteErrorMinor,
       "candidate <= baseline",
     ),
     promotionCheck(
@@ -227,18 +204,8 @@ export function evaluateFairValuePromotion(
       input.candidate.intervalCoverage <= 0.98,
       "<= 0.98",
     ),
-    promotionCheck(
-      "model_not_stale",
-      Number(input.stale),
-      !input.stale,
-      "false",
-    ),
-    promotionCheck(
-      "model_not_drifted",
-      Number(input.drifted),
-      !input.drifted,
-      "false",
-    ),
+    promotionCheck("model_not_stale", Number(input.stale), !input.stale, "false"),
+    promotionCheck("model_not_drifted", Number(input.drifted), !input.drifted, "false"),
   ];
   const failed = checks.filter((check) => !check.passed);
 

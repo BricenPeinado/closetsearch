@@ -1,11 +1,6 @@
 export type ListingType = "auction" | "buy_now" | "offer" | "unknown";
 export type MarketStatus = "active" | "sold" | "unknown";
-export type ListingAvailability =
-  | "available"
-  | "removed"
-  | "sold"
-  | "stale"
-  | "unavailable";
+export type ListingAvailability = "available" | "removed" | "sold" | "stale" | "unavailable";
 
 export interface ExactMoneyInput {
   amountMinor: bigint;

@@ -1,9 +1,6 @@
 import { getDatabase } from "../database.js";
 
-export type AccountTokenPurpose =
-  | "account_export"
-  | "email_verification"
-  | "password_reset";
+export type AccountTokenPurpose = "account_export" | "email_verification" | "password_reset";
 
 export interface AccountTokenRecord {
   consumedAt?: string;
@@ -116,16 +113,9 @@ export function consumeActiveAccountToken(input: {
         AND invalidated_at IS NULL
         AND expires_at > ?`,
     )
-    .run(
-      input.consumedAt,
-      input.tokenHash,
-      input.purpose,
-      input.consumedAt,
-    );
+    .run(input.consumedAt, input.tokenHash, input.purpose, input.consumedAt);
 
-  return result.changes === 1
-    ? findAccountTokenByHash(input.tokenHash)
-    : undefined;
+  return result.changes === 1 ? findAccountTokenByHash(input.tokenHash) : undefined;
 }
 
 export function invalidateActiveAccountTokens(input: {
@@ -153,10 +143,7 @@ export function invalidateActiveAccountTokens(input: {
   return result.changes;
 }
 
-export function deleteExpiredAccountTokens(
-  expiredBefore: string,
-  retainedAfter: string,
-) {
+export function deleteExpiredAccountTokens(expiredBefore: string, retainedAfter: string) {
   const result = getDatabase()
     .prepare(
       `DELETE FROM account_tokens

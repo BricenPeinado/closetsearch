@@ -1,127 +1,163 @@
-# Providers
+# Provider Operations and Compliance
 
-## Overview
+## Source of truth
 
-ClosetSearch keeps provider-specific request logic inside `packages/providers` and exposes only normalized listing/search results to the API and web apps.
+Read the [provider acquisition matrix](../provider-acquisition-matrix.md) before
+enabling or changing an adapter. An implementation, credential, fixture, public
+page, or technically reachable endpoint is not authorization.
 
-Grailed now has two authorized-live stages:
+Acquisition order:
 
-- fetch Grailed's public HTML shell and extract dynamic Algolia credentials from `window.PUBLIC_CONFIG`
-- query Grailed's Algolia indexes directly for active marketplace listings or sold-history comps
+1. official public API
+2. approved partner/affiliate API
+3. documented feed
+4. explicitly authorized server-side scraping
 
-The mock provider remains available for local development, tests, and fallback paths.
+Never bypass authentication, CAPTCHA, robots restrictions, technical blocks, or
+rate enforcement. Do not rotate identities or proxies to evade controls.
 
-## Grailed Dynamic Credential Extraction
+## Implemented providers
 
-Runtime files:
+| Provider | Adapter                                       | Capability                                             | Live state in this checkout                             |
+| -------- | --------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- |
+| mock     | deterministic fixtures                        | active/sold fixture flows                              | local/test only; prohibited in production               |
+| eBay     | official Browse API + OAuth application token | active purchasable inventory; native offset pagination | blocked: production credentials/partner approval absent |
+| Grailed  | HTML configuration plus Algolia adapter       | adapter models active/sold pages                       | blocked: written authorization reference absent         |
 
-- `packages/providers/src/grailed/credentials.ts`
-- `packages/providers/src/grailed/algolia.ts`
-- `packages/providers/src/grailed/provider.ts`
-- `packages/providers/src/grailed/http-client.ts`
+There are zero authorized live providers in the repository state. The target of
+two independently working real providers is externally blocked.
 
-Credential extraction flow:
+## Provider contract
 
-1. Request `https://www.grailed.com` with browser-mimicking headers.
-2. Locate the inline `window.PUBLIC_CONFIG = {...};` assignment.
-3. Extract the balanced JSON object.
-4. Parse and validate `algolia.appId` and `algolia.apiKey`.
-5. Cache the credentials in memory for reuse.
+Adapters:
 
-If `window.PUBLIC_CONFIG`, `algolia.appId`, or `algolia.apiKey` are missing, the provider throws a clear runtime error instead of silently degrading into malformed downstream requests.
+- accept normalized search input
+- expose exact capabilities instead of silently ignoring unsupported filters
+- keep raw response types private
+- normalize stable provider/source IDs, listing data, exact original money,
+  lifecycle/status, seller/shipping when supported, attribution, and analytics
+  eligibility
+- validate destination and image URLs
+- return provider-native pagination state
+- distinguish retryable and terminal failures
+- emit freshness, fetch time, latency, data origin, result count, and warnings
 
-## Credential Cache And Rotation
+The shared resilient HTTP layer enforces bounded timeout, pacing, concurrency,
+retry, `Retry-After`, and circuit state. Provider-specific values remain
+configurable within bounded ranges.
 
-The Grailed provider keeps an in-memory credential cache inside the provider instance.
+The API constructs one provider runtime at application creation and reuses it
+for feed, search, readiness, and provider-health calls. This makes pacing,
+concurrency, circuit, credential, and cache state meaningful across requests.
+Every API replica and worker owns a separate runtime, so calculate provider
+budgets across the whole deployment.
 
-Current behavior:
+## eBay activation
 
-- cache TTL: `15 minutes`
-- cache storage: in-memory only
-- cache scope: per API process / provider instance
-- cache refresh trigger: cache miss, cache expiry, or Algolia `401` / `403`
+The adapter uses the official client-credential token endpoint and Browse search.
+It intentionally reports sold-history and normalized taxonomy filters as
+unsupported when they cannot be mapped safely. Use returned affiliate URLs and
+required attribution when the approved program requires them.
 
-Rotation behavior:
+Before activation:
 
-- live queries use cached credentials by default
-- if an Algolia query returns `401` or `403`, the cache is evicted
-- the provider re-harvests credentials from Grailed HTML
-- the Algolia query is retried exactly once
-- a second `401` / `403` fails as a provider credential error
+1. obtain production Buy API eligibility and agreements
+2. create production client credentials in secret management
+3. document permitted display, caching, retention, price history, analytics/ML,
+   attribution, regions, and deletion obligations
+4. configure the marketplace and approved affiliate campaign
+5. run fixture/contract tests
+6. run a credentialed staging smoke separately from normal CI
+7. confirm `/providers/health` reports `official-api`
 
-No plaintext developer secrets are stored in source control.
+Do not scrape eBay when its supported API is the approved path.
 
-## Grailed Algolia Query Engine
+## Grailed activation
 
-Index mapping:
+The code can extract public-page configuration and query normalized active/sold
+indices, but ClosetSearch does not possess the required permission in this
+checkout.
 
-- active listings: `Listing_production`
-- sold comps: `Listing_sold_production`
+Before activation, retain a non-secret reference to written permission covering:
 
-Query behavior:
+- approving party, effective/expiry date, and revocation contact
+- hosts/endpoints, access method, deployment identities, and regions
+- approved active/sold fields and seller/shipping data
+- display, attribution, caching, retention, deletion, price history, analytics,
+  and ML
+- rate/concurrency/request-profile limits
 
-- requests are sent to `https://{appId}-dsn.algolia.net/1/indexes/{indexName}/query`
-- requests use `hitsPerPage=100`
-- the provider preserves the normalized request page while translating to Algolia's zero-based page param
-- `marketScope=active` targets live offers
-- `marketScope=sold` targets realized sale history
+Only then set both:
 
-The API/provider contract keeps `marketScope` normalized. Raw Algolia index names do not leak to the frontend.
+```sh
+GRAILED_SCRAPING_ALLOWED=true
+GRAILED_AUTHORIZATION_REFERENCE=<retained-reference>
+```
 
-## Headers, Pacing, And Safeguards
+Pacing in code is not a grant. Robots/terms/permission changes require immediate
+disablement and compliance review. Do not add proxy rotation or browser
+automation to work around a block.
 
-Grailed requests use conservative server-side headers and pacing:
+## Partial failure behavior
 
-- explicit `ClosetSearchBot/... contact:<email>` user agent
-- `accept-language`, `cache-control`, and keep-alive style headers
-- HTML and JSON requests both run through the same timeout and pacing logic
-- provider request pacing still defaults to `3000ms`
-- provider request timeout still defaults to `5000ms`
+The orchestrator returns valid listings alongside explicit provider summaries.
+It does not erase one provider's successful data because another times out,
+rate-limits, opens a circuit, or rejects a capability.
 
-If Grailed or Algolia responds with `429`, the provider returns a recoverable rate-limit failure.
+Frontend banners use:
 
-## Normalized Grailed Listing Mapping
+- provider success/failure
+- retryability
+- cache status and freshness
+- warnings and result counts
+- the distinction between limited capability and runtime degradation
 
-Grailed Algolia hits are mapped into shared product-facing listing types.
+When all real providers fail in production, return an unavailable/degraded state.
+Never substitute fixtures.
 
-Normalized fields include:
+## Worker ingestion
 
-- listing id and provider listing id
-- source URL
-- title and brand
-- image URL
-- price and currency
-- category, size, condition, and listing type when available
-- seller metadata:
-  - username
-  - feedback score
-  - feedback count
-  - trust tier
-- market metadata:
-  - `active` vs `sold`
-  - tags
-  - `priceDropsCount`
-  - `isExcludedFromAnalytics`
+The worker registry filters out mock/fixture sources and creates jobs only for
+active real providers and supported active/sold scopes. It stores per-provider
+query checkpoints, continuation cursors, last success/failure, next run, and
+health.
 
-Low-confidence sellers are tagged with `trustTier="unverified"`, and those listings are marked `isExcludedFromAnalytics=true` to protect future market-analysis curves.
+On startup inspect the structured `worker_jobs_seeded` event:
 
-## Proxy Notes
+- `activeProviderIds` must contain exactly the intended authorized providers
+- `blockedProviders` must be empty or match an understood external blocker
 
-This milestone does not add a dedicated proxy layer.
+Provider ingestion is idempotent, resumes after lease expiry/crash, persists
+listing lifecycle/price changes, and invokes watchlist matching for new/changed
+observations.
 
-If Grailed's public shell or Algolia edge starts blocking requests from the deployment environment, a later pass may need:
+An exact replay of one collection observation deduplicates. A later collection
+of an unchanged listing refreshes `last_seen_at` but does not create a false
+price change, so stale maintenance does not hide inventory that providers still
+return.
 
-- a server-side outbound proxy
-- region-aware routing
-- stronger retry/backoff memory
-- alternate credential-harvest sources if the public shell changes
+## Testing policy
 
-No heavyweight browser automation is used in this pass.
+Normal test suites:
 
-## Known Limitations
+- use recorded/redacted fixtures or local stub responses
+- cover complete, partial, malformed, hostile URL, pagination, retry, timeout,
+  429, circuit, and normalization behavior
+- must not call a marketplace or require live credentials
 
-- credential caching is process-local only and resets on restart
-- dynamic extraction depends on Grailed continuing to expose `window.PUBLIC_CONFIG`
-- no persistent analytics storage or sold-comp snapshots are created yet
-- active and sold data are normalized into shared listing models, but the web UI does not yet expose a dedicated sold-comp browsing surface
-- the provider still relies on documented written authorization for live scraping access
+Credentialed staging smoke is a separate, explicitly authorized operation.
+Never record secret headers or raw tokens in fixtures, logs, metrics, CI
+artifacts, or issue reports.
+
+## Incident response
+
+For a provider outage or permission concern:
+
+1. disable only the affected provider
+2. retain health/request IDs and redacted metrics
+3. honor `Retry-After` and circuit state
+4. show a partial/unavailable product state
+5. contact the provider/approval owner
+6. do not rotate identities, increase concurrency, or enable mock fallback
+
+See [Incident response](INCIDENT_RESPONSE.md).

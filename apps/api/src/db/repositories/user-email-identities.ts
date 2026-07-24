@@ -30,9 +30,7 @@ const selectColumns = `
   updated_at
 `;
 
-function mapUserEmailIdentityRow(
-  row: UserEmailIdentityRow,
-): UserEmailIdentityRecord {
+function mapUserEmailIdentityRow(row: UserEmailIdentityRow): UserEmailIdentityRecord {
   return {
     createdAt: row.created_at,
     email: row.email,
@@ -135,9 +133,7 @@ export function markUserEmailIdentityVerified(
     )
     .run(verifiedAt, verifiedAt, identityId, userId);
 
-  return result.changes > 0
-    ? findUserEmailIdentityById(identityId)
-    : undefined;
+  return result.changes > 0 ? findUserEmailIdentityById(identityId) : undefined;
 }
 
 export function listUserEmailIdentitiesByUserId(userId: string) {

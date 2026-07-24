@@ -102,32 +102,34 @@ describe("createProviderRuntime", () => {
       }),
     );
 
-    expect(runtime.statuses).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: "mock",
-        providerMode: "mock",
-        enabled: true,
-        configured: true,
-        active: true,
-        mode: "fixture",
-        implementationStatus: "available",
-      }),
-      expect.objectContaining({
-        id: "grailed",
-        providerMode: "real",
-        enabled: true,
-        configured: true,
-        active: true,
-        mode: "authorized-live",
-        scrapingAllowed: true,
-        implementationStatus: "available",
-        requiredEnvVars: expect.arrayContaining([
-          "GRAILED_PROVIDER_ENABLED",
-          "GRAILED_SCRAPING_ALLOWED",
-          "GRAILED_BASE_URL",
-          "GRAILED_USER_AGENT",
-        ]),
-      }),
-    ]));
+    expect(runtime.statuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "mock",
+          providerMode: "mock",
+          enabled: true,
+          configured: true,
+          active: true,
+          mode: "fixture",
+          implementationStatus: "available",
+        }),
+        expect.objectContaining({
+          id: "grailed",
+          providerMode: "real",
+          enabled: true,
+          configured: true,
+          active: true,
+          mode: "authorized-live",
+          scrapingAllowed: true,
+          implementationStatus: "available",
+          requiredEnvVars: expect.arrayContaining([
+            "GRAILED_PROVIDER_ENABLED",
+            "GRAILED_SCRAPING_ALLOWED",
+            "GRAILED_BASE_URL",
+            "GRAILED_USER_AGENT",
+          ]),
+        }),
+      ]),
+    );
   });
 });

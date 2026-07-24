@@ -27,22 +27,14 @@ function parseBoundedInteger(
 
   const parsedValue = Number(rawValue);
 
-  if (
-    !Number.isSafeInteger(parsedValue) ||
-    parsedValue < minimum ||
-    parsedValue > maximum
-  ) {
-    throw new Error(
-      `${name} must be an integer between ${minimum} and ${maximum}.`,
-    );
+  if (!Number.isSafeInteger(parsedValue) || parsedValue < minimum || parsedValue > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}.`);
   }
 
   return parsedValue;
 }
 
-function parseSsl(
-  env: Record<string, string | undefined>,
-): PoolConfig["ssl"] {
+function parseSsl(env: Record<string, string | undefined>): PoolConfig["ssl"] {
   const mode = env.POSTGRES_SSL_MODE?.trim().toLowerCase() ?? "prefer";
 
   if (mode === "disable") {
@@ -68,9 +60,7 @@ function parseSsl(
     };
   }
 
-  throw new Error(
-    "POSTGRES_SSL_MODE must be one of disable, prefer, require, or verify-full.",
-  );
+  throw new Error("POSTGRES_SSL_MODE must be one of disable, prefer, require, or verify-full.");
 }
 
 export function loadPostgresRuntimeConfig(
@@ -79,9 +69,7 @@ export function loadPostgresRuntimeConfig(
   const connectionString = env.DATABASE_URL?.trim();
 
   if (!connectionString) {
-    throw new Error(
-      "DATABASE_URL is required for the PostgreSQL production data plane.",
-    );
+    throw new Error("DATABASE_URL is required for the PostgreSQL production data plane.");
   }
 
   let parsedUrl: URL;
@@ -98,8 +86,7 @@ export function loadPostgresRuntimeConfig(
 
   return {
     connectionString,
-    applicationName:
-      env.POSTGRES_APPLICATION_NAME?.trim() || "closetsearch-api",
+    applicationName: env.POSTGRES_APPLICATION_NAME?.trim() || "closetsearch-api",
     poolMax: parseBoundedInteger(env, "POSTGRES_POOL_MAX", 10, 1, 100),
     connectionTimeoutMs: parseBoundedInteger(
       env,
@@ -108,13 +95,7 @@ export function loadPostgresRuntimeConfig(
       100,
       120_000,
     ),
-    idleTimeoutMs: parseBoundedInteger(
-      env,
-      "POSTGRES_IDLE_TIMEOUT_MS",
-      30_000,
-      1_000,
-      600_000,
-    ),
+    idleTimeoutMs: parseBoundedInteger(env, "POSTGRES_IDLE_TIMEOUT_MS", 30_000, 1_000, 600_000),
     statementTimeoutMs: parseBoundedInteger(
       env,
       "POSTGRES_STATEMENT_TIMEOUT_MS",
@@ -122,27 +103,13 @@ export function loadPostgresRuntimeConfig(
       100,
       300_000,
     ),
-    queryTimeoutMs: parseBoundedInteger(
-      env,
-      "POSTGRES_QUERY_TIMEOUT_MS",
-      12_000,
-      100,
-      300_000,
-    ),
-    transactionRetryLimit: parseBoundedInteger(
-      env,
-      "POSTGRES_TRANSACTION_RETRY_LIMIT",
-      3,
-      0,
-      10,
-    ),
+    queryTimeoutMs: parseBoundedInteger(env, "POSTGRES_QUERY_TIMEOUT_MS", 12_000, 100, 300_000),
+    transactionRetryLimit: parseBoundedInteger(env, "POSTGRES_TRANSACTION_RETRY_LIMIT", 3, 0, 10),
     ssl: parseSsl(env),
   };
 }
 
-export function toPoolConfig(
-  config: PostgresRuntimeConfig,
-): PoolConfig {
+export function toPoolConfig(config: PostgresRuntimeConfig): PoolConfig {
   return {
     application_name: config.applicationName,
     connectionString: config.connectionString,

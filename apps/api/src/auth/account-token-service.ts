@@ -37,8 +37,7 @@ export class AccountTokenService {
 
   constructor(options: AccountTokenServiceOptions = {}) {
     this.generateRawToken =
-      options.generateRawToken ??
-      (() => randomBytes(32).toString("base64url"));
+      options.generateRawToken ?? (() => randomBytes(32).toString("base64url"));
     this.now = options.now ?? (() => new Date());
     this.tokenPepper = options.tokenPepper ?? getAuthConfig().tokenPepper;
     this.ttlMs = {
@@ -54,9 +53,7 @@ export class AccountTokenService {
   }): IssuedAccountToken {
     const now = this.now();
     const createdAt = now.toISOString();
-    const expiresAt = new Date(
-      now.getTime() + this.ttlMs[input.purpose],
-    ).toISOString();
+    const expiresAt = new Date(now.getTime() + this.ttlMs[input.purpose]).toISOString();
     const rawToken = this.generateRawToken();
     const record: AccountTokenRecord = {
       createdAt,
@@ -97,11 +94,7 @@ export class AccountTokenService {
     });
   }
 
-  resolveActive(
-    rawToken: string,
-    purpose: AccountTokenPurpose,
-    at = this.now().toISOString(),
-  ) {
+  resolveActive(rawToken: string, purpose: AccountTokenPurpose, at = this.now().toISOString()) {
     const token = findAccountTokenByHash(this.hash(rawToken));
 
     if (
@@ -117,11 +110,7 @@ export class AccountTokenService {
     return token;
   }
 
-  invalidateAllForUser(
-    userId: string,
-    reason: string,
-    invalidatedAt = this.now().toISOString(),
-  ) {
+  invalidateAllForUser(userId: string, reason: string, invalidatedAt = this.now().toISOString()) {
     return invalidateActiveAccountTokens({
       invalidatedAt,
       reason,
@@ -130,10 +119,6 @@ export class AccountTokenService {
   }
 
   private hash(rawToken: string) {
-    return createHash("sha256")
-      .update(this.tokenPepper)
-      .update(":")
-      .update(rawToken)
-      .digest("hex");
+    return createHash("sha256").update(this.tokenPepper).update(":").update(rawToken).digest("hex");
   }
 }

@@ -1,7 +1,4 @@
-export type AccountEmailKind =
-  | "account_export"
-  | "email_verification"
-  | "password_reset";
+export type AccountEmailKind = "account_export" | "email_verification" | "password_reset";
 
 export interface AccountEmailMessage {
   actionUrl: string;

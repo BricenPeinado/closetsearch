@@ -1,10 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type {
-  AuthResponse,
-  OnboardingPreferences,
-  StoredUser,
-  User,
-} from "@closetsearch/shared";
+import type { AuthResponse, OnboardingPreferences, StoredUser, User } from "@closetsearch/shared";
 import { ApiError } from "./api-error.js";
 import { hashPassword, verifyPassword } from "./auth/password-service.js";
 import {
@@ -101,12 +96,13 @@ export function loginUser(username: string, password: string) {
     throw new ApiError(401, "invalid_credentials", "Invalid username or password.");
   }
 
-  const upgradedUser = verification.needsRehash && verification.upgradedHash
-    ? updateUserPasswordHash(existingUser.id, verification.upgradedHash) ?? {
-        ...existingUser,
-        passwordHash: verification.upgradedHash,
-      }
-    : existingUser;
+  const upgradedUser =
+    verification.needsRehash && verification.upgradedHash
+      ? (updateUserPasswordHash(existingUser.id, verification.upgradedHash) ?? {
+          ...existingUser,
+          passwordHash: verification.upgradedHash,
+        })
+      : existingUser;
 
   return toAuthResponse(upgradedUser);
 }

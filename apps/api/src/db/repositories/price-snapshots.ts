@@ -138,10 +138,7 @@ function getLatestRow(input: PersistPriceSnapshotInput) {
       ORDER BY observation_sequence DESC
       LIMIT 1`,
     )
-    .get(
-      input.listing.source.id,
-      input.listing.providerListingId,
-    ) as PriceSnapshotRow | undefined;
+    .get(input.listing.source.id, input.listing.providerListingId) as PriceSnapshotRow | undefined;
 }
 
 export function persistPriceSnapshot(input: PersistPriceSnapshotInput) {
@@ -152,8 +149,7 @@ export function persistPriceSnapshot(input: PersistPriceSnapshotInput) {
   const isSameObservedState =
     latestRow !== undefined &&
     latestRow.normalized_price_amount === normalizedPriceAmount &&
-    normalizeCurrency(latestRow.normalized_price_currency) ===
-      normalizedPriceCurrency &&
+    normalizeCurrency(latestRow.normalized_price_currency) === normalizedPriceCurrency &&
     latestRow.market_status === marketStatus;
 
   if (latestRow && isSameObservedState) {
@@ -246,9 +242,10 @@ export function persistPriceSnapshot(input: PersistPriceSnapshotInput) {
 }
 
 export function listPriceSnapshots() {
-  return ((getDatabase()
-    .prepare(
-      `SELECT
+  return (
+    getDatabase()
+      .prepare(
+        `SELECT
         observation_sequence,
         id,
         listing_id,
@@ -271,8 +268,9 @@ export function listPriceSnapshots() {
         listing_json
       FROM price_snapshots
       ORDER BY observation_sequence DESC`,
-    )
-    .all() as unknown as PriceSnapshotRow[])).map(mapPriceSnapshotRow);
+      )
+      .all() as unknown as PriceSnapshotRow[]
+  ).map(mapPriceSnapshotRow);
 }
 
 export function listLatestPriceSnapshots() {

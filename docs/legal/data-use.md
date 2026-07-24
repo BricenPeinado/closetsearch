@@ -1,74 +1,62 @@
-# ClosetSearch Beta Data-Use Copy
+# ClosetSearch Data-Use Draft
 
-This is beta data-use copy for a constrained launch. It is operational guidance, not a lawyer-approved public policy.
+This is operational engineering guidance, not approved legal terms.
 
-## Account and Saved Feature Data
+## Permitted product use
 
-ClosetSearch uses stored account and saved-feature data to:
+User-owned data supports sessions, account recovery/export/deletion, saved
+features, in-app watchlist alerts, entitlement authorization, and explainable
+personalization.
 
-- keep users signed in with server-side sessions
-- verify an email identity and support one-time account recovery/export actions
-- persist likes, saved searches, saved filters, watchlists, notification preference shell data, and settings
-- personalize the signed-in feed with explainable rules
+Qualified, deduplicated engagement supports aggregate popularity and user
+recommendation features. Do not collect unnecessary direct identifiers or
+secrets in events.
 
-Account-action tokens are stored only as purpose-bound hashes with short expiry.
-Email, password-reset, and export messages are not sent unless a delivery
-provider is explicitly configured. No breached-password network lookup is made
-by default.
+Marketplace observations support discovery, lifecycle tracking, price history,
+watchlist matching, and cautious analytics only within each provider's approved
+display, caching, retention, derivation, attribution, and ML terms.
 
-## Account Data Requests
+## Provider rule
 
-The route-ready account lifecycle can produce a one-time JSON export of
-user-owned data and can delete a confirmed account with its linked user-owned
-records. It excludes credential and token hashes from exports. Marketplace
-listing and price observations are retained because they are not attributed to
-an individual user.
+Use official API, approved partner API, documented feed, or explicitly
+authorized scraping in that order. Never bypass access controls or technical
+enforcement. An adapter/fixture does not prove permission. See the
+[provider acquisition matrix](../provider-acquisition-matrix.md).
 
-## Observed Listing Data
+## Analytics and ML limits
 
-ClosetSearch uses observed listing and price snapshot data to:
+- keep currencies exact and separate unless a sourced/timestamped conversion
+  exists
+- keep asking and confirmed sold outcomes distinct
+- do not treat an active asking price as a realized target
+- use temporal evaluation and deletion-aware feature snapshots
+- keep rules/observed fallback
+- do not expose sensitive features
+- do not claim profit, investment, guaranteed value, future certainty, or
+  authentic/fake verdicts
 
-- build cautious brand and category pricing ranges
-- support observed under-market style analytics
-- improve future debugging and product quality review
+Current ML candidates are not promoted.
 
-Observed listing data is not the same thing as complete marketplace coverage.
+## Account rights
 
-## Watchlists
+The implemented one-time export excludes credential/token hashes. Confirmed
+deletion cascades user-owned state and removes the user association from raw
+engagement while retaining pseudonymous events/aggregates and provider-wide
+catalog history. Final legal policy and retention/deletion enforcement still
+require approval.
 
-Watchlists currently save what a user wants to track later.
+## Alerts and billing
 
-They do not currently send:
+In-app alerts are active. Email account actions/alerts require an approved sender
+and verified address; push/SMS are disabled. No billing provider is configured,
+and a development entitlement must not be described as a subscription.
 
-- email
-- push
-- SMS
+## Prohibited uses
 
-## Analytics Boundaries
-
-ClosetSearch analytics in beta are:
-
-- observed-data only
-- not financial advice
-- not price predictions
-- not investment guidance
-
-## Provider Data Limits
-
-Provider data may be:
-
-- incomplete
-- delayed
-- temporarily unavailable
-- different from the live marketplace state by the time a user clicks through
-
-## Feedback and Improvement
-
-Beta feedback may be used to improve:
-
-- product copy
-- reliability
-- saved-feature behavior
-- personalization quality
-- analytics clarity
-- deployment and QA processes
+- credential/session/token logging
+- collecting unnecessary personal seller/user data
+- proxy/identity rotation to evade provider controls
+- live marketplace calls from normal CI
+- production mock substitution
+- training on data outside approved provider/user scope
+- authenticity enforcement from placeholder metadata heuristics

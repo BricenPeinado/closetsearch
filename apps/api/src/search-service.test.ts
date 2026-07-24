@@ -2,11 +2,7 @@ import type { Listing } from "@closetsearch/shared";
 import { describe, expect, it } from "vitest";
 import { sortListingsForSearch } from "./search-service.js";
 
-function createListing(
-  id: string,
-  amount: number,
-  currency: string,
-): Listing {
+function createListing(id: string, amount: number, currency: string): Listing {
   return {
     brand: {
       id: "brand:test",
@@ -36,26 +32,19 @@ describe("search price sorting", () => {
   it("sorts comparable same-currency values deterministically", () => {
     expect(
       sortListingsForSearch(
-        [
-          createListing("b", 200, "USD"),
-          createListing("a", 100, "USD"),
-        ],
+        [createListing("b", 200, "USD"), createListing("a", 100, "USD")],
         "price_asc",
       ).map((listing) => listing.id),
     ).toEqual(["a", "b"]);
   });
 
   it("does not compare unconverted values from different currencies", () => {
-    const listings = [
-      createListing("usd", 100, "USD"),
-      createListing("jpy", 10_000, "JPY"),
-    ];
+    const listings = [createListing("usd", 100, "USD"), createListing("jpy", 10_000, "JPY")];
 
-    expect(
-      sortListingsForSearch(listings, "price_asc").map(
-        (listing) => listing.id,
-      ),
-    ).toEqual(["usd", "jpy"]);
+    expect(sortListingsForSearch(listings, "price_asc").map((listing) => listing.id)).toEqual([
+      "usd",
+      "jpy",
+    ]);
   });
 
   it("uses converted display money when every listing shares the target currency", () => {
@@ -89,10 +78,7 @@ describe("search price sorting", () => {
     };
 
     expect(
-      sortListingsForSearch(
-        [expensive, cheaper],
-        "price_asc",
-      ).map((listing) => listing.id),
+      sortListingsForSearch([expensive, cheaper], "price_asc").map((listing) => listing.id),
     ).toEqual(["cheaper", "expensive"]);
   });
 });

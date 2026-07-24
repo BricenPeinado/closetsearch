@@ -1,10 +1,7 @@
 import type { SearchQuery } from "@closetsearch/shared";
 import type { PostgresDataPlane } from "../db/postgres/data-plane.js";
 import type { ProviderRuntime } from "../providers/registry.js";
-import {
-  ContractProviderIngestionSource,
-  type ProviderIngestionQuery,
-} from "./provider-source.js";
+import { ContractProviderIngestionSource, type ProviderIngestionQuery } from "./provider-source.js";
 
 type ScheduledScope = "active" | "sold";
 
@@ -52,12 +49,7 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
   }
 }
 
-function boundedInteger(
-  value: unknown,
-  fallback: number,
-  minimum: number,
-  maximum: number,
-) {
+function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number) {
   return typeof value === "number" &&
     Number.isSafeInteger(value) &&
     value >= minimum &&
@@ -74,9 +66,7 @@ function optionalProviderIds(value: unknown) {
   if (
     !Array.isArray(value) ||
     !value.every(
-      (providerId) =>
-        typeof providerId === "string" &&
-        /^[a-z0-9_-]{1,80}$/i.test(providerId),
+      (providerId) => typeof providerId === "string" && /^[a-z0-9_-]{1,80}$/i.test(providerId),
     )
   ) {
     throw new Error(
@@ -87,14 +77,11 @@ function optionalProviderIds(value: unknown) {
   return value as string[];
 }
 
-function parseConfiguredSearches(
-  env: Record<string, string | undefined>,
-): ConfiguredSearch[] {
+function parseConfiguredSearches(env: Record<string, string | undefined>): ConfiguredSearch[] {
   const raw = env.WORKER_INGESTION_SEARCHES_JSON?.trim();
 
   if (!raw) {
-    const text =
-      env.WORKER_DEFAULT_INGESTION_QUERY?.trim() || defaultSearchText;
+    const text = env.WORKER_DEFAULT_INGESTION_QUERY?.trim() || defaultSearchText;
 
     return [
       {
@@ -105,12 +92,7 @@ function parseConfiguredSearches(
           604_800,
         ),
         key: "default",
-        pageSize: boundedInteger(
-          Number(env.WORKER_INGESTION_PAGE_SIZE),
-          50,
-          1,
-          200,
-        ),
+        pageSize: boundedInteger(Number(env.WORKER_INGESTION_PAGE_SIZE), 50, 1, 200),
         scope: "active",
         text,
       },
@@ -122,12 +104,7 @@ function parseConfiguredSearches(
           604_800,
         ),
         key: "default",
-        pageSize: boundedInteger(
-          Number(env.WORKER_INGESTION_PAGE_SIZE),
-          50,
-          1,
-          200,
-        ),
+        pageSize: boundedInteger(Number(env.WORKER_INGESTION_PAGE_SIZE), 50, 1, 200),
         scope: "sold",
         text,
       },
@@ -139,9 +116,7 @@ function parseConfiguredSearches(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(
-      "WORKER_INGESTION_SEARCHES_JSON must be valid JSON.",
-    );
+    throw new Error("WORKER_INGESTION_SEARCHES_JSON must be valid JSON.");
   }
 
   if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 100) {
@@ -154,16 +129,12 @@ function parseConfiguredSearches(
 
   return parsed.map((value, index): ConfiguredSearch => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error(
-        `Worker ingestion search at index ${index} must be an object.`,
-      );
+      throw new Error(`Worker ingestion search at index ${index} must be an object.`);
     }
 
     const record = value as Record<string, unknown>;
-    const key =
-      typeof record.key === "string" ? record.key.trim().toLowerCase() : "";
-    const text =
-      typeof record.text === "string" ? record.text.trim() : "";
+    const key = typeof record.key === "string" ? record.key.trim().toLowerCase() : "";
+    const text = typeof record.text === "string" ? record.text.trim() : "";
     const scope = record.scope;
 
     if (
@@ -179,9 +150,7 @@ function parseConfiguredSearches(
     const compoundKey = `${scope}:${key}`;
 
     if (seenKeys.has(compoundKey)) {
-      throw new Error(
-        `Worker ingestion search ${compoundKey} is duplicated.`,
-      );
+      throw new Error(`Worker ingestion search ${compoundKey} is duplicated.`);
     }
 
     seenKeys.add(compoundKey);
@@ -240,8 +209,7 @@ export function createWorkerProviderPlan(
     for (const search of searches) {
       if (
         !supportsScope(provider, search.scope) ||
-        (search.providerIds &&
-          !search.providerIds.includes(provider.id))
+        (search.providerIds && !search.providerIds.includes(provider.id))
       ) {
         continue;
       }
@@ -270,9 +238,7 @@ export function createWorkerProviderPlan(
     }
 
     if (providerQueries.length > 0) {
-      sources.push(
-        new ContractProviderIngestionSource(provider, providerQueries),
-      );
+      sources.push(new ContractProviderIngestionSource(provider, providerQueries));
     }
   }
 

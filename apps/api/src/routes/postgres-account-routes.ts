@@ -4,10 +4,7 @@ import { requireAuth } from "../auth/auth-context.js";
 import { PostgresAccountSecurityService } from "../auth/postgres-account-security-service.js";
 import { clearSessionCookie } from "../auth/session-service.js";
 import { parseJsonRequestBody } from "../http/request-body.js";
-import {
-  FixedWindowRateLimiter,
-  getRequestIpHint,
-} from "../http/rate-limit.js";
+import { FixedWindowRateLimiter, getRequestIpHint } from "../http/rate-limit.js";
 import type { RouteResult } from "./route-result.js";
 import {
   getRequestDataPlane,
@@ -41,11 +38,7 @@ async function payload(request: IncomingMessage) {
   return value;
 }
 
-function json(
-  body: unknown,
-  statusCode = 200,
-  headers?: Record<string, string>,
-): RouteResult {
+function json(body: unknown, statusCode = 200, headers?: Record<string, string>): RouteResult {
   return {
     body,
     headers,
@@ -79,13 +72,10 @@ export async function handlePostgresAccountRoute(
   }
 
   try {
-    accountActionRateLimiter.consume(
-      `account-action:${path}:${getRequestIpHint(request)}`,
-    );
+    accountActionRateLimiter.consume(`account-action:${path}:${getRequestIpHint(request)}`);
     const dataPlane = await getRequestDataPlane();
     const service = new PostgresAccountSecurityService(dataPlane, {
-      actionBaseUrl:
-        process.env.ACCOUNT_ACTION_BASE_URL?.trim() || undefined,
+      actionBaseUrl: process.env.ACCOUNT_ACTION_BASE_URL?.trim() || undefined,
     });
     const body = await payload(request);
 
@@ -94,11 +84,7 @@ export async function handlePostgresAccountRoute(
       const email = trimmedString(body.email);
 
       if (!email) {
-        throw new ApiError(
-          400,
-          "invalid_request",
-          "email is required.",
-        );
+        throw new ApiError(400, "invalid_request", "email is required.");
       }
 
       return json({
@@ -119,35 +105,26 @@ export async function handlePostgresAccountRoute(
         : json(
             {
               error: "invalid_or_expired_token",
-              message:
-                "The verification link is invalid or has expired.",
+              message: "The verification link is invalid or has expired.",
             },
             400,
           );
     }
 
-    if (
-      method === "POST" &&
-      path === "/auth/password-reset/request"
-    ) {
+    if (method === "POST" && path === "/auth/password-reset/request") {
       await service.requestPasswordReset(trimmedString(body.email));
       return json(
         {
           accepted: true,
-          message:
-            "If a verified account matches that email, a reset link will be sent.",
+          message: "If a verified account matches that email, a reset link will be sent.",
         },
         202,
       );
     }
 
-    if (
-      method === "POST" &&
-      path === "/auth/password-reset/complete"
-    ) {
+    if (method === "POST" && path === "/auth/password-reset/complete") {
       const token = trimmedString(body.token);
-      const password =
-        typeof body.password === "string" ? body.password : "";
+      const password = typeof body.password === "string" ? body.password : "";
       const result = await service.resetPassword(token, password);
 
       return result.status === "password_reset"
@@ -167,17 +144,13 @@ export async function handlePostgresAccountRoute(
 
     if (method === "POST" && path === "/me/account-export") {
       const user = requireAuth(request);
-      return json(
-        await service.requestAccountExport(user.id),
-        202,
-        { "cache-control": "no-store" },
-      );
+      return json(await service.requestAccountExport(user.id), 202, {
+        "cache-control": "no-store",
+      });
     }
 
     if (method === "POST" && path === "/account/export") {
-      const result = await service.exportAccountData(
-        trimmedString(body.token),
-      );
+      const result = await service.exportAccountData(trimmedString(body.token));
 
       return result.status === "exported"
         ? json(result, 200, { "cache-control": "no-store" })

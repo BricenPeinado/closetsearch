@@ -11,38 +11,23 @@ interface MigrationDefinition {
 const migrationDefinitions: MigrationDefinition[] = [
   {
     id: "001_initial_persistence",
-    sql: readFileSync(
-      new URL("./schema/001_initial_persistence.sql", import.meta.url),
-      "utf-8",
-    ),
+    sql: readFileSync(new URL("./schema/001_initial_persistence.sql", import.meta.url), "utf-8"),
   },
   {
     id: "002_auth_sessions",
-    sql: readFileSync(
-      new URL("./schema/002_auth_sessions.sql", import.meta.url),
-      "utf-8",
-    ),
+    sql: readFileSync(new URL("./schema/002_auth_sessions.sql", import.meta.url), "utf-8"),
   },
   {
     id: "003_saved_user_features",
-    sql: readFileSync(
-      new URL("./schema/003_saved_user_features.sql", import.meta.url),
-      "utf-8",
-    ),
+    sql: readFileSync(new URL("./schema/003_saved_user_features.sql", import.meta.url), "utf-8"),
   },
   {
     id: "004_price_snapshots",
-    sql: readFileSync(
-      new URL("./schema/004_price_snapshots.sql", import.meta.url),
-      "utf-8",
-    ),
+    sql: readFileSync(new URL("./schema/004_price_snapshots.sql", import.meta.url), "utf-8"),
   },
   {
     id: "005_alert_watchlists",
-    sql: readFileSync(
-      new URL("./schema/005_alert_watchlists.sql", import.meta.url),
-      "utf-8",
-    ),
+    sql: readFileSync(new URL("./schema/005_alert_watchlists.sql", import.meta.url), "utf-8"),
   },
   {
     id: "006_deterministic_price_observations",
@@ -53,10 +38,7 @@ const migrationDefinitions: MigrationDefinition[] = [
   },
   {
     id: "007_account_security",
-    sql: readFileSync(
-      new URL("./schema/007_account_security.sql", import.meta.url),
-      "utf-8",
-    ),
+    sql: readFileSync(new URL("./schema/007_account_security.sql", import.meta.url), "utf-8"),
   },
 ];
 
@@ -73,9 +55,11 @@ export function runMigrations(database: DatabaseSync) {
   ensureMigrationTable(database);
 
   const appliedMigrationIds = new Set(
-    ((database.prepare("SELECT id FROM schema_migrations").all() as unknown as Array<{
-      id: string;
-    }>)).map((row) => row.id),
+    (
+      database.prepare("SELECT id FROM schema_migrations").all() as unknown as Array<{
+        id: string;
+      }>
+    ).map((row) => row.id),
   );
 
   const appliedNow: string[] = [];
@@ -90,9 +74,7 @@ export function runMigrations(database: DatabaseSync) {
     try {
       database.exec(migration.sql);
       database
-        .prepare(
-          "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
-        )
+        .prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)")
         .run(migration.id, new Date().toISOString());
       database.exec("COMMIT");
       appliedNow.push(migration.id);
@@ -106,9 +88,7 @@ export function runMigrations(database: DatabaseSync) {
 }
 
 async function runMigrationsCli() {
-  const { closeDatabaseConnection, getDatabase, getDatabasePath } = await import(
-    "./database.js"
-  );
+  const { closeDatabaseConnection, getDatabase, getDatabasePath } = await import("./database.js");
 
   const database = getDatabase();
   const appliedMigrations = runMigrations(database);

@@ -1,12 +1,4 @@
-const tokenStopWords = new Set([
-  "and",
-  "for",
-  "from",
-  "new",
-  "the",
-  "this",
-  "with",
-]);
+const tokenStopWords = new Set(["and", "for", "from", "new", "the", "this", "with"]);
 
 export function normalizeToken(value: string | undefined) {
   return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";

@@ -37,13 +37,9 @@ describe("persistence runtime lifecycle", () => {
 
   it("reports migration-aware PostgreSQL readiness and closes idempotently", async () => {
     const harness = await createPostgresTestHarness();
-    const runtime = new PostgresPersistenceRuntime(
-      harness.database,
-      harness.dataPlane,
-      {
-        migrateOnStart: false,
-      },
-    );
+    const runtime = new PostgresPersistenceRuntime(harness.database, harness.dataPlane, {
+      migrateOnStart: false,
+    });
 
     await runtime.initialize();
     await expect(runtime.readiness()).resolves.toMatchObject({

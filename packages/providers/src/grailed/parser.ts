@@ -11,7 +11,8 @@ export interface ParsedGrailedListingCard {
   title?: string;
 }
 
-const listingCardPattern = /<article[^>]*data-testid=["']listing-tile["'][^>]*>([\s\S]*?)<\/article>/gi;
+const listingCardPattern =
+  /<article[^>]*data-testid=["']listing-tile["'][^>]*>([\s\S]*?)<\/article>/gi;
 const noResultsPattern = /(no listings found|no results)/i;
 
 function decodeHtmlEntities(value: string) {
@@ -24,7 +25,12 @@ function decodeHtmlEntities(value: string) {
 }
 
 function stripTags(value: string) {
-  return decodeHtmlEntities(value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+  return decodeHtmlEntities(
+    value
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 function extractAttribute(markup: string, attributeName: string) {
@@ -72,7 +78,8 @@ export function parseGrailedListingCards(html: string): ParsedGrailedListingCard
   for (const match of html.matchAll(listingCardPattern)) {
     const markup = match[1] ?? "";
     const sourceUrl = extractListingLink(markup);
-    const title = extractDataText(markup, "listing-title") ?? extractAttribute(markup, "aria-label");
+    const title =
+      extractDataText(markup, "listing-title") ?? extractAttribute(markup, "aria-label");
 
     cards.push({
       sourceUrl,

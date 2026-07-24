@@ -1,23 +1,12 @@
 import { performance } from "node:perf_hooks";
-import {
-  Pool,
-  type PoolClient,
-  type QueryResultRow,
-} from "pg";
-import {
-  loadPostgresRuntimeConfig,
-  toPoolConfig,
-  type PostgresRuntimeConfig,
-} from "./config.js";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { loadPostgresRuntimeConfig, toPoolConfig, type PostgresRuntimeConfig } from "./config.js";
 import { DatabaseMetrics } from "./metrics.js";
 import { withTransientPostgresRetry } from "./retry.js";
 import type { PgPoolLike, PgQueryable } from "./types.js";
 
 export interface TransactionOptions {
-  isolationLevel?:
-    | "READ COMMITTED"
-    | "REPEATABLE READ"
-    | "SERIALIZABLE";
+  isolationLevel?: "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE";
   retryLimit?: number;
   signal?: AbortSignal;
 }
@@ -58,30 +47,20 @@ export class PostgresDatabase implements PgQueryable {
     this.metrics = metrics;
   }
 
-  query<Row extends QueryResultRow = QueryResultRow>(
-    text: string,
-    values?: readonly unknown[],
-  ) {
-    return new InstrumentedQueryable(this.pool, this.metrics).query<Row>(
-      text,
-      values,
-    );
+  query<Row extends QueryResultRow = QueryResultRow>(text: string, values?: readonly unknown[]) {
+    return new InstrumentedQueryable(this.pool, this.metrics).query<Row>(text, values);
   }
 
   async withTransaction<T>(
     operation: (client: PgQueryable) => Promise<T>,
     options: TransactionOptions = {},
   ) {
-    const retryLimit =
-      options.retryLimit ?? this.config.transactionRetryLimit;
+    const retryLimit = options.retryLimit ?? this.config.transactionRetryLimit;
 
     return withTransientPostgresRetry(
       async () => {
         const client = await this.pool.connect();
-        const instrumentedClient = new InstrumentedQueryable(
-          client,
-          this.metrics,
-        );
+        const instrumentedClient = new InstrumentedQueryable(client, this.metrics);
 
         try {
           await instrumentedClient.query("BEGIN");
@@ -148,9 +127,7 @@ export class PostgresDatabase implements PgQueryable {
   }
 }
 
-export function createPostgresDatabase(
-  env: Record<string, string | undefined> = process.env,
-) {
+export function createPostgresDatabase(env: Record<string, string | undefined> = process.env) {
   const config = loadPostgresRuntimeConfig(env);
   const pool = new Pool(toPoolConfig(config));
   const database = new PostgresDatabase(pool, config);

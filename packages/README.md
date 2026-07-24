@@ -1,10 +1,9 @@
 # Packages
 
-This folder contains reusable TypeScript packages shared across ClosetSearch apps.
+- [`shared`](shared/README.md): normalized product contracts
+- [`providers`](providers/README.md): marketplace adapters and resilient HTTP
+- [`ml`](ml/README.md): offline deterministic datasets, training, evaluation,
+  artifacts, and promotion gates
 
-Current packages:
-
-- `shared`: normalized domain models and shared framework-independent contracts
-- `providers`: provider-facing contracts and example adapters
-
-Package boundaries should stay small. App-specific UI belongs in `apps/web`; API orchestration belongs in `apps/api`; raw marketplace shapes should stay inside provider adapters.
+Package boundaries keep provider raw data, user-facing UI, database access, and
+offline model training separate.

@@ -45,10 +45,7 @@ export class FixedWindowRateLimiter {
     this.entries.set(normalizedKey, entry);
 
     if (entry.count > this.options.limit) {
-      const retryAfterSeconds = Math.max(
-        1,
-        Math.ceil((entry.resetAt - now) / 1_000),
-      );
+      const retryAfterSeconds = Math.max(1, Math.ceil((entry.resetAt - now) / 1_000));
       const error = new ApiError(
         429,
         "rate_limited",

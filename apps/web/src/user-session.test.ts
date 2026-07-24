@@ -1,11 +1,7 @@
 import type { AuthResponse } from "@closetsearch/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "./api-client";
-import {
-  getAuthErrorMessage,
-  isAuthRequiredError,
-  loadUserSession,
-} from "./user-session";
+import { getAuthErrorMessage, isAuthRequiredError, loadUserSession } from "./user-session";
 
 afterEach(() => {
   vi.unstubAllGlobals();

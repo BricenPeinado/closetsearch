@@ -1,8 +1,4 @@
-import type {
-  PoolClient,
-  QueryResult,
-  QueryResultRow,
-} from "pg";
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 
 export interface PgQueryable {
   query<Row extends QueryResultRow = QueryResultRow>(

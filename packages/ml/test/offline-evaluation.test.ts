@@ -87,9 +87,6 @@ describe("offline temporal evaluation", () => {
     expect(promotion.approved).toBe(false);
     expect(promotion.reasons.join(" ")).toContain("temporal_test_samples");
 
-    console.info(
-      "MARKET_FIXTURE_EVALUATION",
-      JSON.stringify({ baseline, candidate: first }),
-    );
+    console.info("MARKET_FIXTURE_EVALUATION", JSON.stringify({ baseline, candidate: first }));
   });
 });

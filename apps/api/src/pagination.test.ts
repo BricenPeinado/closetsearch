@@ -1,9 +1,7 @@
 import type { Provider } from "@closetsearch/providers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getFeed } from "./feed-service.js";
-import {
-  resetProviderSearchCache,
-} from "./providers/orchestrator.js";
+import { resetProviderSearchCache } from "./providers/orchestrator.js";
 import type { ProviderRuntime } from "./providers/registry.js";
 import { createProviderRuntime } from "./providers/registry.js";
 import { loadProviderRuntimeConfig } from "./providers/runtime-config.js";
@@ -205,11 +203,10 @@ describe("feed and search pagination", () => {
         };
       },
     };
-    const runtime = createRuntime([{ mode: "real", name: flakyProvider.name, provider: flakyProvider }]);
-    const firstPage = await searchListings(
-      { text: "flaky", pageSize: 1 },
-      runtime,
-    );
+    const runtime = createRuntime([
+      { mode: "real", name: flakyProvider.name, provider: flakyProvider },
+    ]);
+    const firstPage = await searchListings({ text: "flaky", pageSize: 1 }, runtime);
 
     await expect(
       searchListings(
@@ -252,11 +249,10 @@ describe("feed and search pagination", () => {
         };
       },
     };
-    const runtime = createRuntime([{ mode: "real", name: noPaginationProvider.name, provider: noPaginationProvider }]);
-    const response = await searchListings(
-      { text: "test", pageSize: 1 },
-      runtime,
-    );
+    const runtime = createRuntime([
+      { mode: "real", name: noPaginationProvider.name, provider: noPaginationProvider },
+    ]);
+    const response = await searchListings({ text: "test", pageSize: 1 }, runtime);
 
     expect(response.listings).toHaveLength(1);
     expect(response.pagination).toMatchObject({
@@ -273,10 +269,7 @@ describe("feed and search pagination", () => {
         GRAILED_PROVIDER_ENABLED: "true",
       }),
     );
-    const response = await searchListings(
-      { text: "jacket", pageSize: 2 },
-      runtime,
-    );
+    const response = await searchListings({ text: "jacket", pageSize: 2 }, runtime);
 
     expect(response.listings).toHaveLength(2);
     expect(response.providers.some((provider) => provider.providerId === "mock")).toBe(true);

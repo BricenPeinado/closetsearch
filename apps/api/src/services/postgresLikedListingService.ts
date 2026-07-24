@@ -46,14 +46,7 @@ interface LikedListingRow extends QueryResultRow {
 }
 
 const zeroFractionCurrencies = new Set(["CLP", "JPY", "KRW", "VND"]);
-const threeFractionCurrencies = new Set([
-  "BHD",
-  "IQD",
-  "JOD",
-  "KWD",
-  "OMR",
-  "TND",
-]);
+const threeFractionCurrencies = new Set(["BHD", "IQD", "JOD", "KWD", "OMR", "TND"]);
 
 function fractionDigits(currency: string) {
   if (zeroFractionCurrencies.has(currency)) {
@@ -93,9 +86,7 @@ function jsonObject(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function providerOrigin(
-  providerId: string,
-): ListingDataOrigin | undefined {
+function providerOrigin(providerId: string): ListingDataOrigin | undefined {
   switch (providerId) {
     case "ebay":
       return "official_api";
@@ -125,9 +116,7 @@ function brand(row: LikedListingRow): Brand {
     .replace(/^-|-$/g, "");
 
   return {
-    id:
-      row.canonical_brand_id ??
-      `provider:${row.provider_id}:${fallbackSlug || "unknown-brand"}`,
+    id: row.canonical_brand_id ?? `provider:${row.provider_id}:${fallbackSlug || "unknown-brand"}`,
     name,
     slug: row.canonical_brand_slug ?? (fallbackSlug || "unknown-brand"),
   };
@@ -138,20 +127,13 @@ function toIso(value: Date | string) {
 }
 
 function listingFromRow(row: LikedListingRow): Listing {
-  const originalPrice = money(
-    row.original_price_minor,
-    row.original_currency,
-  );
-  const publicId = formatPublicListingId(
-    row.provider_id,
-    row.source_listing_id,
-  );
+  const originalPrice = money(row.original_price_minor, row.original_currency);
+  const publicId = formatPublicListingId(row.provider_id, row.source_listing_id);
   const imageUrl = row.image_url ?? "/listing-image-fallback.svg";
   const observedAt = toIso(row.last_seen_at);
   const staleAt = row.stale_after ? toIso(row.stale_after) : undefined;
   const isStale =
-    row.availability === "stale" ||
-    (staleAt !== undefined && staleAt <= new Date().toISOString());
+    row.availability === "stale" || (staleAt !== undefined && staleAt <= new Date().toISOString());
   const lifecycleStatus =
     row.availability === "available"
       ? "active"
@@ -278,10 +260,7 @@ export async function listPostgresLikedListings(
     like: {
       createdAt: toIso(row.like_created_at),
       id: row.like_id,
-      listingId: formatPublicListingId(
-        row.provider_id,
-        row.source_listing_id,
-      ),
+      listingId: formatPublicListingId(row.provider_id, row.source_listing_id),
       source: row.source_marketplace,
       userId: row.user_id,
     },

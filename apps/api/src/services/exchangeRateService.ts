@@ -9,10 +9,7 @@ export interface ExchangeRateQuote {
 }
 
 export interface ExchangeRateProvider {
-  getRate(
-    baseCurrency: string,
-    quoteCurrency: string,
-  ): Promise<ExchangeRateQuote | undefined>;
+  getRate(baseCurrency: string, quoteCurrency: string): Promise<ExchangeRateQuote | undefined>;
 }
 
 export interface ExchangeRateServiceOptions {
@@ -70,15 +67,11 @@ function parsePositiveDecimal(value: string) {
 }
 
 function toMinorAmount(money: Money) {
-  if (
-    typeof money.amountMinor === "number" &&
-    Number.isSafeInteger(money.amountMinor)
-  ) {
+  if (typeof money.amountMinor === "number" && Number.isSafeInteger(money.amountMinor)) {
     return money.amountMinor;
   }
 
-  const fractionDigits =
-    money.fractionDigits ?? fractionDigitsForCurrency(money.currency);
+  const fractionDigits = money.fractionDigits ?? fractionDigitsForCurrency(money.currency);
   const amountMinor = Math.round(money.amount * 10 ** fractionDigits);
 
   return Number.isSafeInteger(amountMinor) ? amountMinor : undefined;
@@ -102,15 +95,11 @@ export function convertMoneyWithQuote(
     return undefined;
   }
 
-  const sourceFractionDigits =
-    money.fractionDigits ?? fractionDigitsForCurrency(sourceCurrency);
+  const sourceFractionDigits = money.fractionDigits ?? fractionDigitsForCurrency(sourceCurrency);
   const targetFractionDigits = fractionDigitsForCurrency(targetCurrency);
   const numerator =
-    BigInt(amountMinor) *
-    parsedRate.numerator *
-    10n ** BigInt(targetFractionDigits);
-  const denominator =
-    parsedRate.denominator * 10n ** BigInt(sourceFractionDigits);
+    BigInt(amountMinor) * parsedRate.numerator * 10n ** BigInt(targetFractionDigits);
+  const denominator = parsedRate.denominator * 10n ** BigInt(sourceFractionDigits);
   const roundedMinor = (numerator + denominator / 2n) / denominator;
   const convertedMinor = Number(roundedMinor);
 
@@ -143,10 +132,7 @@ export class ExchangeRateService {
     this.now = options.now ?? Date.now;
   }
 
-  async convert(
-    money: Money,
-    displayCurrency: string,
-  ): Promise<ConvertedMoney | undefined> {
+  async convert(money: Money, displayCurrency: string): Promise<ConvertedMoney | undefined> {
     const baseCurrency = normalizeCurrency(money.currency);
     const quoteCurrency = normalizeCurrency(displayCurrency);
 
@@ -172,10 +158,7 @@ export class ExchangeRateService {
     }
 
     try {
-      const quote = await this.options.provider.getRate(
-        baseCurrency,
-        quoteCurrency,
-      );
+      const quote = await this.options.provider.getRate(baseCurrency, quoteCurrency);
 
       if (
         quote &&

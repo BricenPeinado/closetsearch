@@ -9,9 +9,7 @@ function parsePositiveInteger(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-export function getRequestBodyLimitBytes(
-  env: Record<string, string | undefined> = process.env,
-) {
+export function getRequestBodyLimitBytes(env: Record<string, string | undefined> = process.env) {
   return parsePositiveInteger(env.HTTP_BODY_LIMIT_BYTES, defaultBodyLimitBytes);
 }
 
@@ -20,9 +18,7 @@ export async function parseJsonRequestBody(
   limitBytes = getRequestBodyLimitBytes(),
 ) {
   const contentLength = Number.parseInt(
-    typeof request.headers["content-length"] === "string"
-      ? request.headers["content-length"]
-      : "",
+    typeof request.headers["content-length"] === "string" ? request.headers["content-length"] : "",
     10,
   );
 
@@ -65,10 +61,6 @@ export async function parseJsonRequestBody(
   try {
     return JSON.parse(body) as unknown;
   } catch {
-    throw new ApiError(
-      400,
-      "invalid_json",
-      "The request body must be valid JSON.",
-    );
+    throw new ApiError(400, "invalid_json", "The request body must be valid JSON.");
   }
 }

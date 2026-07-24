@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createTemporalSplit,
-  validateTemporalIsolation,
-} from "../src/temporal.js";
+import { createTemporalSplit, validateTemporalIsolation } from "../src/temporal.js";
 
 describe("temporal dataset isolation", () => {
   const boundaries = {
@@ -36,9 +33,7 @@ describe("temporal dataset isolation", () => {
     const validation = validateTemporalIsolation(
       {
         train: [{ id: "duplicate", at: "2026-01-01T00:00:00.000Z" }],
-        validation: [
-          { id: "duplicate", at: "2026-02-01T00:00:00.000Z" },
-        ],
+        validation: [{ id: "duplicate", at: "2026-02-01T00:00:00.000Z" }],
         test: [{ id: "test", at: "2026-03-01T00:00:00.000Z" }],
       },
       (row) => row.at,

@@ -1,10 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { OnboardingPreferences } from "@closetsearch/shared";
 import { ApiError } from "../api-error.js";
-import {
-  getAuthSessionResolution,
-  requireAuth,
-} from "../auth/auth-context.js";
+import { getAuthSessionResolution, requireAuth } from "../auth/auth-context.js";
 import { assertPasswordPolicy } from "../auth/password-policy.js";
 import { hashPassword, verifyPassword } from "../auth/password-service.js";
 import {
@@ -13,10 +10,7 @@ import {
 } from "../auth/postgres-session-service.js";
 import { clearSessionCookie } from "../auth/session-service.js";
 import { parseJsonRequestBody } from "../http/request-body.js";
-import {
-  FixedWindowRateLimiter,
-  getRequestIpHint,
-} from "../http/rate-limit.js";
+import { FixedWindowRateLimiter, getRequestIpHint } from "../http/rate-limit.js";
 import type { RouteResult } from "./route-result.js";
 import {
   getRequestDataPlane,
@@ -80,20 +74,13 @@ export async function handlePostgresAuthRoute(
 
   try {
     if (method === "POST" && path === "/auth/signup") {
-      postgresAuthRateLimiter.consume(
-        `postgres-signup:${getRequestIpHint(request)}`,
-      );
+      postgresAuthRateLimiter.consume(`postgres-signup:${getRequestIpHint(request)}`);
       const body = await payload(request);
       const username = trimmedString(body.username);
-      const password =
-        typeof body.password === "string" ? body.password : "";
+      const password = typeof body.password === "string" ? body.password : "";
 
       if (!username || !password) {
-        throw new ApiError(
-          400,
-          "invalid_request",
-          "Username and password are required.",
-        );
+        throw new ApiError(400, "invalid_request", "Username and password are required.");
       }
 
       await assertPasswordPolicy(password, { username });
@@ -102,11 +89,7 @@ export async function handlePostgresAuthRoute(
         passwordHash: hashPassword(password),
         username,
       });
-      const session = await createPostgresAuthSession(
-        dataPlane,
-        user.id,
-        request,
-      );
+      const session = await createPostgresAuthSession(dataPlane, user.id, request);
 
       return {
         body: authResponse(user),
@@ -120,62 +103,36 @@ export async function handlePostgresAuthRoute(
     }
 
     if (method === "POST" && path === "/auth/login") {
-      postgresAuthRateLimiter.consume(
-        `postgres-login:${getRequestIpHint(request)}`,
-      );
+      postgresAuthRateLimiter.consume(`postgres-login:${getRequestIpHint(request)}`);
       const body = await payload(request);
       const username = trimmedString(body.username);
-      const password =
-        typeof body.password === "string" ? body.password : "";
+      const password = typeof body.password === "string" ? body.password : "";
 
       if (!username || !password) {
-        throw new ApiError(
-          400,
-          "invalid_request",
-          "Username and password are required.",
-        );
+        throw new ApiError(400, "invalid_request", "Username and password are required.");
       }
 
       const dataPlane = await getRequestDataPlane();
-      const credentials =
-        await dataPlane.requestStore.findUserCredentialsByNormalizedUsername(
-          username.toLowerCase(),
-        );
-
-      if (!credentials) {
-        throw new ApiError(
-          401,
-          "invalid_credentials",
-          "Invalid username or password.",
-        );
-      }
-
-      const verification = verifyPassword(
-        credentials.passwordHash,
-        password,
+      const credentials = await dataPlane.requestStore.findUserCredentialsByNormalizedUsername(
+        username.toLowerCase(),
       );
 
+      if (!credentials) {
+        throw new ApiError(401, "invalid_credentials", "Invalid username or password.");
+      }
+
+      const verification = verifyPassword(credentials.passwordHash, password);
+
       if (!verification.isValid) {
-        throw new ApiError(
-          401,
-          "invalid_credentials",
-          "Invalid username or password.",
-        );
+        throw new ApiError(401, "invalid_credentials", "Invalid username or password.");
       }
 
       if (verification.needsRehash && verification.upgradedHash) {
-        await dataPlane.requestStore.updatePasswordHash(
-          credentials.id,
-          verification.upgradedHash,
-        );
+        await dataPlane.requestStore.updatePasswordHash(credentials.id, verification.upgradedHash);
       }
 
       const { passwordHash: _passwordHash, ...user } = credentials;
-      const session = await createPostgresAuthSession(
-        dataPlane,
-        user.id,
-        request,
-      );
+      const session = await createPostgresAuthSession(dataPlane, user.id, request);
 
       return {
         body: authResponse(user),
@@ -194,10 +151,7 @@ export async function handlePostgresAuthRoute(
       if (resolution.status !== "authenticated") {
         return {
           body: {
-            error:
-              resolution.status === "missing"
-                ? "unauthenticated"
-                : "session_expired",
+            error: resolution.status === "missing" ? "unauthenticated" : "session_expired",
             message:
               resolution.status === "missing"
                 ? "You are not logged in."
@@ -240,8 +194,7 @@ export async function handlePostgresAuthRoute(
     if (method === "POST" && path === "/auth/logout-all") {
       const user = requireAuth(request);
       const dataPlane = await getRequestDataPlane();
-      const revokedSessions =
-        await dataPlane.requestStore.revokeAuthSessionsByUserId(user.id);
+      const revokedSessions = await dataPlane.requestStore.revokeAuthSessionsByUserId(user.id);
 
       return {
         body: { revokedSessions, success: true },

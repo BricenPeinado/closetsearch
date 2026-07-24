@@ -9,9 +9,7 @@ export interface EntitlementActor {
   userId: string;
 }
 
-function isDevelopmentOnly(
-  metadata: Record<string, unknown>,
-) {
+function isDevelopmentOnly(metadata: Record<string, unknown>) {
   return metadata.developmentOnly === true;
 }
 
@@ -23,33 +21,21 @@ export class PersistedEntitlementService {
   ) {}
 
   async hasFeature(userId: string, featureKey: string) {
-    const active = await this.dataPlane.entitlements.listActive(
-      userId,
-      this.now(),
-    );
+    const active = await this.dataPlane.entitlements.listActive(userId, this.now());
 
     return active.some(
       (entitlement) =>
         entitlement.featureKey === featureKey &&
-        !(
-          this.env.NODE_ENV === "production" &&
-          isDevelopmentOnly(entitlement.metadata)
-        ),
+        !(this.env.NODE_ENV === "production" && isDevelopmentOnly(entitlement.metadata)),
     );
   }
 
   async getPremiumAccess(userId: string): Promise<PremiumAccess> {
-    const active = await this.dataPlane.entitlements.listActive(
-      userId,
-      this.now(),
-    );
+    const active = await this.dataPlane.entitlements.listActive(userId, this.now());
     const matching = active.find(
       (entitlement) =>
         entitlement.featureKey === premiumAnalyticsFeature &&
-        !(
-          this.env.NODE_ENV === "production" &&
-          isDevelopmentOnly(entitlement.metadata)
-        ),
+        !(this.env.NODE_ENV === "production" && isDevelopmentOnly(entitlement.metadata)),
     );
 
     if (!matching) {
@@ -63,10 +49,9 @@ export class PersistedEntitlementService {
     return {
       expiresAt: matching.endsAt?.toISOString(),
       isPremium: true,
-      planName:
-        isDevelopmentOnly(matching.metadata)
-          ? "Development entitlement — no billing"
-          : "Premium",
+      planName: isDevelopmentOnly(matching.metadata)
+        ? "Development entitlement — no billing"
+        : "Premium",
       userId,
     };
   }
@@ -87,10 +72,7 @@ export class PersistedEntitlementService {
       );
     }
 
-    if (
-      this.env.ENTITLEMENT_ADMIN_DEVELOPMENT_ENABLED?.trim().toLowerCase() !==
-      "true"
-    ) {
+    if (this.env.ENTITLEMENT_ADMIN_DEVELOPMENT_ENABLED?.trim().toLowerCase() !== "true") {
       throw new ApiError(
         403,
         "development_entitlements_disabled",
@@ -107,9 +89,7 @@ export class PersistedEntitlementService {
     }
 
     const startsAt = this.now();
-    const endsAt =
-      input.endsAt ??
-      new Date(startsAt.getTime() + 30 * 86_400_000);
+    const endsAt = input.endsAt ?? new Date(startsAt.getTime() + 30 * 86_400_000);
 
     if (endsAt <= startsAt) {
       throw new ApiError(

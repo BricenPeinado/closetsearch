@@ -267,10 +267,7 @@ export function getAccountDataExport(
       createdAt: account.createdAt,
       currencyPreference: account.currencyPreference,
       id: account.id,
-      onboardingPreferences: parseJson(
-        account.onboardingPreferencesJson,
-        {},
-      ),
+      onboardingPreferences: parseJson(account.onboardingPreferencesJson, {}),
       username: account.username,
     },
     alertMatches,

@@ -32,9 +32,9 @@ function parseReasons(value: string) {
       .filter((reason): reason is { code: string; label: string } => {
         return Boolean(
           reason &&
-            typeof reason === "object" &&
-            typeof (reason as { code?: unknown }).code === "string" &&
-            typeof (reason as { label?: unknown }).label === "string",
+          typeof reason === "object" &&
+          typeof (reason as { code?: unknown }).code === "string" &&
+          typeof (reason as { label?: unknown }).label === "string",
         );
       })
       .map((reason) => ({
@@ -84,9 +84,10 @@ function selectAlertMatchByWatchlistAndListing(watchlistId: string, listingId: s
 }
 
 export function listAlertMatchesByUserId(userId: string) {
-  return ((getDatabase()
-    .prepare(
-      `SELECT
+  return (
+    getDatabase()
+      .prepare(
+        `SELECT
         id,
         user_id,
         watchlist_id,
@@ -101,8 +102,9 @@ export function listAlertMatchesByUserId(userId: string) {
       FROM alert_matches
       WHERE user_id = ?
       ORDER BY last_matched_at DESC, first_matched_at DESC, id DESC`,
-    )
-    .all(userId) as unknown as AlertMatchRow[])).map(mapAlertMatchRow);
+      )
+      .all(userId) as unknown as AlertMatchRow[]
+  ).map(mapAlertMatchRow);
 }
 
 export function upsertAlertMatch(input: PersistAlertMatchInput) {

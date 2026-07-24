@@ -72,11 +72,7 @@ export function hashSessionToken(token: string) {
     .digest("hex");
 }
 
-export function formatSessionCookie(
-  name: string,
-  value: string,
-  maxAgeSeconds: number,
-) {
+export function formatSessionCookie(name: string, value: string, maxAgeSeconds: number) {
   const authConfig = getAuthConfig();
   const attributes = [
     `${name}=${encodeURIComponent(value)}`,
@@ -110,10 +106,7 @@ export function getSessionTokenFromRequest(request: IncomingMessage) {
   return cookies.get(authConfig.cookieName);
 }
 
-export function createAuthSession(
-  userId: string,
-  request: IncomingMessage,
-): CreatedAuthSession {
+export function createAuthSession(userId: string, request: IncomingMessage): CreatedAuthSession {
   const authConfig = getAuthConfig();
   const token = randomBytes(32).toString("base64url");
   const createdAt = new Date();
@@ -133,11 +126,7 @@ export function createAuthSession(
   insertAuthSession(session);
 
   return {
-    cookieValue: formatSessionCookie(
-      authConfig.cookieName,
-      token,
-      authConfig.sessionTtlSeconds,
-    ),
+    cookieValue: formatSessionCookie(authConfig.cookieName, token, authConfig.sessionTtlSeconds),
     session,
   };
 }
@@ -162,9 +151,7 @@ export function revokeAllSessionsForUser(userId: string) {
   return revokeAuthSessionsByUserId(userId, new Date().toISOString());
 }
 
-export function getAuthSessionFromRequest(
-  request: IncomingMessage,
-): AuthSessionResolution {
+export function getAuthSessionFromRequest(request: IncomingMessage): AuthSessionResolution {
   const token = getSessionTokenFromRequest(request);
 
   if (!token) {

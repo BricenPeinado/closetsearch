@@ -33,9 +33,7 @@ function normalizeHttpUrl(value: unknown) {
 
   try {
     const url = new URL(normalizedValue);
-    return url.protocol === "http:" || url.protocol === "https:"
-      ? url.toString()
-      : undefined;
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
   } catch {
     return undefined;
   }
@@ -56,8 +54,7 @@ function findAspect(aspects: EbayRawAspect[] | undefined, name: string) {
 }
 
 function normalizeBrand(raw: EbayRawItemSummary) {
-  const name = toTrimmedString(findAspect(raw.localizedAspects, "Brand")) ||
-    "Unknown brand";
+  const name = toTrimmedString(findAspect(raw.localizedAspects, "Brand")) || "Unknown brand";
   return resolveCanonicalBrand(name);
 }
 
@@ -76,25 +73,15 @@ function normalizeCondition(value: unknown): ListingCondition | undefined {
     return "new_with_tags";
   }
 
-  if (
-    condition.includes("new without tags") ||
-    condition.includes("new other")
-  ) {
+  if (condition.includes("new without tags") || condition.includes("new other")) {
     return "new_without_tags";
   }
 
-  if (
-    condition.includes("excellent") ||
-    condition.includes("like new")
-  ) {
+  if (condition.includes("excellent") || condition.includes("like new")) {
     return "excellent";
   }
 
-  if (
-    condition.includes("good") ||
-    condition.includes("pre-owned") ||
-    condition.includes("used")
-  ) {
+  if (condition.includes("good") || condition.includes("pre-owned") || condition.includes("used")) {
     return "good";
   }
 
@@ -110,9 +97,7 @@ function normalizeCondition(value: unknown): ListingCondition | undefined {
 }
 
 function normalizeListingType(buyingOptions: string[] | undefined): ListingType {
-  const normalizedOptions = (buyingOptions ?? []).map((option) =>
-    option.trim().toUpperCase(),
-  );
+  const normalizedOptions = (buyingOptions ?? []).map((option) => option.trim().toUpperCase());
 
   if (normalizedOptions.includes("AUCTION")) {
     return "auction";
@@ -157,12 +142,8 @@ function normalizeImage(
 function normalizeImages(raw: EbayRawItemSummary, title: string) {
   const candidates = [
     raw.image ? normalizeImage(raw.image, "primary", title) : undefined,
-    ...(raw.additionalImages ?? []).map((image) =>
-      normalizeImage(image, "alternate", title),
-    ),
-    ...(raw.thumbnailImages ?? []).map((image) =>
-      normalizeImage(image, "thumbnail", title),
-    ),
+    ...(raw.additionalImages ?? []).map((image) => normalizeImage(image, "alternate", title)),
+    ...(raw.thumbnailImages ?? []).map((image) => normalizeImage(image, "thumbnail", title)),
   ].filter((image): image is ListingImage => image !== undefined);
   const seenUrls = new Set<string>();
 
@@ -224,23 +205,14 @@ function normalizeSeller(raw: EbayRawItemSummary): ListingSeller | undefined {
   };
 }
 
-function normalizeShippingOption(
-  raw: EbayRawShippingOption,
-): ListingShipping | undefined {
+function normalizeShippingOption(raw: EbayRawShippingOption): ListingShipping | undefined {
   const cost = createMoneyFromMajor(
     toTrimmedString(raw.shippingCost?.value),
     raw.shippingCost?.currency,
   );
-  const minEstimatedDeliveryAt = normalizeTimestamp(
-    raw.minEstimatedDeliveryDate,
-  );
-  const maxEstimatedDeliveryAt = normalizeTimestamp(
-    raw.maxEstimatedDeliveryDate,
-  );
-  const type =
-    toTrimmedString(raw.shippingCostType) ||
-    toTrimmedString(raw.type) ||
-    undefined;
+  const minEstimatedDeliveryAt = normalizeTimestamp(raw.minEstimatedDeliveryDate);
+  const maxEstimatedDeliveryAt = normalizeTimestamp(raw.maxEstimatedDeliveryDate);
+  const type = toTrimmedString(raw.shippingCostType) || toTrimmedString(raw.type) || undefined;
 
   if (!cost && !minEstimatedDeliveryAt && !maxEstimatedDeliveryAt && !type) {
     return undefined;
@@ -267,11 +239,11 @@ function getLowestShipping(
   return normalizedOptions.sort((left, right) => {
     const leftCost =
       left.cost?.currency === price.currency
-        ? left.cost.amountMinor ?? Number.MAX_SAFE_INTEGER
+        ? (left.cost.amountMinor ?? Number.MAX_SAFE_INTEGER)
         : Number.MAX_SAFE_INTEGER;
     const rightCost =
       right.cost?.currency === price.currency
-        ? right.cost.amountMinor ?? Number.MAX_SAFE_INTEGER
+        ? (right.cost.amountMinor ?? Number.MAX_SAFE_INTEGER)
         : Number.MAX_SAFE_INTEGER;
     return leftCost - rightCost;
   })[0];
@@ -309,18 +281,12 @@ export function normalizeEbayItemSummary(
   const fetchedAt = normalizeTimestamp(fetchedAtValue);
   const providerListingId = toTrimmedString(raw.itemId);
   const title = toTrimmedString(raw.title);
-  const sourceUrl = normalizeHttpUrl(
-    raw.itemAffiliateWebUrl || raw.itemWebUrl,
-  );
+  const sourceUrl = normalizeHttpUrl(raw.itemAffiliateWebUrl || raw.itemWebUrl);
   const priceAmount = raw.price ?? raw.currentBidPrice;
-  const price = createMoneyFromMajor(
-    toTrimmedString(priceAmount?.value),
-    priceAmount?.currency,
-  );
+  const price = createMoneyFromMajor(toTrimmedString(priceAmount?.value), priceAmount?.currency);
   const images = normalizeImages(raw, title);
   const listedAt =
-    normalizeTimestamp(raw.itemOriginDate) ??
-    normalizeTimestamp(raw.itemCreationDate);
+    normalizeTimestamp(raw.itemOriginDate) ?? normalizeTimestamp(raw.itemCreationDate);
   const endedAt = normalizeTimestamp(raw.itemEndDate);
 
   if (
@@ -345,8 +311,7 @@ export function normalizeEbayItemSummary(
     [...(raw.categories ?? [])]
       .reverse()
       .map((entry) => toTrimmedString(entry.categoryName))
-      .find(Boolean) ??
-    toTrimmedString(raw.categoryPath).split("|").filter(Boolean).at(-1);
+      .find(Boolean) ?? toTrimmedString(raw.categoryPath).split("|").filter(Boolean).at(-1);
   const seller = normalizeSeller(raw);
   const sellerIsUnverified = seller?.trustTier === "unverified";
 
@@ -359,8 +324,7 @@ export function normalizeEbayItemSummary(
       name: ebayProviderName,
       dataOrigin: "official_api",
       isMock: false,
-      marketplaceId:
-        toTrimmedString(raw.listingMarketplaceId) || undefined,
+      marketplaceId: toTrimmedString(raw.listingMarketplaceId) || undefined,
     },
     sourceUrl,
     title,
@@ -406,8 +370,7 @@ export function normalizeEbayItemSummary(
     shipping: shipping
       ? {
           ...shipping,
-          originCountry:
-            toTrimmedString(raw.itemLocation?.country) || undefined,
+          originCountry: toTrimmedString(raw.itemLocation?.country) || undefined,
         }
       : undefined,
     market: {

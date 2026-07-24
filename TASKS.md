@@ -1,322 +1,253 @@
 # Tasks
 
-ClosetSearch should be built in focused, reviewable passes. Each milestone should leave the repo in a clearer, more functional state than it found it.
-
-## Foundation Roadmap
-
-These milestones established the current app skeleton, placeholder systems, and shared contracts.
-
-## Milestone 1: Product and Repo Foundation
-
-- [x] Refine root documentation
-- [x] Define phased product scope
-- [x] Clarify architecture boundaries
-- [x] Align normalized domain model direction
-- [x] Clarify provider contract direction
-- [x] Confirm repo structure
-- [x] Identify development scripts and standards needed for Milestone 2
-
-Exit criteria:
-
-- README is a useful entry point.
-- PRODUCT defines current foundation, V1 target, later phases, and non-goals.
-- ARCHITECTURE defines system boundaries and implementation direction.
-- TASKS is phased and reviewable.
-- DECISIONS records durable product and architecture choices.
-
-## Milestone 2: App Skeleton and Tooling
-
-- [x] Choose package manager and workspace setup
-- [x] Choose web app runtime/framework
-- [x] Choose API runtime/framework
-- [x] Add TypeScript configuration
-- [x] Add lint, typecheck, format, and test scripts
-- [x] Create runnable web app shell
-- [x] Create runnable API app shell
-- [x] Add placeholder routes/pages for Home, Search, and Brands
-- [x] Add basic loading, empty, and error state patterns
-
-## Milestone 3: Listing and Provider Foundations
-
-- [x] Finalize normalized listing model
-- [x] Finalize search query model
-- [x] Finalize brand model
-- [x] Finalize provider search contract
-- [x] Add mock provider
-- [x] Add provider normalization tests
-- [x] Add server-side search flow using the mock provider
-- [x] Return frontend-consumable normalized results
-
-## Milestone 4: Home Feed Foundation
-
-- [x] Build home feed UI
-- [x] Build listing card component
-- [x] Render normalized listing cards
-- [x] Add simple signed-out feed source
-- [x] Add loading, empty, and error states
-- [x] Add basic pagination or infinite-scroll behavior
-
-## Milestone 5: Search Experience
-
-- [x] Build global search entry point
-- [x] Build search results page
-- [x] Connect search UI to normalized search flow
-- [x] Add initial useful filters
-- [x] Add sort options supported by the provider layer
-- [x] Add source/provider filters when multiple providers exist
-
-## Milestone 6: Brand Browsing
-
-- [x] Define initial brand dataset
-- [x] Create brand directory page
-- [x] Add brand search/filtering
-- [x] Create individual brand page shell if needed
-- [x] Connect brand pages to search flows where appropriate
-
-## Milestone 7: Accounts and Personalization Foundation
-
-- [x] Add signup and login
-- [x] Add onboarding survey
-- [x] Save initial user preferences
-- [x] Add likes/hearts
-- [x] Add profile surface
-- [x] Use preferences and likes in simple recommendation rules
-
-## Milestone 8: Premium Analytics Foundation
-
-- [x] Define premium analytics product boundaries
-- [x] Define premium access behavior
-- [x] Define market insight model
-- [x] Define underpriced listing signal model
-- [x] Add analytics shell only after core feed/search is stable
-
-## Milestone 9: Trust / Fake-Risk Foundation
-
-- [x] Define safe fake-risk product language
-- [x] Define risk-signal model
-- [x] Establish disclaimers and uncertainty framing
-- [x] Explore source confidence and anomaly inputs
-- [x] Add UI patterns only after core product and analytics foundations are stable
-
-## Post-Foundation Functional Roadmap
-
-The next milestones focus on turning the current foundation into a more real, reliable product. Real provider data, persistence, auth, and QA now take priority over additional placeholder systems.
-
-## Milestone 10: Stabilization + QA Baseline
-
-- [x] Verify all routes load correctly
-- [x] Fix TypeScript, test, and build issues
-- [x] Test feed, search, brands, auth, profile, analytics, and risk flows together
-- [x] Remove stale milestone or scaffold copy from the UI if any remains
-- [x] Document known limitations and fragile areas
-
-Exit criteria:
-
-- The app builds and typechecks cleanly.
-- Core routes are manually verified.
-- Known limitations are documented instead of hidden.
-
-## Milestone 11: Real Data Provider Foundation
-
-- [x] Add provider environment configuration
-- [x] Add provider enable/disable flags
-- [x] Add API-key handling patterns
-- [x] Add provider error boundaries and fallback behavior
-- [x] Add rate-limit friendly request patterns
-- [x] Add normalized real-data tests
-- [x] Add a provider health/debug endpoint if useful
-
-Exit criteria:
-
-- Real providers can be turned on or off cleanly.
-- Secrets and provider failures stay outside the UI layer.
-- Mock and real provider paths are testable side by side.
-
-## Milestone 12: First Real Provider Integration
-
-- [x] Add the first real marketplace provider
-- [x] Normalize real listings into shared models
-- [x] Support real image, title, brand, source, price, and `sourceUrl`
-- [x] Handle missing or partial provider fields safely
-- [x] Add provider-specific tests
-- [x] Keep the mock provider available for local fallback
-
-Exit criteria:
-
-- One real provider works through the shared provider contract.
-- The app can render real listings without source-specific UI logic.
-
-## Milestone 13: Real Feed + Pagination
-
-- [x] Connect feed and search to real provider pagination
-- [x] Support infinite scroll or load-more with real cursors/pages
-- [x] Dedupe listings across pages and providers
-- [x] Improve loading, error, and empty states for real fetches
-- [x] Add light caching for repeated searches where useful
-
-Exit criteria:
-
-- Feed and search can page through real results reliably.
-- Repeated requests behave predictably and do not spam providers.
-
-## Milestone 13.5: Grailed Dynamic Credentials + Integrated Scraping Engine
-
-- [x] Implement dynamic HTML credential extractor
-- [x] Establish an in-memory/cache credential storage engine
-- [x] Build automated token rotation and 401/403 retry handling
-- [x] Build the direct Algolia market querying engine for active and sold listings
-- [x] Map Grailed market hits into normalized ClosetSearch listing types
-- [x] Add robust error handling, browser-mimicking headers, and rate-limit safeguards
-- [x] Update tests and provider documentation
-
-Exit criteria:
-
-- Grailed credentials are harvested dynamically instead of hardcoded.
-- Authorized-live Grailed queries can recover once from rotated Algolia credentials.
-- Active listings and sold comps stay behind normalized provider boundaries.
-
-## Milestone 14: Database Persistence
-
-- [x] Choose the database direction
-- [x] Persist users
-- [x] Persist onboarding preferences
-- [x] Persist likes
-- [x] Persist recent and saved searches
-- [x] Persist listing cache if useful
-- [x] Add migration and seed strategy
-
-Exit criteria:
-
-- Core user state survives restarts.
-- Migrations and seed data are documented and runnable.
-
-## Milestone 15: Production Auth Foundation
-
-- [x] Replace lightweight auth with a safer auth flow
-- [x] Add password hashing
-- [x] Add sessions or JWT strategy
-- [x] Add route protection rules where appropriate
-- [x] Add logout and session-expiry behavior
-- [x] Add auth error handling and recovery states
-
-Exit criteria:
-
-- The auth system is no longer demo-grade.
-- Session behavior is predictable and documented.
-
-## Milestone 16: Saved User Features
-
-- [x] Add persistent liked items
-- [x] Add saved searches
-- [x] Add saved filters
-- [x] Add watchlist shell
-- [x] Improve the profile surface
-- [x] Add user settings such as preferred currency
-
-Exit criteria:
-
-- Key user actions persist across sessions.
-- Profile becomes a useful account surface instead of a foundation shell.
-
-## Milestone 17: Personalization V2
-
-- [x] Refine ranking weights
-- [x] Use real likes and preferences
-- [x] Improve brand and category boosts
-- [x] Add diversity and exploration balancing
-- [x] Avoid repetitive feed results
-- [x] Document recommendation scoring inputs
-
-Exit criteria:
-
-- Personalized results are noticeably better than generic fallback.
-- Recommendation inputs remain explainable and reviewable.
-
-## Milestone 18: Real Analytics V1
-
-- [x] Collect price snapshots
-- [x] Compute simple brand and category pricing ranges
-- [x] Compare listing price to observed market ranges
-- [x] Show simple under-market signals
-- [x] Keep disclaimers clear
-- [x] Avoid unsupported predictions
-
-Exit criteria:
-
-- Analytics provide useful observed pricing context.
-- The product still avoids forecasting claims it cannot support.
-
-## Milestone 19: Alerts + Watchlists
-
-- [x] Add watched brands
-- [x] Add watched searches
-- [x] Add watched price ranges
-- [x] Add an alert-ready data model
-- [x] Add notification preference shell
-- [x] Leave email/push integration for a later dedicated pass
-
-Exit criteria:
-
-- Users can save alert intent and notification preferences shell data while email, push, SMS, and active monitoring remain intentionally inactive.
-- The data model supports future notifications cleanly.
-
-## Milestone 20: Beta Launch Readiness
-
-- [x] Create a deployment checklist
-- [x] Document environment variables
-- [x] Improve logging and error handling
-- [x] Add privacy and data-use copy
-- [x] Define seed/demo data strategy
-- [x] Create a manual QA checklist
-- [x] Document known limitations
-- [x] Define a beta feedback plan
-
-Exit criteria:
-
-- The app is honest about its limits.
-- The repo is ready for a constrained beta, not full production scale.
-
-## Milestone 21: Beta Feedback Triage + Stability Hardening
-
-- [x] Create beta issue/feedback templates
-- [x] Add feedback triage rubric
-- [x] Fix launch-blocking UX and error-state issues
-- [x] Harden provider failure and empty-state behavior
-- [x] Harden auth/session recovery behavior
-- [x] Review analytics/watchlist wording for beta honesty
-- [x] Add beta smoke-test script or checklist runner if practical
-- [x] Document post-beta priorities
-
-Exit criteria:
-
-- Beta feedback can be captured and prioritized consistently.
-- Common beta failure states are handled gracefully.
-- The app feels stable enough for a small tester group.
-
-## Milestone 22: Launch Candidate Hardening + Release Cut
-
-- [x] Freeze launch-candidate scope
-- [x] Review and resolve launch-blocking beta issues
-- [x] Add release-candidate checklist
-- [x] Add smoke-test coverage for core launch flows
-- [x] Verify provider fallback behavior
-- [x] Verify auth/session/saved-user flows
-- [x] Verify analytics/watchlist limitation copy
-- [x] Prepare release notes template
-- [x] Prepare rollback plan
-- [x] Document launch go/no-go criteria
-
-Exit criteria:
-
-- The repo can produce a clean release candidate.
-- Launch blockers are fixed or explicitly deferred.
-- Release, rollback, and go/no-go steps are documented.
-
-## Rules for Development Passes
-
-- One focused pass at a time.
-- Keep docs, tooling, contracts, and features in separate passes when possible.
-- Verify each pass before continuing.
-- Prefer small normalized contracts over source-specific shortcuts.
-- Do not overbuild premium analytics, AI, or fake-risk before core discovery and search are strong.
-- Real provider data, persistence, and QA now take priority over additional placeholder systems.
+This roadmap reports the repository as it exists now. A checked item means the
+implementation and its scoped automated evidence are present; it does not turn
+an external credential, legal approval, production dataset, or provider account
+into something ClosetSearch possesses.
+
+Status categories are intentionally separate:
+
+- **Foundation complete:** durable product/contracts established.
+- **Production implementation complete:** internal code and executable tests are
+  present at the stated scope.
+- **Externally blocked:** safe internal work is complete or can continue, but
+  activation requires approval, credentials, configuration, or data not in the
+  repository.
+- **Intentionally deferred:** the product must not claim or enable the feature
+  yet.
+
+## Foundation complete
+
+- [x] pnpm TypeScript monorepo with React/Vite web, HTTP API, shared, providers,
+      and ML packages
+- [x] normalized listing/search/brand/user/analytics/recommendation contracts
+- [x] provider-adapter boundary that keeps raw payloads private
+- [x] deterministic mock fixtures for local development and normal CI
+- [x] feed, search, brand directory, auth/onboarding/profile, likes, saved
+      searches, saved filters, watchlists, and analytics product surfaces
+- [x] canonical brand/alias dataset shared by normalization and product browsing
+- [x] cautious analytics and authenticity language boundaries
+- [x] immutable pre-implementation
+      [production gap matrix](docs/production-gap-matrix.md)
+- [x] source-by-source
+      [provider acquisition matrix](docs/provider-acquisition-matrix.md)
+
+## Production implementation complete
+
+### Provider and discovery internals
+
+- [x] official eBay Browse adapter with OAuth client-credential flow, native
+      offset pagination, active-listing capability reporting, exact money,
+      attribution fields, URL validation, fixtures, malformed-payload tests, and no
+      claim of sold-history support
+- [x] Grailed adapter fixtures/normalization and an authorization gate requiring
+      both `GRAILED_SCRAPING_ALLOWED=true` and a retained
+      `GRAILED_AUTHORIZATION_REFERENCE`
+- [x] classified terminal/retryable failures, timeouts, `Retry-After`, bounded
+      exponential retry, pacing, concurrency limits, and circuit behavior
+- [x] deterministic per-provider continuation state and merge tie-breaks
+- [x] source-ID plus conservative canonical-fingerprint deduplication
+- [x] provider freshness/latency/degraded summaries and partial-result behavior
+- [x] 15-second fresh cache plus 60-second stale-while-revalidate window
+- [x] one provider runtime per API process so pacing, concurrency, circuit,
+      credential, health, and cache state persists across requests
+- [x] credential-bearing eBay/Grailed requests are restricted to reviewed HTTPS
+      origins, redirects are manual, Grailed bundles are same-origin, and
+      Algolia application IDs cannot inject a host/path
+- [x] malformed live/provider rows are dropped with degraded metadata while
+      valid rows on the page continue
+- [x] production startup rejects mock mode, active mock provider, and mock
+      fallback
+- [x] normal tests use recorded fixtures and do not call live marketplaces
+
+### Normalized data and web UX
+
+- [x] original/comparison/display/shipping/landed money contracts with integer
+      minor units and exchange-rate provenance
+- [x] deterministic conversion/cache/staleness tests and original-currency
+      fallback when a quote is unavailable
+- [x] no cross-currency numerical comparison without conversion; price sorting
+      remains currency-partitioned
+- [x] normalized lifecycle/freshness, active/sold/stale status, seller,
+      attribution, images, shipping, and analytics eligibility
+- [x] cards with aspect reservation, lazy images, local failure fallback,
+      marketplace CTA, accessible like state, optional metadata, and honest
+      analytics states
+- [x] URL-persisted filters, duplicate prevention, IntersectionObserver paging,
+      accessible Load More fallback, scroll restoration, retry/partial/stale/session
+      states, keyboard focus, and responsive layouts
+- [x] placeholder authenticity risk hidden/kept out of production claims
+
+### PostgreSQL and worker
+
+- [x] PostgreSQL is required by production startup; SQLite is explicitly
+      local/test compatibility only
+- [x] pooled PostgreSQL access, bounded connection/query/statement timeouts,
+      transient transaction retry, and database metrics
+- [x] forward migrations `001` through `006` with checksums, advisory locking,
+      pending-state readiness, rename/checksum/out-of-order drift detection
+- [x] production schema for identities/sessions/settings, catalog/history,
+      currency, ingestion/jobs, engagement, saved features/watchlists, alerts,
+      entitlements/billing idempotency, ML metadata, and operations/audit
+- [x] production request paths for auth, onboarding, likes, searches, filters,
+      watchlists, settings, account security, alerts, and engagement use PostgreSQL
+- [x] unique/check/foreign-key constraints and indexes for current query paths
+- [x] idempotent concurrent listing upserts and transactional rollback tests
+- [x] exact ingestion replay dedupe plus later unchanged-observation freshness
+      updates without duplicate price history
+- [x] deterministic price history uses database monotonic
+      `observation_version`, including repeated same-timestamp transitions
+- [x] separate worker entry point with durable leases/heartbeat, retries,
+      schedules, run state, continuation checkpoints, and graceful stop
+- [x] worker filters mock sources, ingests authorized real providers only,
+      persists listing lifecycle/price changes, marks stale listings, rolls
+      engagement, and matches watchlists
+- [x] logical backup/restore scripts with custom archive verification, checksum,
+      optional fail-closed `age` encryption, retention, and guarded isolated target
+
+### Engagement, entitlements, accounts, and alerts
+
+- [x] qualified viewport impressions require 50% visibility for one second
+- [x] PostgreSQL feed/search make sanitized provider listings durable before
+      response; engagement and likes reference the server-owned catalog
+- [x] durable, event-ID-deduped viewport/click/like/unlike/search/filter/save/
+      watchlist/recommendation events with opaque privacy-session identifiers
+- [x] daily catalog and per-user feature aggregates
+- [x] username-based premium access removed
+- [x] persisted provider-neutral entitlements with expiry/revocation semantics
+- [x] non-production development grant requires a verified admin identity and
+      cannot masquerade as billing
+- [x] worker-driven idempotent watchlist matching and in-app alert inbox
+- [x] an ingestion crash after catalog/alert persistence safely replays matching
+      on the duplicate observation without duplicating a match or delivery
+- [x] unseen/seen/dismissed alert lifecycle plus outbound-repository
+      frequency/quiet-hour scheduling, durable attempts, and
+      retry-wait/suppression/dead-letter states
+- [x] scrypt password hashing, central 12–128 character password policy,
+      session-token hashing, origin/CSRF controls, body limits, secure production
+      cookies, and auth/account endpoint rate limits
+- [x] verified-email, password-reset, account-export, and account-deletion API
+      flows use short-lived, purpose-bound, hashed, superseding, one-time tokens
+- [x] web account-security controls and one-time action pages for email
+      verification, password reset, export download, and confirmed deletion
+- [x] password reset revokes all sessions; exports omit credential/token hashes;
+      deletion removes directly user-owned state while pseudonymous engagement
+      loses its user association under the documented draft retention boundary
+
+### ML and market analysis
+
+- [x] reproducible offline ML package with versioned feature schemas,
+      deterministic seeds/fingerprints, temporal splits, leakage tests, immutable
+      artifacts, and model/dataset cards
+- [x] hybrid implicit/content recommendation candidate with cold-start,
+      popularity/freshness, provider/brand diversity, and offline ranking metrics
+- [x] guarded API recommendation runtime with disabled/shadow/active modes,
+      artifact/version/lifecycle/staleness checks, 500-candidate bound, 1–250 ms
+      timeout, non-sensitive reasons, and rules fallback
+- [x] recommendation request metadata and metrics include selected strategy,
+      fallback reason, artifact/model/feature version, overlap, and latency
+- [x] confirmed-sold fair-value dataset boundary; asking price is prohibited as
+      a realized target/feature
+- [x] robust comparable selection, outlier handling, temporal/segment
+      evaluation, interval/drift/staleness gates, safe wording, and observed-range
+      fallback
+- [x] PostgreSQL observed analytics excludes currently stale inventory,
+      separates asking/sold, selects sold-first per same-currency segment, and
+      reports sample/currency/basis/freshness/source context
+
+### API, tests, and operations
+
+- [x] domain route modules for operations, brands, engagement, entitlements,
+      PostgreSQL auth/account/saved features, and analytics while preserving public
+      behavior
+- [x] request IDs, consistent errors, security headers, redaction, body limits,
+      rate limits, liveness/readiness/metrics, startup validation, and graceful
+      shutdown
+- [x] redacted PostgreSQL-backed operations status plus bounded-cardinality
+      request/provider latency, rate-limit/cache, worker-job, ingestion-lag, and
+      provider-health metrics
+- [x] published OpenAPI JSON with automated route/schema/security contract tests
+- [x] provider, pagination/dedupe/cache/resilience, currency, deterministic
+      price, PostgreSQL repository, worker lease/resume, ML leakage/training/
+      evaluation, auth/security, component, and Playwright tests
+- [x] axe-core WCAG A/AA browser scans for signed-out Home/Login and signed-in
+      Profile/Alerts, including a measured shared muted-text contrast correction
+- [x] separately gated real-PostgreSQL tests for clean/prior-schema migration,
+      concurrent idempotent upserts, transaction rollback, lease contention, and
+      durable session revocation
+- [x] API/web/worker Dockerfiles, Compose PostgreSQL/migration/API/worker/web
+      topology, reverse proxy, CI jobs, infrastructure validation, and production
+      no-mock smoke script
+- [x] deployment, incident, backup/restore, and roll-forward/rollback runbooks
+
+## Externally blocked
+
+- [ ] **eBay live activation:** obtain production Buy API client credentials,
+      partner eligibility/agreements, approved use/retention scope, and any required
+      affiliate campaign attribution; then run a non-mock staging smoke.
+- [ ] **Grailed live activation:** retain exact written permission covering the
+      access method, hosts, identities, rate/concurrency, fields, retention,
+      attribution, price history, analytics/ML, and revocation; set the repository
+      reference and run a separately authorized staging smoke.
+- [ ] **Two independently live real providers:** neither adapter is authorized in
+      this checkout; fixtures do not satisfy this target.
+- [ ] **Transactional account email:** select/configure an approved provider and
+      sender domain, then test verified-address delivery, suppression, retries, and
+      privacy behavior.
+- [ ] **Production billing:** select/configure a subscription provider, verify
+      signed webhooks and idempotency end to end, and document refund/cancellation
+      behavior.
+- [ ] **Live exchange rates:** select/configure an approved source and persistence
+      schedule; until then the default runtime intentionally displays original
+      currency.
+- [ ] **ML promotion data:** collect privacy-reviewed temporal production
+      snapshots with enough users/outcomes and confirmed sold comparables.
+- [ ] **Public no-mock staging evidence:** requires an authorized provider,
+      deployed HTTPS environment, secret manager, and current provider approval.
+
+## Intentionally deferred
+
+- [ ] push notifications and SMS
+- [ ] outbound email alerts until verified email plus a delivery provider are
+      configured
+- [ ] active recommendation ML until every sample/relevance/diversity/
+      concentration/latency gate passes and promotion is approved
+- [ ] fair-value model output until accuracy and interval-coverage gates pass
+- [ ] authenticity/fake verdicts or production fake-risk scoring until a labeled
+      dataset, abuse review, calibration, and evaluation plan exist
+- [ ] OAuth/social login, seller tools, marketplace posting, and social messaging
+- [ ] shared distributed API rate limiting and shared provider cache before
+      unrestricted horizontal scaling
+- [ ] further split the remaining legacy API dispatcher
+      (`apps/api/src/app.ts`) and web route/state composition
+      (`apps/web/src/app.tsx`); domain repositories/routes and the most
+      independent web components are extracted, but both entry modules remain
+      oversized
+- [ ] add an approved external error-tracking sink and deployment dashboards;
+      current redacted structured logs and Prometheus metrics have no
+      vendor-neutral exception-export hook
+
+## Remaining release evidence
+
+These are open even where the implementation exists:
+
+- [ ] obtain a current clean pass for every required root command
+- [ ] record five consecutive clean full test runs after the final code/doc state
+- [ ] retain a successful CI run of the gated real-PostgreSQL migration,
+      concurrent-write, lease-contention, rollback, and session-revocation suite
+- [ ] retain PostgreSQL restart-persistence evidence across process/database
+      restarts; the gated repository suite does not itself restart the service
+- [ ] create an encrypted production-style backup and complete a timed isolated
+      restore drill with retained row-count/schema evidence
+- [ ] build and boot the current Compose topology and validate every healthcheck
+- [ ] run critical signed-out, signed-in, degraded-provider, database-restart,
+      analytics, watchlist/inbox, account recovery, and session-expiry flows end to
+      end
+- [ ] run a provider-authorized staging smoke proving no fixture inventory
+- [ ] review dependency/image scans and operational dashboards
+
+This workstation has no Docker executable. An ephemeral local PostgreSQL 17.10
+run verified migrations, real-engine repository behavior, PostgreSQL-backed
+Playwright, and a checksummed isolated logical restore. That is valid local
+engine evidence; it is not a Compose boot, managed-HA/PITR, encrypted off-host
+backup, or live-provider claim.

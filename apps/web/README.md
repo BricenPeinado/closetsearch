@@ -1,21 +1,32 @@
 # Web App
 
-This folder will contain the user-facing ClosetSearch web app.
+`@closetsearch/web` is the React/Vite product.
 
-Current status: placeholder only.
+It implements feed, search, brands, auth/onboarding/profile, likes, saved
+features, watchlists, an in-app alert inbox, and observed analytics. Account
+security screens support setting an email, requesting verification/reset/export,
+consuming one-time verification/reset/export links, downloading an export, and
+confirmed account deletion. Outbound action-link delivery still requires an
+approved email provider. Worker-generated inbox data requires PostgreSQL;
+SQLite compatibility does not run watchlist matching.
 
-Future responsibilities:
+Listing cards show normalized provenance, exact original/display money when
+conversion exists, lifecycle/freshness, optional seller/shipping metadata,
+accessible like state, lazy images, and a local failure fallback.
 
-- render the home feed surface
-- render search and brand browsing surfaces
-- display normalized listing cards
-- handle loading, empty, and error states
-- call the API app or local development handlers
+Feed/search support URL-persisted filters, duplicate prevention,
+IntersectionObserver loading, an accessible Load More fallback, scroll
+restoration, and explicit empty/retry/partial/stale/session-expired states.
 
-Not responsible for:
+The client emits privacy-conscious engagement events. An impression is emitted
+only after a listing is at least 50% visible for one second; a server response
+does not count as an impression.
 
-- provider-specific parsing
-- raw marketplace response handling
-- auth, analytics, fake-risk, or personalization logic during the initial build
+```sh
+corepack pnpm --filter @closetsearch/web dev
+corepack pnpm --filter @closetsearch/web test
+corepack pnpm --filter @closetsearch/web build
+```
 
-No web framework has been chosen yet.
+`VITE_API_BASE_URL` is embedded at build time. The web app contains no
+marketplace or database credentials.

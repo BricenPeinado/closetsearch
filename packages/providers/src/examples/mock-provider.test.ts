@@ -67,9 +67,9 @@ describe("mockProvider", () => {
     }
 
     expect(response.listings.length).toBeGreaterThan(0);
-    expect(response.listings.every((listing) => listing.title.toLowerCase().includes("jacket"))).toBe(
-      true,
-    );
+    expect(
+      response.listings.every((listing) => listing.title.toLowerCase().includes("jacket")),
+    ).toBe(true);
     expect(response.listings[0]).toMatchObject({
       providerId: "mock",
       source: {

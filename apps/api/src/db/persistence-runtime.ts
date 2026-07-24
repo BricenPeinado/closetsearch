@@ -1,21 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
-import {
-  closeDatabaseConnection,
-  getDatabase,
-} from "./database.js";
-import {
-  resolvePersistenceDriver,
-  type PersistenceDriver,
-} from "./persistence-driver.js";
-import {
-  createPostgresDatabase,
-  type PostgresDatabase,
-} from "./postgres/database.js";
+import { closeDatabaseConnection, getDatabase } from "./database.js";
+import { resolvePersistenceDriver, type PersistenceDriver } from "./persistence-driver.js";
+import { createPostgresDatabase, type PostgresDatabase } from "./postgres/database.js";
 import { PostgresDataPlane } from "./postgres/data-plane.js";
-import {
-  inspectPostgresMigrationState,
-  runPostgresMigrations,
-} from "./postgres/migrations.js";
+import { inspectPostgresMigrationState, runPostgresMigrations } from "./postgres/migrations.js";
 
 export interface PersistenceReadiness {
   driver: PersistenceDriver;
@@ -43,9 +31,7 @@ export class SqlitePersistenceRuntime implements PersistenceRuntime {
   readonly driver = "sqlite" as const;
   private database?: DatabaseSync;
 
-  constructor(
-    private readonly env: Record<string, string | undefined> = process.env,
-  ) {}
+  constructor(private readonly env: Record<string, string | undefined> = process.env) {}
 
   async initialize() {
     this.database ??= getDatabase(this.env);
@@ -100,9 +86,7 @@ export class PostgresPersistenceRuntime implements PersistenceRuntime {
   initialize() {
     if (this.closed) {
       return Promise.reject(
-        new PersistenceNotReadyError(
-          "PostgreSQL persistence has already been closed.",
-        ),
+        new PersistenceNotReadyError("PostgreSQL persistence has already been closed."),
       );
     }
 
@@ -115,24 +99,18 @@ export class PostgresPersistenceRuntime implements PersistenceRuntime {
       await runPostgresMigrations(this.database.pool);
     }
 
-    const migrationState = await inspectPostgresMigrationState(
-      this.database.pool,
-    );
+    const migrationState = await inspectPostgresMigrationState(this.database.pool);
 
     if (!migrationState.ready) {
       throw new PersistenceNotReadyError(
-        `PostgreSQL schema is not ready: ${
-          migrationState.reason ?? "unknown_migration_state"
-        }.`,
+        `PostgreSQL schema is not ready: ${migrationState.reason ?? "unknown_migration_state"}.`,
       );
     }
 
     const databaseState = await this.database.readiness();
 
     if (!databaseState.ready) {
-      throw new PersistenceNotReadyError(
-        `PostgreSQL is unavailable: ${databaseState.errorCode}.`,
-      );
+      throw new PersistenceNotReadyError(`PostgreSQL is unavailable: ${databaseState.errorCode}.`);
     }
   }
 
@@ -158,25 +136,20 @@ export class PostgresPersistenceRuntime implements PersistenceRuntime {
         },
         driver: this.driver,
         ready: databaseState.ready && migrationState.ready,
-        reason:
-          !databaseState.ready
-            ? "postgres_unavailable"
-            : !migrationState.ready
-              ? migrationState.reason
-              : undefined,
+        reason: !databaseState.ready
+          ? "postgres_unavailable"
+          : !migrationState.ready
+            ? migrationState.reason
+            : undefined,
       };
     } catch (error) {
       return {
         details: {
-          errorName:
-            error instanceof Error ? error.name : "UnknownPersistenceError",
+          errorName: error instanceof Error ? error.name : "UnknownPersistenceError",
         },
         driver: this.driver,
         ready: false,
-        reason:
-          error instanceof Error
-            ? error.message
-            : "postgres_readiness_failed",
+        reason: error instanceof Error ? error.message : "postgres_readiness_failed",
       };
     }
   }
@@ -198,9 +171,7 @@ export class PostgresPersistenceRuntime implements PersistenceRuntime {
   }
 }
 
-function parseMigrateOnStart(
-  env: Record<string, string | undefined>,
-) {
+function parseMigrateOnStart(env: Record<string, string | undefined>) {
   const value = env.PERSISTENCE_MIGRATE_ON_START?.trim().toLowerCase();
 
   if (value === "true" || value === "1" || value === "yes") {
@@ -228,9 +199,7 @@ export function createPersistenceRuntime(
     database,
     new PostgresDataPlane(database, {
       requestStore: {
-        ipHintPepper:
-          env.REQUEST_STORE_IP_HINT_PEPPER?.trim() ||
-          env.AUTH_SESSION_PEPPER?.trim(),
+        ipHintPepper: env.REQUEST_STORE_IP_HINT_PEPPER?.trim() || env.AUTH_SESSION_PEPPER?.trim(),
         nodeEnv: env.NODE_ENV,
       },
     }),
@@ -242,9 +211,7 @@ export function createPersistenceRuntime(
 
 let singletonRuntimePromise: Promise<PersistenceRuntime> | undefined;
 
-export function getPersistenceRuntime(
-  env: Record<string, string | undefined> = process.env,
-) {
+export function getPersistenceRuntime(env: Record<string, string | undefined> = process.env) {
   if (!singletonRuntimePromise) {
     const runtimePromise = (async () => {
       const runtime = createPersistenceRuntime(env);
@@ -268,15 +235,11 @@ export function getPersistenceRuntime(
   return singletonRuntimePromise;
 }
 
-export async function getPostgresDataPlane(
-  env: Record<string, string | undefined> = process.env,
-) {
+export async function getPostgresDataPlane(env: Record<string, string | undefined> = process.env) {
   const runtime = await getPersistenceRuntime(env);
 
   if (!(runtime instanceof PostgresPersistenceRuntime)) {
-    throw new PersistenceNotReadyError(
-      "This feature requires PERSISTENCE_DRIVER=postgres.",
-    );
+    throw new PersistenceNotReadyError("This feature requires PERSISTENCE_DRIVER=postgres.");
   }
 
   return runtime.dataPlane;
@@ -305,10 +268,7 @@ export function createPersistenceLifecycleHooks(
       } catch (error) {
         return {
           driver: resolvePersistenceDriver(env),
-          initializationError:
-            error instanceof Error
-              ? error.name
-              : "UnknownPersistenceError",
+          initializationError: error instanceof Error ? error.name : "UnknownPersistenceError",
         };
       }
     },
@@ -318,10 +278,7 @@ export function createPersistenceLifecycleHooks(
       } catch (error) {
         return {
           details: {
-            errorName:
-              error instanceof Error
-                ? error.name
-                : "UnknownPersistenceError",
+            errorName: error instanceof Error ? error.name : "UnknownPersistenceError",
           },
           driver: resolvePersistenceDriver(env),
           ready: false,

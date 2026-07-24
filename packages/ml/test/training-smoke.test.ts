@@ -15,9 +15,7 @@ import { marketFixture, recommendationFixture } from "./fixtures.js";
 
 describe("deterministic training smoke", () => {
   it("validates versioned fixture snapshots and temporal partitions", () => {
-    const recommendationSplit = validateRecommendationSnapshot(
-      recommendationFixture(),
-    );
+    const recommendationSplit = validateRecommendationSnapshot(recommendationFixture());
     const marketSplit = validateMarketSnapshot(marketFixture());
 
     expect(recommendationSplit.train.length).toBeGreaterThan(0);

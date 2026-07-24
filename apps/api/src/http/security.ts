@@ -4,10 +4,7 @@ import { getAuthConfig } from "../auth/config.js";
 
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
-function getHeader(
-  request: IncomingMessage,
-  name: keyof IncomingMessage["headers"],
-) {
+function getHeader(request: IncomingMessage, name: keyof IncomingMessage["headers"]) {
   const value = request.headers[name];
   return Array.isArray(value) ? value[0] : value;
 }
@@ -35,8 +32,7 @@ export function assertCsrfSafeRequest(
   }
 
   const origin =
-    getHeader(request, "origin") ??
-    getOriginFromReferer(getHeader(request, "referer"));
+    getHeader(request, "origin") ?? getOriginFromReferer(getHeader(request, "referer"));
   const fetchSite = getHeader(request, "sec-fetch-site")?.toLowerCase();
   const isProduction = env.NODE_ENV === "production";
   const hasBrowserContext = Boolean(origin || fetchSite);
@@ -47,11 +43,7 @@ export function assertCsrfSafeRequest(
 
   if (!origin) {
     if (isProduction && hasBrowserContext) {
-      throw new ApiError(
-        403,
-        "csrf_rejected",
-        "A trusted request origin is required.",
-      );
+      throw new ApiError(403, "csrf_rejected", "A trusted request origin is required.");
     }
 
     return;
@@ -62,9 +54,7 @@ export function assertCsrfSafeRequest(
   }
 }
 
-export function buildSecurityHeaders(
-  env: Record<string, string | undefined> = process.env,
-) {
+export function buildSecurityHeaders(env: Record<string, string | undefined> = process.env) {
   return {
     "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
     "cross-origin-resource-policy": "same-site",

@@ -34,8 +34,7 @@ function registerPostgresCompatibilityFunctions(memory: IMemoryDb) {
     returns: DataType.text,
   });
   memory.public.registerOperator({
-    implementation: (value: string, pattern: string) =>
-      new RegExp(pattern).test(value),
+    implementation: (value: string, pattern: string) => new RegExp(pattern).test(value),
     left: DataType.text,
     operator: "~",
     returns: DataType.bool,
@@ -43,8 +42,7 @@ function registerPostgresCompatibilityFunctions(memory: IMemoryDb) {
   });
   memory.public.registerFunction({
     args: [DataType.timestamptz, DataType.timestamptz],
-    implementation: (left: Date, right: Date) =>
-      left.getTime() >= right.getTime() ? left : right,
+    implementation: (left: Date, right: Date) => (left.getTime() >= right.getTime() ? left : right),
     name: "greatest",
     returns: DataType.timestamptz,
   });

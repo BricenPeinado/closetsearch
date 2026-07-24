@@ -181,12 +181,7 @@ function slugify(value: string) {
 const brandByKey = new Map<string, Brand>();
 
 for (const brand of CANONICAL_BRANDS) {
-  for (const value of [
-    brand.id,
-    brand.slug,
-    brand.name,
-    ...(brand.aliases ?? []),
-  ]) {
+  for (const value of [brand.id, brand.slug, brand.name, ...(brand.aliases ?? [])]) {
     brandByKey.set(normalizeBrandKey(value), brand);
   }
 }
@@ -206,9 +201,7 @@ export function resolveCanonicalBrand(
   const name = value?.trim() || "Unknown brand";
   const canonical =
     brandByKey.get(normalizeBrandKey(name)) ??
-    (providerSlug
-      ? brandByKey.get(normalizeBrandKey(providerSlug))
-      : undefined);
+    (providerSlug ? brandByKey.get(normalizeBrandKey(providerSlug)) : undefined);
 
   if (canonical) {
     return cloneBrand(canonical);

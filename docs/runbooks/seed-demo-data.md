@@ -1,72 +1,30 @@
 # Seed and Demo Data
 
-## Purpose
+## Scope
 
-ClosetSearch ships with a lightweight seed path so constrained beta environments can demonstrate core flows even when real provider coverage is limited.
-
-## Command
-
-Run from the repo root:
+The current seed command targets the SQLite local/test compatibility database.
+It is for demos and QA, not production bootstrap, billing, provider ingestion,
+or PostgreSQL production state.
 
 ```sh
-corepack pnpm db:seed
+corepack pnpm db:migrate:sqlite
+corepack pnpm db:seed:sqlite
 ```
 
-This delegates to:
+It creates/updates a fixed `closetdemo` account and representative onboarding,
+search/filter/watchlist/settings, and mock observed-listing data. Seed behavior
+is idempotent for its fixed keys and does not intentionally delete unrelated
+records.
 
-```sh
-corepack pnpm --filter @closetsearch/api db:seed
-```
+## Safety
 
-## What the Seed Adds
+- never run demo credentials/data in public production
+- never describe seeded fixtures as marketplace inventory
+- never use the demo account as premium authorization
+- do not use the SQLite seed command against PostgreSQL
+- destructive reset is a separate, explicit operation
 
-The current seed command adds beta-safe demo data only:
-
-- demo user: `closetdemo`
-- demo password: `closetdemo`
-- onboarding preferences
-- recent search
-- saved search
-- saved filter
-- watchlist
-- notification preference shell
-- user settings
-- mock observed listings for analytics sample behavior
-
-No real user personal data or real secrets are seeded.
-
-## Idempotency
-
-The seed command is designed to be rerun safely:
-
-- it targets fixed demo ids or unique keys
-- it updates the seed account and related demo records instead of duplicating them
-- it does not delete unrelated users or wipe real beta data
-
-## Demo vs Real Data
-
-- demo account data is clearly seed-only
-- observed analytics seeded today come from mock listings
-- real provider data, when available, can still coexist beside the demo seed
-- beta docs and in-app copy should continue to explain what is mock, observed, or deferred
-
-## Recommended Beta Usage
-
-- run the seed command for local demos, QA environments, and constrained beta previews
-- do not rely on the demo account as a substitute for testing signup, login, or real saved-user persistence
-- if a beta environment should start clean, skip the seed or reset only the demo environment intentionally
-
-## Suggested Demo Flows
-
-After seeding:
-
-1. Log in as `closetdemo`.
-2. Open Profile and verify saved search, saved filter, watchlist, and settings data.
-3. Open Analytics and verify observed-data sections have sample content.
-4. Verify watchlist copy still says delivery is not active.
-
-## Safety Notes
-
-- do not seed into an environment where demo credentials would confuse real end users without labeling
-- do not replace or delete real user data as part of a normal seed run
-- if you need a destructive reset, handle that as a separate explicit maintenance step
+Production catalog data must come from authorized worker ingestion. Production
+entitlements require the persisted entitlement service, and a development grant
+is non-production-only, disabled by default, and requires a verified admin
+identity.

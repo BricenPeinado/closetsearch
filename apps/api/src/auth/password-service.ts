@@ -1,9 +1,4 @@
-import {
-  createHash,
-  randomBytes,
-  scryptSync,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 const hashKeyLength = 64;
 const saltLength = 16;
@@ -82,10 +77,7 @@ function isLegacySha256Hash(passwordHash: string) {
 function verifyLegacySha256Hash(passwordHash: string, password: string) {
   const candidateHash = createHash("sha256").update(password).digest("hex");
 
-  return timingSafeEqual(
-    Buffer.from(candidateHash, "utf-8"),
-    Buffer.from(passwordHash, "utf-8"),
-  );
+  return timingSafeEqual(Buffer.from(candidateHash, "utf-8"), Buffer.from(passwordHash, "utf-8"));
 }
 
 export function hashPassword(password: string) {
@@ -95,10 +87,7 @@ export function hashPassword(password: string) {
   return formatScryptPasswordHash(salt, derivedKey);
 }
 
-export function verifyPassword(
-  passwordHash: string,
-  password: string,
-): PasswordVerificationResult {
+export function verifyPassword(passwordHash: string, password: string): PasswordVerificationResult {
   if (isLegacySha256Hash(passwordHash)) {
     const isValid = verifyLegacySha256Hash(passwordHash, password);
 

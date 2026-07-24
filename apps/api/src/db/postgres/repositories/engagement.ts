@@ -82,10 +82,7 @@ export class EngagementRepository {
     const eventDate = start.toISOString().slice(0, 10);
 
     return this.database.withTransaction(async (client) => {
-      await client.query(
-        "DELETE FROM listing_engagement_daily WHERE event_date = $1",
-        [eventDate],
-      );
+      await client.query("DELETE FROM listing_engagement_daily WHERE event_date = $1", [eventDate]);
       const result = await client.query(
         `INSERT INTO listing_engagement_daily (
            listing_id,
@@ -116,10 +113,9 @@ export class EngagementRepository {
         [eventDate, start, end],
       );
 
-      await client.query(
-        "DELETE FROM user_listing_engagement_daily WHERE event_date = $1",
-        [eventDate],
-      );
+      await client.query("DELETE FROM user_listing_engagement_daily WHERE event_date = $1", [
+        eventDate,
+      ]);
       await client.query(
         `INSERT INTO user_listing_engagement_daily (
            user_id,
@@ -155,10 +151,7 @@ export class EngagementRepository {
     });
   }
 
-  async getUserListingScores(
-    userId: string,
-    since: Date,
-  ): Promise<Map<string, number>> {
+  async getUserListingScores(userId: string, since: Date): Promise<Map<string, number>> {
     const result = await this.database.query<UserListingScoreRow>(
       `SELECT
          l.provider_id,
@@ -180,10 +173,7 @@ export class EngagementRepository {
     );
 
     return new Map(
-      result.rows.map((row) => [
-        `${row.provider_id}:${row.source_listing_id}`,
-        Number(row.score),
-      ]),
+      result.rows.map((row) => [`${row.provider_id}:${row.source_listing_id}`, Number(row.score)]),
     );
   }
 

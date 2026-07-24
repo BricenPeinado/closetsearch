@@ -1,37 +1,36 @@
-# Launch Go / No-Go
+# Production Go/No-Go
 
-## GO Criteria
+## Go criteria
 
-- install passes
-- typecheck passes
-- build passes
-- lint passes
-- tests pass
-- smoke tests pass
-- API health is good
-- web app loads
-- auth works
-- feed and search work
-- provider failure fallback works
-- no secret leakage appears in logs or UI
-- analytics disclaimers are visible
-- watchlist delivery limitations are visible
-- known limitations are documented
+- every required root command passes on the final SHA
+- five consecutive full test runs pass
+- PostgreSQL `001`–`006` migration/checksum/readiness pass on a real engine
+- encrypted backup and isolated restore evidence meets RPO/RTO
+- current containers boot and all healthchecks pass
+- at least one authorized real provider passes readiness; the release target
+  requires two independently functioning real providers
+- production smoke proves no mock provider/listing/fallback
+- auth, verification/reset/export/deletion, saved state, entitlements,
+  watchlist/inbox, analytics, and session expiry pass staging E2E
+- worker leases/checkpoints/ingestion continue through restart
+- provider, database, worker, engagement, alert, and ML metrics/alerts work
+- provider compliance, privacy/retention, incident, deployment, and rollback
+  records are approved
 
-## NO-GO Criteria
+## Automatic no-go
 
-- deploy cannot start
-- signup or login is broken
-- feed or search is unusable
-- database migrations fail
-- provider failure crashes the app
-- secrets are exposed in logs or UI
-- saved-user features corrupt or lose user data
-- analytics makes unsupported prediction, profit, or guaranteed-underpriced claims
-- watchlist UI claims live notifications work when they do not
-- rollback cannot be executed safely
+- provider authorization/credentials absent
+- production mock inventory or fallback possible
+- migration drift/pending version/failure
+- no successful restore drill
+- auth/account or user-data loss/corruption
+- cross-user authorization/CSRF/token leakage
+- feed/search unusable without truthful degraded state
+- worker duplicates/stalls or ingestion lag grows uncontrolled
+- analytics/ML/authenticity copy overclaims
+- unpromoted model used actively
+- email/push/SMS/billing described as active without real integration
+- rollback owner, prior image, or safe schema strategy absent
 
-## Decision Rule
-
-- If any `NO-GO` item is true, do not cut or promote the launch candidate.
-- If all `GO` items are true and remaining risks are documented as accepted limitations, the launch candidate is acceptable for a constrained preview tag.
+Current state is **NO-GO for a public live-data launch** because real provider
+authorization is absent and final release evidence is incomplete.

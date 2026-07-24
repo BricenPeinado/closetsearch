@@ -1,28 +1,23 @@
 # Release Candidate Checklist
 
-Use this checklist before cutting or tagging a ClosetSearch launch candidate.
+- [ ] frozen install
+- [ ] format, lint, typecheck, build
+- [ ] unit/contract/integration/Playwright/smoke
+- [ ] five consecutive clean full test runs
+- [ ] OpenAPI current and validated
+- [ ] dependency/image scans
+- [ ] PostgreSQL real-engine migration `001`–`006`, concurrency, restart
+- [ ] encrypted backup and isolated restore
+- [ ] provider authorization matrix current
+- [ ] two authorized real providers or explicit no-go/blocker decision
+- [ ] production no-mock config and HTTPS staging smoke
+- [ ] web/API/worker/migration immutable digests recorded
+- [ ] auth/account/saved/entitlement/alert/analytics/session-expiry E2E
+- [ ] worker lease/checkpoint/restart and ingestion lag
+- [ ] accessibility/mobile/manual checklist
+- [ ] ML mode/artifact/version/fallback/concentration reviewed
+- [ ] privacy/data-use/retention/legal review
+- [ ] metrics/alerts/incident contacts
+- [ ] prior images, rollback owner, migration compatibility
 
-- [ ] `corepack pnpm install`
-- [ ] `corepack pnpm typecheck`
-- [ ] `corepack pnpm build`
-- [ ] `corepack pnpm lint`
-- [ ] `corepack pnpm test`
-- [ ] `corepack pnpm db:migrate`
-- [ ] `corepack pnpm db:seed`
-- [ ] `corepack pnpm smoke:test`
-- [ ] API health check passes
-- [ ] provider health check passes
-- [ ] frontend shell loads
-- [ ] signup, login, and logout work
-- [ ] feed loads and load-more works
-- [ ] search loads, filters work, and empty/error states render safely
-- [ ] brand browsing loads and brand-to-search handoff works
-- [ ] likes, saved searches, saved filters, watchlists, and settings persist
-- [ ] personalization still works for signed-in and cold-start users
-- [ ] analytics renders observed-data copy and disclaimers
-- [ ] watchlist shell and notification-preference shell work
-- [ ] mobile layout spot check completed
-- [ ] privacy and data-use copy checked
-- [ ] known limitations reviewed and current
-- [ ] release notes prepared
-- [ ] rollback plan reviewed
+Do not seed SQLite demo data as part of production release.

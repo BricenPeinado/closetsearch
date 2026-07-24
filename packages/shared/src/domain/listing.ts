@@ -4,25 +4,12 @@ import type { RiskSignal } from "./risk.js";
 export type ListingType = "auction" | "buy_now" | "unknown";
 export type ListingMarketStatus = "active" | "sold";
 export type ListingAvailabilityStatus =
-  | ListingMarketStatus
-  | "stale"
-  | "removed"
-  | "unavailable"
-  | "unknown";
+  ListingMarketStatus | "stale" | "removed" | "unavailable" | "unknown";
 export type ListingFreshnessStatus = "fresh" | "stale" | "unknown";
 export type ListingDataOrigin =
-  | "mock"
-  | "official_api"
-  | "partner_api"
-  | "documented_feed"
-  | "authorized_scraping";
+  "mock" | "official_api" | "partner_api" | "documented_feed" | "authorized_scraping";
 export type ListingCondition =
-  | "new_with_tags"
-  | "new_without_tags"
-  | "excellent"
-  | "good"
-  | "fair"
-  | "unknown";
+  "new_with_tags" | "new_without_tags" | "excellent" | "good" | "fair" | "unknown";
 export type SellerTrustTier = "trusted" | "established" | "unverified" | "unknown";
 
 export interface Money {

@@ -31,14 +31,16 @@ function mapSearchRow(row: SearchRow): SearchRecord {
 }
 
 function listSearches(tableName: SearchTableName, userId: string) {
-  return ((getDatabase()
-    .prepare(
-      `SELECT id, user_id, label, description, params, created_at
+  return (
+    getDatabase()
+      .prepare(
+        `SELECT id, user_id, label, description, params, created_at
       FROM ${tableName}
       WHERE user_id = ?
       ORDER BY created_at DESC, id DESC`,
-    )
-    .all(userId) as unknown as SearchRow[])).map(mapSearchRow);
+      )
+      .all(userId) as unknown as SearchRow[]
+  ).map(mapSearchRow);
 }
 
 function upsertSearch(tableName: SearchTableName, input: PersistSearchHistoryInput) {

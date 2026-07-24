@@ -1,344 +1,294 @@
 # Architecture
 
-## Goal
-
-ClosetSearch should be built as a modular fashion resale discovery platform with clear boundaries between:
-
-- the web app
-- the API boundary
-- provider adapters
-- shared normalized domain models
-- persistence and auth layers
-- future analytics, personalization, alerts, and trust systems
-
-The architecture should now support the transition from mock foundations to real provider-backed functionality without forcing provider-specific logic into the rest of the product.
-
-## Core Architecture Principle
-
-Provider-specific data must stay inside provider adapters. The rest of the app should depend on normalized listing, search, brand, user, analytics, and risk models.
-
-That principle matters more as the project adds real providers, persistence, and analytics.
-
-## System Boundaries
-
-### Web App
-
-Location: `apps/web`
-
-Responsibilities:
-
-- render feed, search, brand, auth, profile, analytics, and trust surfaces
-- display normalized listing cards and user-facing states
-- collect user input and call the API boundary
-- remain resilient to missing or partial optional fields
-
-Not responsible for:
-
-- provider-specific parsing
-- secret handling or API key usage
-- direct marketplace integration logic
-- database access
-- raw analytics computation
-- authenticity claims or detection logic
-
-### API App
-
-Location: `apps/api`
-
-Responsibilities:
-
-- expose feed, search, brand, auth, likes, onboarding, analytics, and trust endpoints
-- orchestrate provider calls
-- normalize and merge provider output
-- isolate provider failures from the web app
-- own caching, pagination coordination, persistence orchestration, and auth/session boundaries as those systems mature
-
-Not responsible for:
-
-- rendering UI
-- leaking provider-specific shapes to clients
-- mixing placeholder trust signals into filtering or blocking logic
-
-### Shared Package
-
-Location: `packages/shared`
-
-Responsibilities:
-
-- define stable shared domain types
-- keep normalized models consistent across apps and packages
-- provide small framework-independent utilities when needed
-
-Shared models should remain product-facing and normalized. They should not become a dumping ground for provider-specific fields.
-
-### Providers Package
-
-Location: `packages/providers`
-
-Responsibilities:
-
-- define provider contracts
-- implement mock and real provider adapters
-- normalize raw provider responses into shared models
-- surface provider capability and error behavior in a controlled way
-
-The mock provider should remain available for local development and test fallback even after real providers exist.
-
-## Current Runtime Shape
+## System shape
 
 ```text
-Web app
-  -> API routes
-  -> feed/search/brand/auth/analytics handlers
-  -> provider orchestration + lightweight services
-  -> normalized shared models
-  -> UI rendering
+Browser (React/Vite)
+  -> TypeScript HTTP API
+       -> provider registry/orchestrator
+            -> mock fixtures (local/test only)
+            -> eBay Browse official API adapter (credential/approval gated)
+            -> Grailed adapter (written-authorization gated)
+       -> PostgreSQL request/data repositories
+       -> guarded recommendation runtime
+
+Worker process
+  -> PostgreSQL job leases/checkpoints
+  -> authorized real-provider adapters
+  -> listing/state/price observations
+  -> watchlist matcher + alert delivery state
+  -> stale-listing maintenance + engagement rollups
+
+Offline packages/ml
+  -> immutable snapshots/artifacts/evaluation reports
+  -> reviewed artifact supplied to API deployment
 ```
 
-Today, much of the data is still mock-backed. The architecture should now evolve so that real provider work and persistence can be added incrementally instead of all at once.
-
-## Provider Runtime Configuration
-
-Real provider support should be added behind explicit runtime configuration.
-
-Recommended architecture:
-
-- provider-specific environment configuration in the API layer
-- per-provider enable/disable flags
-- central provider registry or selection layer
-- capability-aware provider invocation where needed
-- clear separation between local mock mode and real provider mode
-
-The web app should not need to know whether data came from mock or real providers.
-
-## Provider Failure Handling
-
-Real providers will fail, rate-limit, or return partial data.
-
-Provider failure handling should include:
-
-- per-provider timeout handling
-- recoverable errors that do not crash the full feed/search response
-- partial result support where appropriate
-- error logging at the API boundary
-- stable fallback behavior when one provider fails
-- optional provider health/debug endpoints if operationally helpful
-
-One provider failure should not crash the entire product surface.
-
-## Real Data Normalization
-
-All real provider data should be normalized before it leaves provider adapters.
-
-Normalization should handle:
-
-- ids and provider identifiers
-- titles and brand names
-- image URLs
-- source marketplace metadata
-- price and currency
-- source URLs
-- listing type
-- missing category, size, or condition data
-- pagination metadata
-
-The rest of the app should not need provider-specific if/else branches to render listings.
-
-## Feed and Search Architecture
-
-Feed and search should share normalized listing models but remain separate workflows.
-
-### Feed
-
-Feed responsibilities:
-
-- request provider-backed listing pages
-- merge and dedupe results when needed
-- support signed-out fallback and signed-in personalization paths
-- support load-more or infinite-scroll behavior
-- remain usable even when personalization data is sparse
-
-### Search
-
-Search responsibilities:
-
-- accept normalized search input
-- map supported filters to active providers
-- page through real results
-- cache repeated searches lightly where useful
-- preserve stable empty/error/loading behavior
-
-Do not let feed ranking logic and explicit search logic collapse into the same implementation by accident.
-
-## Listing Cache
-
-A lightweight listing cache is likely useful once real providers are added.
-
-Possible responsibilities:
-
-- reduce repeated provider calls
-- support repeated searches and feed refreshes
-- temporarily store normalized listings and pagination metadata
-- provide a short-lived buffer for analytics snapshots or dedupe checks
-
-The cache should sit behind the API boundary. Cache strategy should remain simple until real provider behavior justifies more complexity.
-
-## Database Persistence
-
-The current project still relies on lightweight or in-memory foundations. That should change in the post-foundation roadmap.
-
-Persistence architecture should eventually cover:
-
-- users
-- onboarding preferences
-- likes
-- recent searches
-- saved searches
-- watchlists
-- optional listing cache or listing snapshot tables
-- analytics snapshots if analytics v1 requires them
-
-Recommended principles:
-
-- add migrations before data usage spreads
-- keep persistence models aligned with shared domain concepts where practical
-- avoid coupling provider raw payloads directly to product tables
-
-## Auth and Session Layer
-
-The current auth system is a foundation, not a production auth stack.
-
-A more real auth/session layer should include:
-
-- password hashing
-- safer credential handling
-- session or JWT strategy
-- logout/session expiry behavior
-- route protection for user-specific operations
-- explicit auth error and recovery states
-
-The web app should consume a stable session/user shape, while the API owns credential verification and session lifecycle.
-
-## User Engagement Data
-
-User engagement data should stay separate from provider data.
-
-Examples:
-
-- likes
-- onboarding preferences
-- saved searches
-- saved filters
-- watchlists
-- notification preferences
-
-This data should feed personalization and alerts later, but it should not leak back into provider adapters.
-
-## Personalization Layer
-
-Personalization remains a distinct subsystem built on normalized listing data plus persisted user signals and lightweight engagement data.
-
-Current Personalization V2 inputs include:
-
-- onboarding favorite brands, categories, and price range
-- persisted liked listing snapshots and their brand/category/size/condition/source/listing-type attributes
-- saved searches and their query/source/category/price intent
-- saved filters and their source/listing-type/price intent
-- watchlist shell entries as weak intent signals only
-- preferred sources from user settings
-- freshness, listing completeness, and impression-count engagement
-
-Current ranking rules are intentionally explainable:
-
-- additive score reasons such as brand affinity, category affinity, source preference, price affinity, query intent, freshness, quality, and engagement
-- diversity penalties for repeated brands, categories, sources, and near-identical listing signatures
-- a small exploration mix so personalized results do not collapse into one narrow cluster
-- cold-start fallback to the generic newest-first feed when persisted signals are missing
-
-This layer should stay reviewable and rule-based until richer recommendation infrastructure is justified.
-
-## Analytics Snapshots
-
-Analytics should be built from observed data before predictions.
-
-The current Analytics V1 architecture uses a lightweight observed-price pipeline:
-
-- feed and search record normalized listing price snapshots as a best-effort side effect
-- the snapshot store dedupes repeated same-price observations by refreshing `last_seen_at`
-- a changed observed price creates a new snapshot row for the same source listing
-- overview, brand ranges, category ranges, and under-market signals are computed from latest observed snapshots
-- same-currency comparison is required before a listing can receive a market comparison signal
-- under-market labels stay cautious: observed range, below observed median, or not enough observed data
-- explicit sample/mock boundaries remain visible when only mock observations exist
-
-Avoid building forecasting or advanced price prediction systems before observed-data pipelines are reliable.
-
-## Watchlists and Alerts
-
-Watchlists and alerts build on normalized search, listing, and signed-in account models, but the current milestone stops at saved intent and alert-ready data.
-
-Current architecture pieces:
-
-- authenticated `/me/watchlists` routes that always scope CRUD to the active session user
-- a `watchlists` table that stores watched brand, query, category, source, listing type, price range, size, condition, label, and enabled state
-- a `notification_preferences` table that stores a delivery-preference shell without activating outbound delivery
-- an `alert_matches` foundation table for deduped candidate matches and future review state
-- a pure watchlist-to-listing matching function that returns explainable match reasons instead of only true or false
-
-Important boundary rules:
-
-- watchlists save what a user wants to track now
-- email, push, SMS, and background monitoring are intentionally inactive in this pass
-- notification preferences are honest shell data only until a later delivery milestone
-- future workers or integrations should consume the saved foundation instead of changing the watchlist contract again
-
-## Safe Trust / Risk Signals
-
-Trust signals should remain optional listing annotations.
-
-Architecture rules:
-
-- risk data is assistive, not an authenticity verdict
-- risk signals must stay optional on listings
-- trust signals must not block, hide, or filter listings
-- simple heuristic placeholders are acceptable during the foundation phase
-- real trust work must remain cautious, probabilistic, and clearly labeled
-
-Fake-risk should stay separate from analytics, ranking, and provider parsing concerns.
-
-## Mock Provider Role
-
-The mock provider should remain part of the architecture even after real providers are added.
-
-Why keep it:
-
-- reliable local development
-- deterministic tests
-- fallback when provider credentials are unavailable
-- UI work that should not depend on live marketplace stability
-
-Real providers should be added one at a time. The mock provider remains the safest baseline for development and review.
-
-## Reliability Principles
-
-- One provider failure should not crash feed or search.
-- Normalized contracts should be validated before data reaches the UI.
-- User-facing listing data should remain consistent across sources.
-- Real provider work should arrive incrementally, not as a giant rewrite.
-- Analytics should start with observed data before predictions.
-- Fake-risk should remain probabilistic, assistive, and non-blocking.
-
-## Beta Operations
-
-ClosetSearch is now documented for constrained beta operation, but not full public production scale.
-
-Operational expectations for this stage:
-
-- deployment remains simple and docs-first
-- environment configuration stays explicit and repo-visible
-- SQLite is still the operational persistence layer
-- structured request and provider-error logging should stay secret-safe and lightweight
-- seed/demo data should help QA and demos without overwriting unrelated user data
-- privacy, data-use, limitation, and feedback guidance should stay visible and honest
-
-Heavy observability, full production incident response, distributed session infrastructure, and deeper deployment automation remain later work.
+Provider-specific payloads remain inside `packages/providers`. Apps consume only
+the normalized contracts in `packages/shared`.
+
+## Runtime processes
+
+### Web
+
+`apps/web` is a React/Vite single-page product. It renders feed, search, brands,
+likes, profile, alerts, and analytics; preserves URL search state; performs
+IntersectionObserver pagination with an accessible button fallback; and sends
+qualified, deduplicated interaction events.
+
+The web build embeds `VITE_API_BASE_URL`. It never receives provider credentials
+or accesses the database.
+
+### API
+
+`apps/api` is a TypeScript HTTP server. Major responsibilities are:
+
+- provider selection, capability checks, orchestration, pagination, caching,
+  deduplication, and degraded-state responses
+- cookie sessions, account-security routes, saved-user features, entitlements,
+  alert inbox, and durable engagement ingestion
+- observed analytics and rules/ML recommendation selection
+- OpenAPI contract, body/schema validation, consistent errors, request IDs,
+  headers, rate limits, redacted structured logs, Prometheus metrics, a
+  redacted durable operations-status view, health, readiness, and graceful
+  shutdown
+
+Production startup requires PostgreSQL and fail-closed real-provider
+configuration. The production auth and saved-feature routes use the PostgreSQL
+request store. SQLite remains a separate local/test compatibility path.
+
+### Worker
+
+`apps/api/src/worker/entrypoint.ts` is a separate process, not an API timer. It:
+
+- migrates/opens PostgreSQL
+- registers maintenance handlers
+- creates ingestion sources only from active, non-mock real providers
+- seeds recurring jobs idempotently
+- claims jobs with database leases and heartbeat renewal
+- checkpoints provider-native continuation state
+- retries retryable failure with bounded exponential delay
+- records last success/failure/provider health
+- upserts normalized observations and matches changed listings to watchlists
+
+Crash recovery comes from the durable job, lease, run, and checkpoint tables.
+An expired lease can be claimed by another worker; idempotency keys prevent
+duplicate ingestion effects.
+
+### Offline ML
+
+`packages/ml` is deterministic and offline-first. It owns feature schemas,
+snapshot fingerprints, temporal splits, training, evaluation, immutable
+artifacts, and promotion gates. It does not call providers or query production
+inside request handling.
+
+The API adapter loads a reviewed JSON artifact and has `disabled`, `shadow`, and
+guarded `active` modes. It bounds candidates and deadline, verifies
+model/feature versions and artifact lifecycle/staleness, applies provider/brand
+diversity constraints, and returns the rules ranker on every validation,
+timeout, or inference failure.
+
+## Provider boundary
+
+Every adapter declares capabilities and returns a normalized success or
+classified failure. Raw response types are adapter-private. Normalization covers:
+
+- stable provider/source listing identity
+- validated destination and image URLs
+- original exact price/currency plus optional shipping and landed total
+- comparison/display conversion provenance when available
+- title, canonical/provider brand, images, category, size, and condition
+- listing type, active/sold/lifecycle/freshness state
+- seller fields only when supported
+- attribution and mock/data-origin metadata
+- analytics eligibility and exclusion reasons
+- native page/cursor continuation
+
+The orchestrator maintains per-provider continuation state in an opaque API
+cursor, applies stable tie-breaks, deduplicates first by provider/source ID and
+then by a conservative canonical fingerprint, and returns successful results
+alongside explicit provider failures. Its process-local cache uses a 15-second
+fresh TTL and a 60-second stale window. Stale data is labeled; it is never
+rebranded as fresh.
+
+The API creates one provider runtime per application process and reuses it for
+feed, search, readiness, and provider health. Provider pacing, concurrency,
+circuit, credential, and cache state therefore survives individual HTTP
+requests. Each API replica and worker still owns an independent runtime, so
+deployment-wide provider budgets must account for every process.
+
+Credential-bearing eBay requests are restricted to the official production or
+sandbox HTTPS origins. Authorized-live Grailed is restricted to its canonical
+HTTPS origin, credential bundle discovery is same-origin, and Algolia
+application IDs must match a bounded alphanumeric grammar before they can enter
+a hostname. Provider HTTP clients handle redirects manually, so authorization
+headers are never implicitly forwarded to a redirect target.
+
+Production cannot activate the mock provider or mock fallback. A recorded
+fixture demonstrates contract behavior, not live authorization.
+
+## Money and currency
+
+`Money` keeps a backward-compatible major-unit display value and an exact
+integer `amountMinor`. `ListingPricing` separates:
+
+- `original`
+- optional normalized `comparison`
+- optional user `display`
+- optional `shipping`
+- optional `landed`
+
+Conversions carry source/target currency, decimal rate, source, and timestamp.
+If a valid recent quote is unavailable, the service returns no conversion and
+the UI displays original currency. The current central exchange-rate service has
+a deterministic/testable cache and staleness policy, but its default live rate
+provider is disabled until an approved source is configured.
+
+Price sorts partition by currency instead of pretending incomparable amounts
+share a unit.
+
+## Persistence
+
+### Production PostgreSQL
+
+`apps/api/src/db/postgres` provides:
+
+- bounded pool, connection/query/statement timeouts, and pool/query metrics
+- transactional repositories and transient transaction retry
+- advisory-locked, checksummed forward migrations
+- schema inspection/readiness and drift rejection
+- normalized repository interfaces for API and worker data
+
+PostgreSQL migrations:
+
+| Version                                  | Scope                                                                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `001_identity_and_access`                | users, identities, account tokens, sessions, settings                                                                                                  |
+| `002_catalog_ingestion_and_jobs`         | brands/aliases, listings/images/state/transitions, currency rates, monotonic price observations, ingestion checkpoints/health/events, worker jobs/runs |
+| `003_engagement_alerts_and_entitlements` | likes/searches/filters/watchlists/preferences, raw and daily engagement, alert matches/deliveries, subscriptions/entitlements/webhook idempotency      |
+| `004_ml_and_operations`                  | datasets, feature snapshots, model versions, predictions, audit and maintenance records                                                                |
+| `005_request_store_hardening`            | token invalidation, email uniqueness, watchlist canonical/provider brand compatibility                                                                 |
+| `006_user_engagement_features`           | per-user daily listing engagement features                                                                                                             |
+
+Important invariants include foreign keys, currency/state/amount checks, unique
+provider listing identity, event idempotency, one verified email identity,
+session/token hashes, and indexes aligned to feed, comparables, jobs, inbox, and
+retention queries.
+
+In PostgreSQL mode, feed/search persist the orchestrator's sanitized normalized
+listings before returning them. Engagement and likes can therefore reference a
+server-owned catalog row immediately; a browser listing snapshot is never an
+authoritative catalog write. A catalog persistence failure returns an explicit
+unavailable error rather than displaying inventory that cannot accept durable
+events.
+
+One collection observation has a stable idempotency identity. An exact replay
+deduplicates, while a later unchanged collection refreshes `last_seen_at`
+without creating a second price observation. This lets stale maintenance
+distinguish a repeatedly seen unchanged listing from a listing no longer
+returned by its provider.
+
+Every new price change gets a database `observation_version`. Latest/history
+queries order explicitly by that version, so writes in the same clock tick are
+unambiguous.
+
+### SQLite compatibility
+
+The synchronous `node:sqlite` schema (`001` through
+`007_account_security`) remains for local development, hermetic web/API tests,
+and backward compatibility. It is not a supported production persistence or
+high-availability architecture.
+
+## Accounts and security
+
+The browser holds an opaque `HttpOnly`, `SameSite=Lax` session cookie. Only a
+peppered hash is stored. Production also requires `Secure`, explicit HTTPS
+origins, and a secret pepper.
+
+Account tokens are random, purpose-bound, pepper-hashed, expiring, superseding,
+and one-time. Password reset updates the password and revokes every session
+transactionally. Export excludes password/session/token hashes. Deletion checks
+the exact username, removes directly user-owned records, and clears the user
+association on retained pseudonymous engagement. Provider-wide observations
+remain because they are not user-owned.
+
+Cookie-authenticated mutations enforce Fetch Metadata/origin checks. Body size
+is bounded and auth/account endpoints are rate limited. Current fixed-window
+rate limiting is process-local; a distributed limiter is still required before
+unbounded horizontal scale.
+
+## Engagement and recommendation features
+
+`POST /events` accepts an opaque privacy-session header and client event IDs.
+The API derives any user ID from the session, rejects spoofing, and writes to
+PostgreSQL with deduplication. The browser only reports an impression after a
+card is at least 50% visible for one second.
+
+Worker rollups populate listing and per-user daily features so feed requests do
+not repeatedly scan raw events. The rules ranker consumes explicit preferences,
+saved intent, likes, durable engagement aggregates, content quality, freshness,
+and diversity. The ML adapter is layered around, not instead of, this fallback.
+
+## Market analysis
+
+Worker ingestion is the durable observation source; feed/search are no longer
+the sole analytics source. Asking and confirmed sold observations are separate.
+Comparables require matching normalized currency and minimum sample gates.
+PostgreSQL analytics excludes currently stale/removed/unavailable inventory,
+prioritizes confirmed sold observations independently within each
+same-currency brand/category segment, and reports freshness, count, currency,
+basis, and source coverage. Asking-only segments remain visible and explicitly
+labeled rather than disappearing when another segment has sold data.
+
+The offline fair-value model trains only on confirmed sold targets, prohibits an
+active listing's asking price as a target/feature, uses temporal validation and
+robust outlier handling, and carries interval/drift metadata. It is not promoted;
+observed ranges remain active.
+
+## Entitlements and alerts
+
+Premium authorization is a persisted entitlement lookup. Username shortcuts no
+longer exist. Billing tables and signed-webhook idempotency foundations exist,
+but no billing provider route is active. A development grant path is
+non-production-only and requires a verified admin identity.
+
+Ingestion invokes idempotent watchlist matching for every persisted observation,
+including an exact replay after a crash between the catalog write and worker
+checkpoint. Matches are unique per watchlist/listing and carry reasons. The
+alert repository stores
+unseen/seen/dismissed state and delivery scheduling/attempt/retry/dead-letter
+state with frequency and quiet-hour enforcement. In-app inbox routes are active.
+No outbound channel is active.
+
+## Operations
+
+Deployment artifacts define separate migration, API, worker, web, PostgreSQL,
+and backup processes. Readiness verifies database access, migration state, and a
+real provider in production. `/operations/status` reports sanitized durable job,
+checkpoint, and provider-health state without payloads, cursors, credentials, or
+raw error messages. `/metrics` exposes bounded-cardinality counters, gauges, and
+latency histograms for HTTP/provider activity, PostgreSQL pool/query state,
+provider rate limits/cache state, worker/ingestion health, engagement ingestion,
+and recommendation request/fallback/version data. Secrets come from
+environment/secret management.
+
+Logical backup scripts create custom-format archives, checksums, optional
+fail-closed `age` encryption, retention, and guarded isolated restore. Prefer a
+managed service with encrypted storage and point-in-time recovery in production.
+
+Application rollback uses prior immutable images while retaining
+forward-compatible migrations. Database restore is an incident recovery action,
+not a routine deploy rollback.
+
+## Known architectural limits
+
+- authorized live provider credentials/permission are absent in this checkout
+- the default exchange-rate provider is disabled
+- billing and outbound notification providers are absent
+- process-local API rate limiting and process-local provider cache do not provide
+  shared multi-replica state
+- ML evidence is synthetic and insufficient for promotion
+- authenticity/fake-risk is not a validated production subsystem
+- this workstation has no Docker, so Compose evidence must come from CI or
+  another equipped environment; local PostgreSQL and isolated logical-restore
+  evidence does not prove managed HA, PITR, or encrypted off-host storage

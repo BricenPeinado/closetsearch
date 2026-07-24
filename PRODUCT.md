@@ -1,203 +1,124 @@
 # Product
 
-## Product Summary
+## Product promise
 
-ClosetSearch is a fashion resale discovery app that aggregates resale listings into a visual browsing and search experience.
+ClosetSearch helps shoppers discover normalized fashion-resale listings across
+marketplaces without pretending that incomplete marketplace data, asking prices,
+or experimental models are more certain than they are.
 
-The product should help users:
+Core workflows are:
 
-- discover interesting listings without checking many marketplaces manually
-- search for specific brands, pieces, sizes, and price ranges
-- browse brands through a dedicated directory
-- save listings and searches that matter to them
-- gradually benefit from personalization and pricing context once the core product is reliable
+- browse a visual, personalized feed
+- search by text, brand, category, size, condition, source, listing type,
+  market status, price, currency, and sort
+- inspect marketplace, status, freshness, seller, shipping, original price, and
+  converted display price when those fields are actually supported
+- save listings, searches, filters, and watchlists
+- receive durable in-app watchlist matches
+- view entitlement-gated, observed comparable-price context
 
-## Target Users
+## Product principles
 
-Primary users:
+- **Real provenance:** mock fixtures are always identified as mock.
+- **Fail closed:** production does not substitute fixtures when a provider is
+  unavailable or unauthorized.
+- **Provider neutrality:** raw provider shapes remain inside adapters.
+- **Exact money:** cross-currency comparison requires a rate and provenance;
+  unconverted money keeps its original currency.
+- **Partial results over false certainty:** one provider can degrade without
+  destroying valid results from another.
+- **Responsible intelligence:** rules and observed ranges remain available when
+  an ML artifact, data, latency, or confidence gate fails.
+- **Privacy-conscious engagement:** durable events use opaque identifiers and
+  describe actions the client actually observed.
+- **No authenticity overclaim:** metadata-quality assistance is not an
+  authentic/fake verdict.
 
-- fashion enthusiasts
-- archive fashion buyers
-- streetwear buyers
-- designer resale shoppers
-- people who regularly browse multiple resale marketplaces
+## Implemented product behavior
 
-Later power users:
+### Discovery
 
-- resellers
-- collectors
-- market-focused buyers
-- users who want watchlists, alerts, or pricing context
+Feed and search support deterministic per-provider pagination, duplicate
+prevention, URL-persisted filters, IntersectionObserver loading with an
+accessible Load More fallback, scroll restoration, partial/degraded states, and
+responsive listing cards. Cards reserve image aspect ratio, have a local error
+fallback, expose accessible like state, and show optional normalized metadata
+only when supported.
 
-## Product Principles
+### Accounts and saved features
 
-- Visual first: the product should feel like a resale marketplace browser, not a dashboard.
-- Fast discovery: users should reach interesting listings quickly.
-- Search quality matters: search is a core workflow, not a secondary utility.
-- Provider neutrality: provider-specific complexity should stay out of the user experience.
-- Responsible intelligence: analytics and trust signals should start simple and cautious.
-- Honest scope: the product should be explicit about what is real, mock, or placeholder.
+Production request state is PostgreSQL-backed. Signup/login sessions, onboarding,
+likes, recent/saved searches, filters, watchlists, notification preferences, and
+settings survive process restarts. Email verification, password reset, account
+export, and account deletion have hashed, purpose-bound, one-time-token API
+and web flows. Browser action links keep tokens in a fragment and scrub it after
+reading. Transactional email is disabled until a provider is configured, so
+link delivery is externally/configuration blocked.
 
-## Current Foundation
+### Engagement and recommendations
 
-The current codebase already includes a meaningful foundation:
+The web client reports viewport-qualified impressions, clicks, likes/unlikes,
+searches, filters, saves, watchlist creation, and recommendation requests with
+event IDs. PostgreSQL deduplicates and rolls events into feature tables.
 
-- home feed
-- listing cards
-- search with filters and sorting
-- recent searches
-- brand directory and brand detail shell
-- signup, login, onboarding, profile, and likes foundations
-- simple personalization rules based on likes and onboarding preferences
-- premium analytics placeholder surfaces
-- trust / fake-risk placeholder signals with assistive wording
-
-Important current limits:
-
-- listing data is still mock-backed
-- provider integrations are not real yet
-- auth and persistence are still lightweight foundations
-- analytics are not real market intelligence yet
-- fake-risk is not real authenticity detection
-
-## V1 Functional Target
-
-The next real product target is a beta-ready functional resale app with:
-
-- real provider-backed search
-- real provider-backed feed
-- stable account system
-- persistent likes and onboarding preferences
-- saved searches and watchlists
-- improved personalization from real engagement data
-- real but simple analytics signals based on observed pricing data
-- clean marketplace UI across mobile and desktop
-- beta-ready deployment and operational basics
-
-V1 should feel useful and honest, not overbuilt.
-
-### Feed
-
-The feed should remain the core surface.
-
-V1 feed expectations:
-
-- real listings from at least one provider
-- responsive visual grid
-- real pagination or infinite-scroll friendly behavior
-- deduped results when paging or combining providers
-- good loading, empty, and error states
-- signed-out discovery plus signed-in personalization fallback
-
-### Search
-
-Search should be first-class and reliable.
-
-V1 search expectations:
-
-- text query support
-- useful filters and sort options
-- normalized results from real providers
-- stable pagination
-- recent searches and saved searches
-- graceful handling of missing or partial source data
-
-### Brands
-
-Brand browsing should stay part of the core product.
-
-V1 brand expectations:
-
-- searchable brand directory
-- alias and tag support where useful
-- quick handoff into real search results
-- room for richer brand-specific discovery later
-
-### Accounts and Saved User Features
-
-The current auth and profile surfaces are a foundation only.
-
-V1 account expectations:
-
-- safer auth flow
-- persistent user record
-- persistent likes
-- persistent onboarding preferences
-- saved searches and watchlists
-- useful profile/settings shell
-
-### Personalization
-
-Personalization should improve after real engagement data exists.
-
-V1 personalization expectations:
-
-- use likes and onboarding preferences
-- improve brand and category weighting
-- reduce repetitive feed results
-- keep ranking logic explainable
-- preserve a discovery fallback for sparse-user scenarios
+The explainable rules ranker is the active default. The reproducible hybrid
+candidate can run disabled, shadow, or guarded-active. The current synthetic
+artifact is lifecycle `shadow`, lacks adequate production data, and fails a
+diversity promotion gate; it cannot become active merely through configuration.
 
 ### Analytics
 
-Analytics should begin as simple pricing context, not advanced prediction.
+Listing observations and price changes are persisted independently by the
+worker. Asking and confirmed sold prices are distinct, currency partitions are
+preserved, and same-timestamp changes are ordered by a monotonic database
+version. User-facing analysis prioritizes confirmed sold comparables where
+available and falls back to cautious observed ranges.
 
-V1 analytics expectations:
+The fair-value candidate remains unpromoted because its fixture MAE and interval
+coverage are worse than the simple observed baseline.
 
-- observed price snapshots
-- simple brand/category pricing ranges
-- under-market style signals based on observed data
-- clear disclaimers and limited claims
-- no forecasting or unsupported market certainty language
+### Premium and alerts
 
-### Trust / Fake-Risk
+Premium access comes from persisted entitlements, never usernames. A
+provider-neutral schema exists for subscriptions and webhook idempotency, but no
+billing provider is configured. A development grant endpoint requires a
+verified admin identity and is rejected in production.
 
-Trust/fake-risk should remain carefully limited.
+Provider ingestion matches new/changed listings to enabled watchlists.
+PostgreSQL stores idempotent matches, in-app inbox state, frequency/quiet-hour
+scheduling, attempts, retry waits, suppression, and dead-letter state. Email,
+push, and SMS are disabled; no UI or API should imply otherwise.
 
-V1 trust expectations:
+## Launch boundary
 
-- optional assistive signals only
-- careful labels and disclaimers
-- no fake/authentic certainty claims
-- no blocking or filtering based on trust signals
-- no ML or speculative authenticity logic
+The internal production architecture is implemented, but a public live-data
+launch remains blocked until at least one authorized real provider is configured
+and the requested two-provider target remains externally blocked:
 
-## Later Phases
+- eBay: official adapter complete; production client credentials, Buy API
+  partner eligibility/approval, and any required affiliate attribution absent
+- Grailed: adapter and fixtures complete; exact written permission and retained
+  authorization reference absent
 
-Later phases can expand once V1 discovery and reliability are strong:
+Fixtures and contract tests are not live-provider evidence.
 
-- multiple real providers
-- richer saved-item workflows
-- broader alert delivery
-- stronger analytics depth over time
-- more advanced personalization controls
-- premium feature packaging when the underlying data is trustworthy
+## Intentionally deferred
 
-## Non-Goals for the Current and Near-Term Build
+- live billing until provider credentials and signed-webhook configuration exist
+- outbound email until a transactional provider and verified address flow are
+  configured end to end
+- push and SMS delivery
+- ML promotion until temporal production data and every quality/latency/diversity
+  gate pass
+- authenticity/fake-risk claims until labeled data, calibration, abuse review,
+  and an evaluation plan exist
+- OAuth/social login and seller/posting/social marketplace tooling
 
-Do not overclaim or overbuild these before the core product is ready:
+## Success criteria
 
-- full production-scale provider network
-- advanced forecasting analytics
-- binary authenticity verdicts
-- AI/ML fake detection
-- payment processing
-- seller tooling
-- marketplace posting
-- social messaging systems
-- complex admin systems
-
-## Product Success Criteria
-
-The current foundation is successful when:
-
-- the app surfaces work together cleanly
-- docs and milestones stay honest
-- real provider work can be added without rewriting the product model
-
-The next functional V1 is successful when:
-
-- users can browse and search real provider-backed listings
-- key user state persists reliably
-- personalization and analytics provide lightweight value without overclaiming
-- the app is stable enough for a limited beta
+ClosetSearch is ready for public production only when provider authorization,
+current PostgreSQL service-restart and production-style encrypted
+backup/restore evidence, all required quality gates, repeated clean test runs, a
+no-mock staging smoke, and operational review are all current.
+See [TASKS.md](TASKS.md) and
+[docs/implementation-report.md](docs/implementation-report.md).

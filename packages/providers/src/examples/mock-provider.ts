@@ -199,23 +199,14 @@ export function normalizeMockListing(raw: RawMockListing): Listing {
 }
 
 function toSearchTerms(text: string) {
-  return text
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
+  return text.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 function matchesQuery(raw: RawMockListing, query: ProviderSearchQuery) {
   const terms = toSearchTerms(query.text);
 
   if (terms.length > 0) {
-    const haystack = [
-      raw.headline,
-      raw.designer,
-      raw.department,
-      raw.taggedSize ?? "",
-    ]
+    const haystack = [raw.headline, raw.designer, raw.department, raw.taggedSize ?? ""]
       .join(" ")
       .toLowerCase();
 
@@ -248,11 +239,7 @@ function matchesQuery(raw: RawMockListing, query: ProviderSearchQuery) {
     return false;
   }
 
-  if (
-    query.conditions &&
-    query.conditions.length > 0 &&
-    !query.conditions.includes(raw.wear)
-  ) {
+  if (query.conditions && query.conditions.length > 0 && !query.conditions.includes(raw.wear)) {
     return false;
   }
 
@@ -280,20 +267,14 @@ function matchesQuery(raw: RawMockListing, query: ProviderSearchQuery) {
     return false;
   }
 
-  if (
-    query.currency &&
-    query.currency.toUpperCase() !== raw.currencyCode.toUpperCase()
-  ) {
+  if (query.currency && query.currency.toUpperCase() !== raw.currencyCode.toUpperCase()) {
     return false;
   }
 
   return true;
 }
 
-function sortListings(
-  listings: RawMockListing[],
-  sortMode: SearchSortMode = "relevance",
-) {
+function sortListings(listings: RawMockListing[], sortMode: SearchSortMode = "relevance") {
   const sorted = [...listings];
 
   switch (sortMode) {
@@ -305,15 +286,13 @@ function sortListings(
       break;
     case "newest":
       sorted.sort(
-        (left, right) =>
-          new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
+        (left, right) => new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
       );
       break;
     case "relevance":
     default:
       sorted.sort(
-        (left, right) =>
-          new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
+        (left, right) => new Date(right.indexedAt).getTime() - new Date(left.indexedAt).getTime(),
       );
       break;
   }

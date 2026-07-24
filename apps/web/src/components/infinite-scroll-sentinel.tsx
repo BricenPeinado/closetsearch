@@ -18,12 +18,7 @@ export function InfiniteScrollSentinel({
   useEffect(() => {
     const element = sentinelRef.current;
 
-    if (
-      !element ||
-      !hasMore ||
-      isLoading ||
-      typeof IntersectionObserver === "undefined"
-    ) {
+    if (!element || !hasMore || isLoading || typeof IntersectionObserver === "undefined") {
       return;
     }
 
@@ -47,11 +42,7 @@ export function InfiniteScrollSentinel({
   }, [hasMore, isLoading, onLoadMore]);
 
   return (
-    <div
-      aria-live="polite"
-      className="infinite-scroll-sentinel"
-      ref={sentinelRef}
-    >
+    <div aria-live="polite" className="infinite-scroll-sentinel" ref={sentinelRef}>
       <span className="visually-hidden">{isLoading ? `Loading ${label}` : ""}</span>
     </div>
   );

@@ -1,8 +1,5 @@
 import { createUser } from "../user-service.js";
-import {
-  assertPasswordPolicy,
-  type PasswordPolicyOptions,
-} from "./password-policy.js";
+import { assertPasswordPolicy, type PasswordPolicyOptions } from "./password-policy.js";
 
 export async function registerUserWithPasswordPolicy(
   username: string,

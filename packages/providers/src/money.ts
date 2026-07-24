@@ -19,15 +19,7 @@ const zeroFractionCurrencies = new Set([
   "XPF",
 ]);
 
-const threeFractionCurrencies = new Set([
-  "BHD",
-  "IQD",
-  "JOD",
-  "KWD",
-  "LYD",
-  "OMR",
-  "TND",
-]);
+const threeFractionCurrencies = new Set(["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"]);
 
 export function normalizeCurrencyCode(value: unknown): string | undefined {
   if (typeof value !== "string") {
@@ -65,9 +57,7 @@ function decimalStringToMinor(value: string, fractionDigits: number) {
     return undefined;
   }
 
-  const paddedFraction = fraction
-    .slice(0, fractionDigits)
-    .padEnd(fractionDigits, "0");
+  const paddedFraction = fraction.slice(0, fractionDigits).padEnd(fractionDigits, "0");
   const scale = 10 ** fractionDigits;
   const amountMinor = Number(whole) * scale + Number(paddedFraction || "0");
 

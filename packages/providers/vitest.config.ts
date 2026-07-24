@@ -4,9 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@closetsearch/shared": fileURLToPath(
-        new URL("../shared/src/index.ts", import.meta.url),
-      ),
+      "@closetsearch/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)),
     },
   },
   test: {

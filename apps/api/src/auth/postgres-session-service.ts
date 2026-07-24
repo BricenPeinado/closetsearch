@@ -39,11 +39,7 @@ export async function createPostgresAuthSession(
   });
 
   return {
-    cookieValue: formatSessionCookie(
-      authConfig.cookieName,
-      token,
-      authConfig.sessionTtlSeconds,
-    ),
+    cookieValue: formatSessionCookie(authConfig.cookieName, token, authConfig.sessionTtlSeconds),
     session,
   };
 }
@@ -62,8 +58,7 @@ export async function prepareRequestAuthContext(request: IncomingMessage) {
 
   const dataPlane = await getPostgresDataPlane();
   const tokenHash = hashSessionToken(token);
-  const session =
-    await dataPlane.requestStore.resolveAuthSessionByTokenHash(tokenHash);
+  const session = await dataPlane.requestStore.resolveAuthSessionByTokenHash(tokenHash);
 
   if (!session) {
     setPreparedAuthContext(request, { status: "session_expired" });
@@ -77,8 +72,7 @@ export async function prepareRequestAuthContext(request: IncomingMessage) {
     return;
   }
 
-  const touchedSession =
-    (await dataPlane.requestStore.touchAuthSession(session.id)) ?? session;
+  const touchedSession = (await dataPlane.requestStore.touchAuthSession(session.id)) ?? session;
   setPreparedAuthContext(request, {
     session: touchedSession,
     status: "authenticated",
@@ -96,7 +90,5 @@ export async function revokePostgresCurrentSession(
     return false;
   }
 
-  return dataPlane.requestStore.revokeAuthSessionByTokenHash(
-    hashSessionToken(token),
-  );
+  return dataPlane.requestStore.revokeAuthSessionByTokenHash(hashSessionToken(token));
 }

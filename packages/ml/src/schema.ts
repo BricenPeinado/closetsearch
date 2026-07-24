@@ -63,15 +63,7 @@ export const recommendationFeatureSchema = Object.freeze({
       description: "Timestamp at which the candidate became available.",
     },
   ] satisfies FeatureDefinition[],
-  userInputs: [
-    "viewport",
-    "click",
-    "like",
-    "save",
-    "watchlist",
-    "hide",
-    "onboarding_preferences",
-  ],
+  userInputs: ["viewport", "click", "like", "save", "watchlist", "hide", "onboarding_preferences"],
 });
 
 export const fairValueFeatureSchema = Object.freeze({
@@ -146,11 +138,7 @@ export const fairValueFeatureSchema = Object.freeze({
   prohibitedFeatures: ["askingPriceMinor", "futureSoldAt", "futureObservedAt"],
 });
 
-export function assertFeatureSchemaVersion(
-  actual: string,
-  expected: string,
-  subject: string,
-) {
+export function assertFeatureSchemaVersion(actual: string, expected: string, subject: string) {
   if (actual !== expected) {
     throw new Error(
       `${subject} uses feature schema ${actual}; expected ${expected}. Regenerate or migrate the snapshot explicitly.`,

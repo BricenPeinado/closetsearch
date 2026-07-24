@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  invalidateActiveAccountTokens,
-} from "../db/repositories/account-tokens.js";
+import { invalidateActiveAccountTokens } from "../db/repositories/account-tokens.js";
 import { revokeAuthSessionsByUserId } from "../db/repositories/auth-sessions.js";
 import {
   findUserEmailIdentityById,
@@ -11,16 +9,10 @@ import {
   upsertUserEmailIdentity,
   type UserEmailIdentityRecord,
 } from "../db/repositories/user-email-identities.js";
-import {
-  findUserById,
-  updateUserPasswordHash,
-} from "../db/repositories/users.js";
+import { findUserById, updateUserPasswordHash } from "../db/repositories/users.js";
 import { runInImmediateTransaction } from "../db/transaction.js";
 import { hashPassword } from "./password-service.js";
-import {
-  assertPasswordPolicy,
-  type PasswordPolicyOptions,
-} from "./password-policy.js";
+import { assertPasswordPolicy, type PasswordPolicyOptions } from "./password-policy.js";
 import { AccountSecurityError } from "./account-security-error.js";
 import { AccountTokenService } from "./account-token-service.js";
 import { normalizeEmailAddress } from "./email-address.js";
@@ -66,13 +58,10 @@ export type PasswordResetResult =
 function validateActionBaseUrl(value: string) {
   const url = new URL(value);
   const isLocalHttp =
-    url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+    url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
 
   if (url.protocol !== "https:" && !isLocalHttp) {
-    throw new TypeError(
-      "Account action base URL must use HTTPS outside local development.",
-    );
+    throw new TypeError("Account action base URL must use HTTPS outside local development.");
   }
 
   return url;
@@ -92,9 +81,7 @@ export class AccountRecoveryService {
       );
     }
 
-    this.actionBaseUrl = validateActionBaseUrl(
-      options.actionBaseUrl ?? "http://localhost:5173",
-    );
+    this.actionBaseUrl = validateActionBaseUrl(options.actionBaseUrl ?? "http://localhost:5173");
     this.emailSender = options.emailSender ?? disabledAccountEmailSender;
     this.now = options.now ?? (() => new Date());
     this.passwordPolicy = options.passwordPolicy ?? {};
@@ -116,27 +103,16 @@ export class AccountRecoveryService {
     const now = this.now().toISOString();
 
     return runInImmediateTransaction(() => {
-      const claimedIdentity =
-        findUserEmailIdentityByNormalizedEmail(normalizedEmail);
+      const claimedIdentity = findUserEmailIdentityByNormalizedEmail(normalizedEmail);
 
       if (claimedIdentity && claimedIdentity.userId !== userId) {
-        throw new AccountSecurityError(
-          "email_in_use",
-          "That email address is already in use.",
-        );
+        throw new AccountSecurityError("email_in_use", "That email address is already in use.");
       }
 
       const existingIdentity = findUserEmailIdentityByUserId(userId);
 
-      if (
-        existingIdentity &&
-        existingIdentity.normalizedEmail !== normalizedEmail
-      ) {
-        this.tokenService.invalidateAllForUser(
-          userId,
-          "email_changed",
-          now,
-        );
+      if (existingIdentity && existingIdentity.normalizedEmail !== normalizedEmail) {
+        this.tokenService.invalidateAllForUser(userId, "email_changed", now);
       }
 
       return upsertUserEmailIdentity({
@@ -150,9 +126,7 @@ export class AccountRecoveryService {
     });
   }
 
-  async requestEmailVerification(
-    userId: string,
-  ): Promise<VerificationRequestResult> {
+  async requestEmailVerification(userId: string): Promise<VerificationRequestResult> {
     const identity = findUserEmailIdentityByUserId(userId);
 
     if (!identity) {
@@ -227,26 +201,20 @@ export class AccountRecoveryService {
     });
   }
 
-  async requestPasswordReset(
-    emailValue: string,
-  ): Promise<PasswordResetRequestResult> {
+  async requestPasswordReset(emailValue: string): Promise<PasswordResetRequestResult> {
     let normalizedEmail: string;
 
     try {
       normalizedEmail = normalizeEmailAddress(emailValue).normalizedEmail;
     } catch (error) {
-      if (
-        error instanceof AccountSecurityError &&
-        error.code === "invalid_email"
-      ) {
+      if (error instanceof AccountSecurityError && error.code === "invalid_email") {
         return { accepted: true };
       }
 
       throw error;
     }
 
-    const identity =
-      findUserEmailIdentityByNormalizedEmail(normalizedEmail);
+    const identity = findUserEmailIdentityByNormalizedEmail(normalizedEmail);
 
     if (!identity?.verifiedAt) {
       return { accepted: true };
@@ -269,14 +237,8 @@ export class AccountRecoveryService {
     return { accepted: true };
   }
 
-  async resetPassword(
-    rawToken: string,
-    newPassword: string,
-  ): Promise<PasswordResetResult> {
-    const activeToken = this.tokenService.resolveActive(
-      rawToken,
-      "password_reset",
-    );
+  async resetPassword(rawToken: string, newPassword: string): Promise<PasswordResetResult> {
+    const activeToken = this.tokenService.resolveActive(rawToken, "password_reset");
 
     if (!activeToken) {
       return {
@@ -326,9 +288,7 @@ export class AccountRecoveryService {
         throw new Error("Password reset user disappeared during transaction.");
       }
 
-      const sessionsRevoked = Number(
-        revokeAuthSessionsByUserId(user.id, resetAt),
-      );
+      const sessionsRevoked = Number(revokeAuthSessionsByUserId(user.id, resetAt));
 
       invalidateActiveAccountTokens({
         invalidatedAt: resetAt,

@@ -1,79 +1,61 @@
 # Release Notes Template
 
-## Release Version
+## Identity
 
-- Version:
+- version/commit:
+- API/worker/web image digests:
+- date/operator:
 
-## Release Date
+## Implemented
 
-- Date:
+- discovery/providers:
+- PostgreSQL/schema:
+- worker/ingestion:
+- accounts/saved state:
+- engagement/recommendations:
+- analytics:
+- entitlements/alerts:
+- security/operations:
 
-## Summary
+## Provider/compliance
 
-- Short release summary:
+- authorized active providers:
+- authorization references/expiry:
+- mock provider/fallback state:
+- known capability/degradation:
 
-## Included Features
+## Schema
 
-- feed
-- search
-- brands
-- auth
-- saved-user features
-- personalization
-- analytics
-- watchlists
+- prior/current version:
+- migration names/checksums:
+- backup/restore evidence:
 
-## Reliability Improvements
+## ML
 
-- provider fallback:
-- auth/session recovery:
-- saved-user persistence:
-- smoke-test coverage:
+- rollout mode/artifact/model/feature versions:
+- evaluation/promotion decision:
+- active fallback:
 
-## Known Limitations
+## Quality evidence
 
-- provider coverage:
-- account recovery:
-- analytics data limits:
-- watchlist delivery limits:
+- required command run:
+- five-run evidence:
+- PostgreSQL/restore:
+- Playwright/staging smoke:
 
-## Setup and Deployment Notes
+## External blockers/deferred
 
-- required commands:
-- required environment updates:
+- provider:
+- email/billing/FX:
+- ML data:
+- push/SMS/authenticity:
 
-## Migration Notes
+## Deployment/rollback
 
-- migrations applied:
-- seed expectations:
+- rollout sequence:
+- observation window:
+- prior image digests:
+- rollback owner/deadline:
 
-## Provider and Data Notes
-
-- runtime mode:
-- fallback behavior:
-- any authorized live provider constraints:
-
-## Analytics Disclaimers
-
-- observed pricing only
-- not financial advice
-- not a prediction
-
-## Watchlist and Alert Limitations
-
-- watchlist saved intent only
-- no live email, push, or SMS delivery yet
-
-## Rollback Notes
-
-- previous build retained:
-- database backup status:
-- rollback owner:
-
-## Post-Release Monitoring Checklist
-
-- API health checked
-- provider health checked
-- login/signup checked
-- feed/search checked
-- user feedback channel monitored
+Never describe fixtures as live, development entitlements as billing, in-app
+alerts as outbound delivery, or synthetic ML metrics as production performance.

@@ -2,10 +2,7 @@ import type { Provider } from "@closetsearch/providers";
 import { describe, expect, it } from "vitest";
 import { createPostgresTestHarness } from "../db/postgres/test-harness.js";
 import type { ProviderRuntime } from "../providers/registry.js";
-import {
-  createWorkerProviderPlan,
-  seedWorkerJobs,
-} from "./provider-plan.js";
+import { createWorkerProviderPlan, seedWorkerJobs } from "./provider-plan.js";
 
 function runtimeWithProviders(providers: Provider[]): ProviderRuntime {
   return {
@@ -84,9 +81,7 @@ describe("worker provider plan", () => {
       },
     );
 
-    expect(plan.sources.map((source) => source.providerId)).toEqual([
-      "official",
-    ]);
+    expect(plan.sources.map((source) => source.providerId)).toEqual(["official"]);
     expect(plan.jobs).toEqual([
       expect.objectContaining({
         jobKey: "provider.ingest:official:active:default",
@@ -176,9 +171,7 @@ describe("worker provider plan", () => {
 
       expect(claimed?.status).toBe("running");
       await seedWorkerJobs(harness.dataPlane, plan, now);
-      expect(
-        await harness.dataPlane.jobs.getByKey(claimed?.jobKey ?? ""),
-      ).toMatchObject({
+      expect(await harness.dataPlane.jobs.getByKey(claimed?.jobKey ?? "")).toMatchObject({
         leaseToken: claimed?.leaseToken,
         status: "running",
       });

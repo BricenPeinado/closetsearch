@@ -1,10 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
 import type { PostgresDatabase } from "../database.js";
-import type {
-  ListingObservationInput,
-  ListingObservationResult,
-} from "../model.js";
+import type { ListingObservationInput, ListingObservationResult } from "../model.js";
 import type { PgQueryable } from "../types.js";
 
 interface ExistingListingRow extends QueryResultRow {
@@ -63,39 +60,22 @@ function listingAdvisoryLockKey(
     .toString();
 }
 
-function sameNullableBigInt(
-  left: string | number | bigint | null,
-  right: bigint | undefined,
-) {
+function sameNullableBigInt(left: string | number | bigint | null, right: bigint | undefined) {
   return asBigInt(left) === right;
 }
 
-function latestObservationMatches(
-  row: ObservationRow,
-  input: ListingObservationInput,
-) {
+function latestObservationMatches(row: ObservationRow, input: ListingObservationInput) {
   return (
     asBigInt(row.original_price_minor) === input.originalPrice.amountMinor &&
     row.original_currency === normalizedCurrency(input.originalPrice.currency) &&
-    sameNullableBigInt(
-      row.comparison_price_minor,
-      input.comparisonPrice?.amountMinor,
-    ) &&
+    sameNullableBigInt(row.comparison_price_minor, input.comparisonPrice?.amountMinor) &&
     row.comparison_currency ===
-      (input.comparisonPrice
-        ? normalizedCurrency(input.comparisonPrice.currency)
-        : null) &&
+      (input.comparisonPrice ? normalizedCurrency(input.comparisonPrice.currency) : null) &&
     sameNullableBigInt(row.sold_price_minor, input.soldPrice?.amountMinor) &&
-    row.sold_currency ===
-      (input.soldPrice ? normalizedCurrency(input.soldPrice.currency) : null) &&
-    sameNullableBigInt(
-      row.shipping_price_minor,
-      input.shippingPrice?.amountMinor,
-    ) &&
+    row.sold_currency === (input.soldPrice ? normalizedCurrency(input.soldPrice.currency) : null) &&
+    sameNullableBigInt(row.shipping_price_minor, input.shippingPrice?.amountMinor) &&
     row.shipping_currency ===
-      (input.shippingPrice
-        ? normalizedCurrency(input.shippingPrice.currency)
-        : null) &&
+      (input.shippingPrice ? normalizedCurrency(input.shippingPrice.currency) : null) &&
     row.market_status === input.marketStatus
   );
 }
@@ -115,10 +95,7 @@ async function findListingForUpdate(
   return result.rows[0];
 }
 
-async function upsertListingRecord(
-  client: PgQueryable,
-  input: ListingObservationInput,
-) {
+async function upsertListingRecord(client: PgQueryable, input: ListingObservationInput) {
   const result = await client.query<ExistingListingRow>(
     `INSERT INTO listings (
        id,
@@ -206,19 +183,13 @@ async function upsertListingRecord(
       input.originalPrice.amountMinor,
       normalizedCurrency(input.originalPrice.currency),
       input.comparisonPrice?.amountMinor ?? null,
-      input.comparisonPrice
-        ? normalizedCurrency(input.comparisonPrice.currency)
-        : null,
+      input.comparisonPrice ? normalizedCurrency(input.comparisonPrice.currency) : null,
       input.comparisonPrice?.exchangeRateSource ?? null,
       input.comparisonPrice?.exchangeRateObservedAt ?? null,
       input.shippingPrice?.amountMinor ?? null,
-      input.shippingPrice
-        ? normalizedCurrency(input.shippingPrice.currency)
-        : null,
+      input.shippingPrice ? normalizedCurrency(input.shippingPrice.currency) : null,
       input.landedPrice?.amountMinor ?? null,
-      input.landedPrice
-        ? normalizedCurrency(input.landedPrice.currency)
-        : null,
+      input.landedPrice ? normalizedCurrency(input.landedPrice.currency) : null,
       input.listedAt ?? null,
       input.providerUpdatedAt ?? null,
       input.fetchedAt,
@@ -235,9 +206,7 @@ async function replaceImages(
   listingId: string,
   input: ListingObservationInput,
 ) {
-  await client.query("DELETE FROM listing_images WHERE listing_id = $1", [
-    listingId,
-  ]);
+  await client.query("DELETE FROM listing_images WHERE listing_id = $1", [listingId]);
 
   for (const [ordinal, image] of input.images.entries()) {
     await client.query(
@@ -249,14 +218,7 @@ async function replaceImages(
          width,
          height
        ) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        randomUUID(),
-        listingId,
-        ordinal,
-        image.url,
-        image.width ?? null,
-        image.height ?? null,
-      ],
+      [randomUUID(), listingId, ordinal, image.url, image.width ?? null, image.height ?? null],
     );
   }
 }
@@ -278,9 +240,7 @@ async function upsertCurrentState(
     !existing ||
     existing.availability !== input.availability ||
     existing.market_status !== input.marketStatus;
-  const nextVersion = existing
-    ? BigInt(existing.lifecycle_version) + (changed ? 1n : 0n)
-    : 1n;
+  const nextVersion = existing ? BigInt(existing.lifecycle_version) + (changed ? 1n : 0n) : 1n;
 
   await client.query(
     `INSERT INTO listing_current_state (
@@ -409,15 +369,11 @@ async function recordPriceObservation(
       input.originalPrice.amountMinor,
       normalizedCurrency(input.originalPrice.currency),
       input.comparisonPrice?.amountMinor ?? null,
-      input.comparisonPrice
-        ? normalizedCurrency(input.comparisonPrice.currency)
-        : null,
+      input.comparisonPrice ? normalizedCurrency(input.comparisonPrice.currency) : null,
       input.soldPrice?.amountMinor ?? null,
       input.soldPrice ? normalizedCurrency(input.soldPrice.currency) : null,
       input.shippingPrice?.amountMinor ?? null,
-      input.shippingPrice
-        ? normalizedCurrency(input.shippingPrice.currency)
-        : null,
+      input.shippingPrice ? normalizedCurrency(input.shippingPrice.currency) : null,
       input.marketStatus,
       input.observedAt,
     ],
@@ -451,15 +407,12 @@ export class ListingRepository {
     return result.rows[0]?.id;
   }
 
-  async upsertObservation(
-    input: ListingObservationInput,
-  ): Promise<ListingObservationResult> {
+  async upsertObservation(input: ListingObservationInput): Promise<ListingObservationResult> {
     return this.database.withTransaction(async (client) => {
       if (this.useAdvisoryLocks) {
-        await client.query(
-          "SELECT pg_advisory_xact_lock($1::bigint)",
-          [listingAdvisoryLockKey(input)],
-        );
+        await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [
+          listingAdvisoryLockKey(input),
+        ]);
       }
 
       const ingestionEventId = randomUUID();
@@ -493,13 +446,9 @@ export class ListingRepository {
 
         return {
           duplicate: true,
-          lifecycleVersion: BigInt(
-            current?.rows[0]?.lifecycle_version ?? 0,
-          ),
+          lifecycleVersion: BigInt(current?.rows[0]?.lifecycle_version ?? 0),
           listingId: existing?.id ?? input.id,
-          observationVersion: asBigInt(
-            latest?.rows[0]?.observation_version,
-          ),
+          observationVersion: asBigInt(latest?.rows[0]?.observation_version),
           persisted: Boolean(existing),
           result: "duplicate",
         };
@@ -539,13 +488,9 @@ export class ListingRepository {
 
         return {
           duplicate: true,
-          lifecycleVersion: BigInt(
-            current?.rows[0]?.lifecycle_version ?? 0,
-          ),
+          lifecycleVersion: BigInt(current?.rows[0]?.lifecycle_version ?? 0),
           listingId: existing?.id ?? input.id,
-          observationVersion: asBigInt(
-            latest?.rows[0]?.observation_version,
-          ),
+          observationVersion: asBigInt(latest?.rows[0]?.observation_version),
           persisted: Boolean(existing),
           result: "duplicate",
         };
@@ -580,13 +525,9 @@ export class ListingRepository {
 
         return {
           duplicate: false,
-          lifecycleVersion: BigInt(
-            current.rows[0]?.lifecycle_version ?? 0,
-          ),
+          lifecycleVersion: BigInt(current.rows[0]?.lifecycle_version ?? 0),
           listingId: existing.id,
-          observationVersion: asBigInt(
-            latest.rows[0]?.observation_version,
-          ),
+          observationVersion: asBigInt(latest.rows[0]?.observation_version),
           persisted: false,
           result: "ignored_stale",
         };
@@ -600,16 +541,8 @@ export class ListingRepository {
       }
 
       await replaceImages(client, listingId, input);
-      const lifecycleVersion = await upsertCurrentState(
-        client,
-        listingId,
-        input,
-      );
-      const observationVersion = await recordPriceObservation(
-        client,
-        listingId,
-        input,
-      );
+      const lifecycleVersion = await upsertCurrentState(client, listingId, input);
+      const observationVersion = await recordPriceObservation(client, listingId, input);
       const result = existing ? "updated" : "inserted";
 
       await client.query(

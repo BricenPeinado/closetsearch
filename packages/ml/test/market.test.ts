@@ -73,9 +73,7 @@ describe("fair-value model and safe fallback", () => {
     const snapshot = marketFixture();
     const artifact = trainFairValueModel({ snapshot });
     const target = {
-      ...snapshot.observations.find(
-        (observation) => observation.observationId === "active-rick",
-      )!,
+      ...snapshot.observations.find((observation) => observation.observationId === "active-rick")!,
       canonicalBrand: "Unseen Brand",
       category: "watches",
       listingId: "unseen-active",
@@ -98,11 +96,7 @@ describe("fair-value model and safe fallback", () => {
     const currentRows = snapshot.observations.filter(
       (observation) => observation.status === "active",
     );
-    const stale = detectFairValueDrift(
-      artifact,
-      currentRows,
-      "2027-01-15T00:00:00.000Z",
-    );
+    const stale = detectFairValueDrift(artifact, currentRows, "2027-01-15T00:00:00.000Z");
     const shifted = detectFairValueDrift(
       artifact,
       currentRows.map((row, index) => ({

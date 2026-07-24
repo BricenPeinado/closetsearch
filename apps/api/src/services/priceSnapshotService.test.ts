@@ -19,7 +19,8 @@ function createListing(
   },
 ): Listing {
   const sourceId = overrides.sourceId ?? overrides.source?.id ?? "grailed";
-  const providerListingId = overrides.providerListingId ?? overrides.id.split(":").pop() ?? overrides.id;
+  const providerListingId =
+    overrides.providerListingId ?? overrides.id.split(":").pop() ?? overrides.id;
   const brandName = overrides.brandName ?? overrides.brand?.name ?? "Kapital";
   const brandSlug = brandName.toLowerCase().replace(/\s+/g, "-") || "unknown-brand";
 
@@ -124,46 +125,47 @@ describe("priceSnapshotService", () => {
   it("uses a monotonic sequence for repeated same-timestamp price changes", () => {
     const observedAt = "2026-07-16T12:00:00.000Z";
 
-    recordObservedListings([
-      createListing({
-        id: "grailed:kapital-jacket-1",
-        brandName: "Kapital",
-        category: "jackets",
-        priceAmount: 180,
-      }),
-    ], observedAt);
+    recordObservedListings(
+      [
+        createListing({
+          id: "grailed:kapital-jacket-1",
+          brandName: "Kapital",
+          category: "jackets",
+          priceAmount: 180,
+        }),
+      ],
+      observedAt,
+    );
 
-    recordObservedListings([
-      createListing({
-        id: "grailed:kapital-jacket-1",
-        brandName: "Kapital",
-        category: "jackets",
-        priceAmount: 140,
-      }),
-    ], observedAt);
+    recordObservedListings(
+      [
+        createListing({
+          id: "grailed:kapital-jacket-1",
+          brandName: "Kapital",
+          category: "jackets",
+          priceAmount: 140,
+        }),
+      ],
+      observedAt,
+    );
 
-    recordObservedListings([
-      createListing({
-        id: "grailed:kapital-jacket-1",
-        brandName: "Kapital",
-        category: "jackets",
-        priceAmount: 180,
-      }),
-    ], observedAt);
+    recordObservedListings(
+      [
+        createListing({
+          id: "grailed:kapital-jacket-1",
+          brandName: "Kapital",
+          category: "jackets",
+          priceAmount: 180,
+        }),
+      ],
+      observedAt,
+    );
 
     const snapshots = getObservedPriceSnapshots();
 
     expect(snapshots).toHaveLength(3);
-    expect(snapshots.map((snapshot) => snapshot.normalizedPriceAmount)).toEqual([
-      180,
-      140,
-      180,
-    ]);
-    expect(snapshots.map((snapshot) => snapshot.observationSequence)).toEqual([
-      3,
-      2,
-      1,
-    ]);
+    expect(snapshots.map((snapshot) => snapshot.normalizedPriceAmount)).toEqual([180, 140, 180]);
+    expect(snapshots.map((snapshot) => snapshot.observationSequence)).toEqual([3, 2, 1]);
     expect(getLatestObservedPriceSnapshots()[0]).toMatchObject({
       normalizedPriceAmount: 180,
       observationSequence: 3,

@@ -1,96 +1,126 @@
-# Analytics Runbook
+# Market Analytics
 
-## Scope
+## Product boundary
 
-ClosetSearch Analytics V1 provides observed pricing context only. It does not forecast future prices, recommend purchases, score authenticity, or send alerts.
+Analytics are entitlement-gated observed pricing context. They are not financial
+advice, a purchase recommendation, a guaranteed bargain/profit claim, an
+authenticity verdict, or a prediction of future value.
 
-## Price Snapshot Recording
+Allowed wording includes:
 
-Observed price snapshots are recorded from normal product flows:
+- estimated/observed range
+- based on observed comparable listings
+- below/within/above observed range
+- limited data
+- model confidence is low
 
-- `GET /feed`
-- `GET /search`
+## Durable observation source
 
-Recording rules:
+Provider ingestion runs in the separate PostgreSQL worker. Feed/search traffic
+is no longer the only source of history.
 
-- use normalized listings only after provider orchestration completes
-- keep recording best-effort so feed/search still succeed if analytics recording fails
-- skip listings with unusable prices or listings explicitly excluded from analytics
-- dedupe repeated same-price observations by updating `last_seen_at`
-- create a new snapshot row when the latest state for the same source listing has
-  a changed price, currency, or market status
-- assign every changed observation a database-generated monotonic
-  `observation_sequence`; timestamps are metadata and are not used as the sole
-  latest-version key
-- preserve repeated transitions such as `$180 -> $140 -> $180` as three ordered
-  observations instead of updating the first `$180` row
+For every eligible normalized observation:
 
-## Market Range Calculations
+- exact original amount/currency is retained
+- optional comparison rate/source/timestamp is retained
+- asking and confirmed sold price remain distinct
+- lifecycle state is retained rather than deleting history
+- duplicate ingestion event IDs are idempotent
+- a changed amount/currency/status creates a new price observation
+- `observation_version` provides monotonic latest/history order
 
-Observed ranges are built from the latest snapshot for each source listing.
+SQLite local/test mode still records best-effort traffic observations for
+compatibility, but production analytics read PostgreSQL.
 
-Current summaries:
+## Current observed analytics
 
-- brand pricing ranges
-- category pricing ranges
-- count
-- min
-- max
-- median
-- average
-- quartiles when sample size is large enough
+Latest observations are selected by maximum monotonic version for each listing,
+not by timestamp. Ineligible observations and listings whose current lifecycle
+is stale, removed, or unavailable are excluded.
 
-Ranges use normalized same-currency observed prices only. Brand and category
-summaries are partitioned by comparison currency; values from different
-currencies are never combined into one labeled range.
+Overview reports:
 
-## Similar Listing Comparisons
+- observed listing, brand, and category counts
+- asking and confirmed-sold comparable counts separately
+- source coverage
+- latest observation time
+- minimum-sample/data-quality state
+- cautious asking-price signal count
 
-Listing comparisons use observed listings with matching brand and category, then narrow further when enough data exists:
+Market insights choose comparables independently for each brand/category and
+currency segment. A segment uses confirmed sold rows when it has them and
+otherwise uses explicitly labeled observed asking rows. The response reports
+`basis=confirmed_sold`, `basis=asking_fallback`, or
+`basis=segment_sold_first`; each summary also reports its own
+`confirmed_sold`/`observed_asking` basis. Asking-only segments therefore remain
+visible when an unrelated segment has sold data. Brand/category summaries never
+mix currencies.
 
-- brand + category + condition when sample size is sufficient
-- brand + category + listing type when sample size is sufficient
-- otherwise brand + category
+The legacy `/analytics/underpriced` route is retained for contract compatibility,
+but its output is labeled observed asking comparison and states that it does not
+imply profit or guaranteed value.
 
-Minimum sample-size behavior:
+## Comparables and sample gates
 
-- require at least 4 comparable observed listings before returning a real comparison signal
-- if too few comparable listings exist, return a limited-data state
-- if similar listings exist but currencies do not match, return a currency-limited state instead of forcing a comparison
+Observed ranges use latest eligible normalized observations, grouped by
+currency. Comparables prefer matching brand/category and can narrow by condition
+or listing type when enough rows remain.
 
-## Under-Market Wording Rules
+At least four same-currency comparables are required for a range signal. Smaller
+sets return limited data. Cross-currency data is never coerced into a labeled
+single-currency range or numerically ordered against another currency.
 
-Allowed language:
+## Fair-value candidate
 
-- Observed range
-- Below observed range
-- Below observed median
-- Near observed range
-- Not enough observed data
-- Lower than similar observed listings
+The offline model:
 
-Disallowed language:
+- trains only on confirmed normalized sold price
+- prohibits active asking price as a realized target or model feature
+- deduplicates by provider/source listing identity
+- uses temporal train/calibration/test splits
+- applies train-fitted robust outlier handling
+- evaluates brand/category/source segments
+- returns a calibrated interval only when sample, drift, staleness, and
+  confidence gates pass
+- otherwise returns an observed interquartile range or limited data
 
-- Guaranteed underpriced
-- Profit
-- Investment
-- Prediction
-- Buy now
-- Authentic / fake verdicts
+Current fixture result:
 
-## Disclaimers
+- observed-median baseline MAE: `4,500` minor units
+- ridge candidate MAE: `5,623`
+- candidate median absolute error: `5,977`
+- interval coverage: `0.1667`
+- test rows: `6`
 
-Analytics UI and API responses should preserve these boundaries:
+The candidate is worse than the baseline and badly under-covered. It is not
+promoted and no model estimate should appear in production.
 
-- Based on listings ClosetSearch has observed.
-- Not financial advice.
-- Not a prediction.
-- Availability and prices may change.
+## Premium access
 
-## Known Limitations
+Analytics unlock only through an active persisted entitlement. Access is never
+derived from username. The repository has no billing integration; only a
+verified-admin, non-production development grant path exists.
 
-- snapshot history only reflects listings ClosetSearch has seen through normal feed/search traffic
-- mock-only environments produce mock-only analytics summaries
-- there is no forecasting, trend modeling, or resale intelligence layer yet
-- there is no alert delivery or watchlist notification integration yet
-- there is no fake-risk or authenticity logic inside analytics
+## Freshness and drift
+
+User-facing responses carry data freshness, comparable count, source coverage,
+currency, basis, and disclaimers. The fair-value artifact stores training
+distribution/model age metadata; excessive distribution distance, unseen
+categories, age, low calibration, or low confidence forces observed fallback.
+
+## Operations
+
+Monitor:
+
+- ingestion checkpoint age and provider coverage
+- confirmed sold versus asking counts
+- eligible/excluded observation count and exclusion reasons
+- rate/currency staleness
+- minimum-sample coverage by segment
+- model artifact age, drift, confidence, interval coverage, and fallback rate
+
+Do not promote a model or soften copy because more active asking prices arrived.
+Confirmed outcomes and temporal evaluation are required.
+
+See [the fair-value model card](../ml/fair-value-model-card.md) and
+[fixture evaluation](../ml/evaluation-fixture-v1.md).

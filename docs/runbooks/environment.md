@@ -1,193 +1,209 @@
 # Environment Reference
 
-Environment examples are documentation only:
+Examples:
 
 - root development: `.env.example`
-- API/worker development: `apps/api/.env.example`
+- API/worker: `apps/api/.env.example`
 - web build: `apps/web/.env.example`
-- local container topology: `.env.compose.example`
+- local topology: `.env.compose.example`
 
-Never commit populated `.env` files. Production secrets must come from the deployment platform’s secret manager.
+Examples contain placeholders, not production secrets. Use a secret manager.
 
 ## Production invariants
 
-`validateStartupEnvironment` rejects a production API start unless:
+The API rejects production startup unless:
 
-- `AUTH_SESSION_PEPPER` is at least 32 characters
-- `AUTH_COOKIE_SECURE=true`
-- every `AUTH_ALLOWED_ORIGINS` value is explicit HTTPS and not localhost
-- `PROVIDER_RUNTIME_MODE=real`
-- mock fallback and the mock provider are disabled
 - `PERSISTENCE_DRIVER=postgres`
+- `DATABASE_URL` is valid
+- `AUTH_SESSION_PEPPER` has at least 32 characters
+- `AUTH_COOKIE_SECURE=true`
+- `AUTH_ALLOWED_ORIGINS` contains only explicit non-local HTTPS origins
+- `PROVIDER_RUNTIME_MODE=real`
+- mock provider and fallback are disabled
+- a non-disabled recommendation mode has an artifact path
+- active recommendation mode has explicit promotion approval
 
-Production also requires at least one authorized/configured real provider for readiness.
-
-`DATABASE_URL` is authoritative for PostgreSQL migrations, the worker, and the
-landed durable data-plane repositories. The current API request repositories
-and readiness database check still use `CLOSETSEARCH_DB_PATH` while those
-modules migrate incrementally. This split is a launch blocker, not a supported
-final production architecture.
+Readiness additionally requires successful PostgreSQL access, no migration
+drift/pending version, and at least one active real provider.
 
 ## API process
 
-| Variable               | Default                 | Production                                              |
-| ---------------------- | ----------------------- | ------------------------------------------------------- |
-| `NODE_ENV`             | runtime default         | `production`                                            |
-| `HOST`                 | `127.0.0.1`             | bind the platform interface, commonly `0.0.0.0`         |
-| `PORT`                 | `4000`                  | platform-assigned or `4000`                             |
-| `SHUTDOWN_TIMEOUT_MS`  | `10000`                 | 1–60 seconds; align with termination grace              |
-| `PERSISTENCE_DRIVER`   | explicit value required | `postgres`; `sqlite` is test/local only                 |
-| `CLOSETSEARCH_DB_PATH` | local `.data` file      | compatibility only; PostgreSQL cutover remains required |
+| Variable                | Default               | Notes                                      |
+| ----------------------- | --------------------- | ------------------------------------------ |
+| `NODE_ENV`              | runtime               | set `production`                           |
+| `HOST`                  | `127.0.0.1`           | platform bind address                      |
+| `PORT`                  | `4000`                | 1–65535                                    |
+| `SHUTDOWN_TIMEOUT_MS`   | `10000`               | 1000–60000                                 |
+| `PERSISTENCE_DRIVER`    | required except tests | `postgres` production, `sqlite` local/test |
+| `CLOSETSEARCH_DB_PATH`  | local `.data` file    | SQLite compatibility only                  |
+| `HTTP_BODY_LIMIT_BYTES` | `65536`               | streamed JSON limit                        |
 
 ## PostgreSQL
 
-| Variable                           | Default                                      | Notes                                                             |
-| ---------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
-| `DATABASE_URL`                     | none                                         | required by migrations, worker, and PostgreSQL data-plane clients |
-| `POSTGRES_APPLICATION_NAME`        | `closetsearch-api`                           | use distinct API/worker/migration names                           |
-| `POSTGRES_SSL_MODE`                | `prefer`                                     | `disable`, `prefer`, `require`, or `verify-full`                  |
-| `POSTGRES_SSL_CA`                  | none                                         | CA PEM for `verify-full`; escaped newlines are accepted           |
-| `POSTGRES_ALLOW_INSECURE`          | false                                        | only explicit local/CI override for disabled TLS                  |
-| `POSTGRES_POOL_MAX`                | `10`                                         | 1–100; budget across all replicas                                 |
-| `POSTGRES_CONNECTION_TIMEOUT_MS`   | `5000`                                       | 100–120000                                                        |
-| `POSTGRES_IDLE_TIMEOUT_MS`         | `30000`                                      | 1000–600000                                                       |
-| `POSTGRES_STATEMENT_TIMEOUT_MS`    | `10000`                                      | 100–300000                                                        |
-| `POSTGRES_QUERY_TIMEOUT_MS`        | `12000`                                      | 100–300000                                                        |
-| `POSTGRES_TRANSACTION_RETRY_LIMIT` | `3`                                          | 0–10 transient retries                                            |
-| `PERSISTENCE_MIGRATE_ON_START`     | true outside production, false in production | keep false in production and use the one-shot migration job       |
+| Variable                           | Default                 | Notes                                         |
+| ---------------------------------- | ----------------------- | --------------------------------------------- |
+| `DATABASE_URL`                     | none                    | required for PostgreSQL                       |
+| `POSTGRES_APPLICATION_NAME`        | `closetsearch-api`      | use distinct API/worker/migration labels      |
+| `POSTGRES_SSL_MODE`                | `prefer`                | `disable`, `prefer`, `require`, `verify-full` |
+| `POSTGRES_SSL_CA`                  | none                    | CA PEM; escaped newlines accepted             |
+| `POSTGRES_ALLOW_INSECURE`          | false                   | local/CI-only override for disabled TLS       |
+| `POSTGRES_POOL_MAX`                | `10`                    | 1–100, budget across replicas                 |
+| `POSTGRES_CONNECTION_TIMEOUT_MS`   | `5000`                  | 100–120000                                    |
+| `POSTGRES_IDLE_TIMEOUT_MS`         | `30000`                 | 1000–600000                                   |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`    | `10000`                 | 100–300000                                    |
+| `POSTGRES_QUERY_TIMEOUT_MS`        | `12000`                 | 100–300000                                    |
+| `POSTGRES_TRANSACTION_RETRY_LIMIT` | `3`                     | 0–10                                          |
+| `PERSISTENCE_MIGRATE_ON_START`     | true outside production | production should use one-shot migration      |
+| `REQUEST_STORE_IP_HINT_PEPPER`     | session pepper fallback | separate production secret is preferred       |
 
-Compose uses disabled TLS only inside its isolated local network and sets `POSTGRES_ALLOW_INSECURE=true`. Managed production should use `verify-full` whenever supported.
+Use `verify-full` with a trusted CA in managed production. Disabled TLS is only
+for isolated local/CI networking.
 
-## Auth and sessions
+## Auth and account actions
 
-| Variable                   | Default                | Production                       |
-| -------------------------- | ---------------------- | -------------------------------- |
-| `AUTH_ALLOWED_ORIGINS`     | local Vite origins     | explicit HTTPS origins only      |
-| `AUTH_SESSION_COOKIE_NAME` | `closetsearch_session` | keep stable                      |
-| `AUTH_SESSION_TTL_DAYS`    | `14`                   | set according to security policy |
-| `AUTH_COOKIE_SECURE`       | production-sensitive   | must be `true`                   |
-| `AUTH_SESSION_PEPPER`      | empty                  | secret, at least 32 characters   |
-| `AUTH_TOKEN_PEPPER`        | empty                  | legacy fallback only             |
+| Variable                   | Default                                    | Notes                                              |
+| -------------------------- | ------------------------------------------ | -------------------------------------------------- |
+| `AUTH_ALLOWED_ORIGINS`     | local Vite origins                         | explicit HTTPS production origins                  |
+| `AUTH_SESSION_COOKIE_NAME` | `closetsearch_session`                     | keep stable                                        |
+| `AUTH_SESSION_TTL_DAYS`    | `14`                                       | positive integer                                   |
+| `AUTH_COOKIE_SECURE`       | true in production                         | must remain true                                   |
+| `AUTH_SESSION_PEPPER`      | empty                                      | production secret, minimum 32                      |
+| `AUTH_TOKEN_PEPPER`        | empty                                      | legacy fallback only                               |
+| `ACCOUNT_ACTION_BASE_URL`  | local URL / invalid production placeholder | set explicit HTTPS origin when email sender exists |
 
-Rotating the session pepper revokes existing sessions.
+Rotating session/token peppers invalidates live sessions/action links. The
+repository does not configure an account email sender; `ACCOUNT_ACTION_BASE_URL`
+alone cannot activate delivery.
+
+## Engagement
+
+| Variable                         | Default                | Notes                         |
+| -------------------------------- | ---------------------- | ----------------------------- |
+| `ENGAGEMENT_SESSION_PEPPER`      | development value only | production secret, minimum 32 |
+| `ENGAGEMENT_MAX_EVENT_AGE_MS`    | `604800000`            | 1 minute–30 days              |
+| `ENGAGEMENT_FUTURE_TOLERANCE_MS` | `300000`               | 0–1 hour                      |
+
+Privacy-session IDs and normalized search text are hashed before persistence.
+
+## Entitlements
+
+`ENTITLEMENT_ADMIN_DEVELOPMENT_ENABLED=true` permits the development grant route
+only outside production and only for a session user with a verified `admin`
+identity. Development entitlements are ignored in production. No billing
+environment is defined because no billing provider is integrated.
 
 ## Recommendation runtime
 
-| Variable                                            | Default    | Notes                                                                                          |
-| --------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------- |
-| `CLOSETSEARCH_RECOMMENDATION_MODE`                  | `disabled` | `disabled`, `shadow`, or `active`; unknown values fail closed to `disabled`                    |
-| `CLOSETSEARCH_RECOMMENDATION_ARTIFACT_PATH`         | none       | immutable JSON artifact emitted from the reviewed `packages/ml` training pipeline              |
-| `CLOSETSEARCH_RECOMMENDATION_PROMOTION_APPROVED`    | `false`    | must be exactly `true`, in addition to artifact status `promoted`, before active model ranking |
-| `CLOSETSEARCH_RECOMMENDATION_TIMEOUT_MS`            | `25`       | 1–250 ms; invalid values use 25 ms                                                             |
-| `CLOSETSEARCH_RECOMMENDATION_MAX_ARTIFACT_AGE_DAYS` | `45`       | 1–365 days; an older active artifact falls back to rules                                       |
+| Variable                                            | Default    | Notes                                      |
+| --------------------------------------------------- | ---------- | ------------------------------------------ |
+| `CLOSETSEARCH_RECOMMENDATION_MODE`                  | `disabled` | `disabled`, `shadow`, `active`             |
+| `CLOSETSEARCH_RECOMMENDATION_ARTIFACT_PATH`         | none       | immutable reviewed JSON                    |
+| `CLOSETSEARCH_RECOMMENDATION_PROMOTION_APPROVED`    | `false`    | required with promoted artifact for active |
+| `CLOSETSEARCH_RECOMMENDATION_TIMEOUT_MS`            | `25`       | 1–250                                      |
+| `CLOSETSEARCH_RECOMMENDATION_MAX_ARTIFACT_AGE_DAYS` | `45`       | 1–365                                      |
 
-The checked-in synthetic fixture is evaluation evidence only and is not a
-promotable production artifact. Start with `shadow`, inspect fallback,
-concentration, overlap, and latency metrics, and use `disabled` as the immediate
-rollback. Artifact files are immutable deployment inputs; changing a file at
-the same path requires an API restart.
+The checked-in synthetic artifact is shadow evidence, not a production artifact.
+Rollback to `disabled` or `shadow`.
 
-## Provider orchestration
+## Providers
 
-| Variable                        | Development default                         | Production |
-| ------------------------------- | ------------------------------------------- | ---------- |
-| `PROVIDER_RUNTIME_MODE`         | `mock` unless a real provider is configured | `real`     |
-| `PROVIDER_ALLOW_MOCK_FALLBACK`  | `true`                                      | `false`    |
-| `PROVIDER_MOCK_ENABLED`         | `true`                                      | `false`    |
-| `PROVIDER_REQUEST_TIMEOUT_MS`   | `10000`                                     | 1000–60000 |
-| `PROVIDER_MAX_ACTIVE_PROVIDERS` | `2`                                         | 1–5        |
+Core:
 
-Mock inventory is fixtures only and may not be substituted silently in production.
+| Variable                        | Development              | Production |
+| ------------------------------- | ------------------------ | ---------- |
+| `PROVIDER_RUNTIME_MODE`         | `mock` unless configured | `real`     |
+| `PROVIDER_ALLOW_MOCK_FALLBACK`  | `true`                   | `false`    |
+| `PROVIDER_MOCK_ENABLED`         | `true`                   | `false`    |
+| `PROVIDER_REQUEST_TIMEOUT_MS`   | `10000`                  | 1000–60000 |
+| `PROVIDER_MAX_ACTIVE_PROVIDERS` | `2`                      | 1–5        |
 
-### eBay official API
+eBay:
 
-| Variable                       | Default                | Notes                                   |
-| ------------------------------ | ---------------------- | --------------------------------------- |
-| `EBAY_PROVIDER_ENABLED`        | `false`                | enable only with approved credentials   |
-| `EBAY_CLIENT_ID`               | none                   | secret/config credential                |
-| `EBAY_CLIENT_SECRET`           | none                   | secret                                  |
-| `EBAY_API_BASE_URL`            | `https://api.ebay.com` | API origin                              |
-| `EBAY_IDENTITY_BASE_URL`       | `https://api.ebay.com` | OAuth origin                            |
-| `EBAY_MARKETPLACE_ID`          | `EBAY_US`              | marketplace header                      |
-| `EBAY_OAUTH_SCOPE`             | public API scope       | approved OAuth scope                    |
-| `EBAY_AFFILIATE_CAMPAIGN_ID`   | none                   | optional approved affiliate attribution |
-| `EBAY_AFFILIATE_REFERENCE_ID`  | none                   | optional attribution                    |
-| `EBAY_REQUEST_TIMEOUT_MS`      | `8000`                 | bounded request timeout                 |
-| `EBAY_MIN_REQUEST_INTERVAL_MS` | `250`                  | pacing                                  |
-| `EBAY_MAX_CONCURRENCY`         | `2`                    | 1–10                                    |
-| `EBAY_MAX_RETRIES`             | `3`                    | bounded retry count                     |
+- `EBAY_PROVIDER_ENABLED`
+- `EBAY_CLIENT_ID`
+- `EBAY_CLIENT_SECRET`
+- `EBAY_API_BASE_URL`
+- `EBAY_IDENTITY_BASE_URL`
+- `EBAY_MARKETPLACE_ID`
+- `EBAY_OAUTH_SCOPE`
+- `EBAY_AFFILIATE_CAMPAIGN_ID`
+- `EBAY_AFFILIATE_REFERENCE_ID`
+- `EBAY_REQUEST_TIMEOUT_MS`
+- `EBAY_MIN_REQUEST_INTERVAL_MS`
+- `EBAY_MAX_CONCURRENCY`
+- `EBAY_MAX_RETRIES`
 
-### Grailed authorized scraping
+Grailed:
 
-| Variable                          | Default                   | Notes                                    |
-| --------------------------------- | ------------------------- | ---------------------------------------- |
-| `GRAILED_PROVIDER_ENABLED`        | follows authorization     | explicit provider switch                 |
-| `GRAILED_SCRAPING_ALLOWED`        | `false`                   | compliance gate                          |
-| `GRAILED_AUTHORIZATION_REFERENCE` | none                      | retained written-authorization reference |
-| `GRAILED_BASE_URL`                | `https://www.grailed.com` | approved origin                          |
-| `GRAILED_REQUEST_TIMEOUT_MS`      | `5000`                    | timeout                                  |
-| `GRAILED_MIN_REQUEST_INTERVAL_MS` | `3000`                    | conservative pacing                      |
-| `GRAILED_MAX_RESULTS_PER_SEARCH`  | `24`                      | normalization cap                        |
-| `GRAILED_USER_AGENT`              | contact placeholder       | replace with accurate project contact    |
+- `GRAILED_PROVIDER_ENABLED`
+- `GRAILED_SCRAPING_ALLOWED`
+- `GRAILED_AUTHORIZATION_REFERENCE`
+- `GRAILED_BASE_URL`
+- `GRAILED_REQUEST_TIMEOUT_MS`
+- `GRAILED_MIN_REQUEST_INTERVAL_MS`
+- `GRAILED_MAX_CONCURRENCY`
+- `GRAILED_MAX_RETRIES`
+- `GRAILED_BASE_BACKOFF_MS`
+- `GRAILED_MAX_RETRY_AFTER_MS`
+- `GRAILED_CIRCUIT_BREAKER_FAILURE_THRESHOLD`
+- `GRAILED_CIRCUIT_BREAKER_COOLDOWN_MS`
+- `GRAILED_MAX_RESULTS_PER_SEARCH`
+- `GRAILED_USER_AGENT`
 
-Do not enable Grailed without current written permission matching the request profile.
+See [Provider configuration](PROVIDER_CONFIGURATION.md). Credentials do not
+replace partner approval; Grailed flags must not be set without written
+permission.
 
 ## Worker
 
-| Variable                                   | Default                 | Bounds                                            |
-| ------------------------------------------ | ----------------------- | ------------------------------------------------- |
-| `WORKER_CONCURRENCY`                       | `4`                     | 1–32                                              |
-| `WORKER_PROVIDER_INGESTION_ENABLED`        | `true`                  | set false only for an intentional ingestion pause |
-| `WORKER_DEFAULT_INGESTION_QUERY`           | `designer clothing`     | used when no JSON schedule is supplied            |
-| `WORKER_ACTIVE_INGESTION_INTERVAL_SECONDS` | `900`                   | 60–604800                                         |
-| `WORKER_SOLD_INGESTION_INTERVAL_SECONDS`   | `3600`                  | 60–604800                                         |
-| `WORKER_INGESTION_PAGE_SIZE`               | `50`                    | 1–200                                             |
-| `WORKER_INGESTION_SEARCHES_JSON`           | empty                   | optional 1–100 validated search definitions       |
-| `WORKER_LEASE_DURATION_MS`                 | `60000`                 | 5000–900000                                       |
-| `WORKER_POLL_INTERVAL_MS`                  | `2000`                  | 100–60000                                         |
-| `WORKER_ID`                                | generated UUID-based id | optional stable instance label                    |
+| Variable                                   | Default             | Bounds                         |
+| ------------------------------------------ | ------------------- | ------------------------------ |
+| `WORKER_CONCURRENCY`                       | `4`                 | 1–32                           |
+| `WORKER_PROVIDER_INGESTION_ENABLED`        | `true`              | explicit pause only            |
+| `WORKER_DEFAULT_INGESTION_QUERY`           | `designer clothing` | fallback schedule text         |
+| `WORKER_ACTIVE_INGESTION_INTERVAL_SECONDS` | `900`               | 60–604800                      |
+| `WORKER_SOLD_INGESTION_INTERVAL_SECONDS`   | `3600`              | 60–604800                      |
+| `WORKER_INGESTION_PAGE_SIZE`               | `50`                | 1–200                          |
+| `WORKER_INGESTION_SEARCHES_JSON`           | empty               | 1–100 definitions              |
+| `WORKER_LEASE_DURATION_MS`                 | `60000`             | 5000–900000                    |
+| `WORKER_POLL_INTERVAL_MS`                  | `2000`              | 100–60000                      |
+| `WORKER_ID`                                | generated           | optional stable instance label |
 
-The worker entry point registers maintenance handlers and, when at least one
-authorized real provider is active, `provider.ingest`. It creates only the
-scopes a provider reports as supported, filters fixture/mock sources, seeds
-jobs idempotently, and records continuation checkpoints in PostgreSQL.
+Each search definition has `key`, `text`, `scope` (`active` or `sold`), and
+optional `providerIds`, `pageSize`, and `intervalSeconds`. Invalid definitions
+fail worker startup. The worker needs the same provider authorization/credentials
+as the API.
 
-`WORKER_INGESTION_SEARCHES_JSON` is an array of objects with:
-`key`, `text`, `scope` (`active` or `sold`), and optional `providerIds`,
-`pageSize`, and `intervalSeconds`. Invalid JSON or invalid definitions fail
-worker startup. Provider credentials and authorization flags must be supplied
-to the worker as well as the API; the Compose topology does this through its
-shared provider environment.
+## Web
 
-## Web build
+| Variable                             | Default   | Notes                                             |
+| ------------------------------------ | --------- | ------------------------------------------------- |
+| `VITE_API_BASE_URL`                  | local API | embedded at build time                            |
+| `VITE_EXPERIMENTAL_METADATA_SIGNALS` | false     | keeps placeholder metadata-risk assistance hidden |
 
-`VITE_API_BASE_URL` is embedded into the static bundle at build time. Changing it requires a new web artifact. Production must use the public HTTPS API origin.
+Changing either requires a new web artifact.
 
-## Smoke tests
+## Smoke and backup
 
-| Variable                             | Purpose                                          |
-| ------------------------------------ | ------------------------------------------------ |
-| `CLOSETSEARCH_API_BASE_URL`          | API origin to verify                             |
-| `CLOSETSEARCH_SMOKE_TIMEOUT_MS`      | per-request timeout                              |
-| `CLOSETSEARCH_SMOKE_REQUIRE_HTTPS`   | defaults true in production smoke                |
-| `CLOSETSEARCH_EXPECTED_PROVIDER_IDS` | optional comma-separated required real providers |
+Smoke:
 
-`scripts/production-smoke-test.mjs` rejects non-real mode, mock fallback, active fixture providers, and mock listings.
+- `CLOSETSEARCH_API_BASE_URL`
+- `CLOSETSEARCH_SMOKE_TIMEOUT_MS`
+- `CLOSETSEARCH_SMOKE_REQUIRE_HTTPS`
+- `CLOSETSEARCH_EXPECTED_PROVIDER_IDS`
 
-## Backup and restore
-
-See [PostgreSQL backup and restore](POSTGRES_BACKUP_RESTORE.md).
-
-Backup variables:
+Backup:
 
 - `BACKUP_DIR`
 - `BACKUP_RETENTION_DAYS`
 - `BACKUP_REQUIRE_ENCRYPTION`
 - `BACKUP_AGE_RECIPIENT`
 
-Restore variables:
+Restore:
 
 - `RESTORE_DATABASE_URL`
 - `RESTORE_TARGET_DATABASE`
 - `RESTORE_CONFIRMATION`
 - `RESTORE_AGE_IDENTITY`
+
+See [PostgreSQL backup and restore](POSTGRES_BACKUP_RESTORE.md).

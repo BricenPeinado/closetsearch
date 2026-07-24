@@ -1,78 +1,90 @@
 # Deployment Checklist
 
-See [Production deployment](PRODUCTION_DEPLOYMENT.md) for commands and current blockers.
+See [Production deployment](PRODUCTION_DEPLOYMENT.md) and
+[Production rollback](PRODUCTION_ROLLBACK.md).
 
-## Build evidence
+## Authorization and data
 
-- [ ] frozen install succeeds
-- [ ] infrastructure static validation succeeds
-- [ ] formatting, lint, and typecheck pass
-- [ ] workspace build and unit/contract tests pass
-- [ ] PostgreSQL clean migration and integration tests pass
-- [ ] backup/restore drill passes
-- [ ] container topology builds and healthchecks pass
-- [ ] browser/end-to-end gates pass
-- [ ] dependency audit and image scan pass
-- [ ] immutable image digests are recorded
-
-The root package exposes `format:check`, `test:integration`, and `test:e2e`.
-The Playwright gate covers signed-out, signed-in/onboarding, degraded-provider,
-and revoked-session recovery flows using in-memory SQLite and explicitly
-mock-only provider fixtures. It makes no live marketplace requests. A separate
-staging smoke must still use `smoke:production` with authorized real providers.
-
-## Persistence
-
-- [ ] PostgreSQL is managed, encrypted, monitored, and backed up
-- [ ] migration job runs once before application rollout
-- [ ] schema checksum/version is verified
-- [ ] API repositories and readiness use PostgreSQL, not the SQLite compatibility path
-- [ ] worker lease/checkpoint state survives restarts
-- [ ] recent restore evidence meets RPO/RTO
-
-The PostgreSQL data plane and worker use are landed. The API request-repository
-and readiness cutover item remains open and blocks public production readiness.
-
-## Providers
-
+- [ ] every enabled provider has current approval/credentials
+- [ ] the provider acquisition record covers display, retention, history,
+      analytics/ML, attribution, regions, and revocation
+- [ ] eBay partner/affiliate obligations or Grailed written authorization are
+      retained as applicable
 - [ ] `PROVIDER_RUNTIME_MODE=real`
 - [ ] `PROVIDER_ALLOW_MOCK_FALLBACK=false`
 - [ ] `PROVIDER_MOCK_ENABLED=false`
-- [ ] every enabled provider has current credentials/authorization
-- [ ] provider attribution and compliance records are current
-- [ ] readiness confirms a real provider
-- [ ] production smoke confirms no mock/fixture inventory
+- [ ] authorized staging smoke proves no mock listing/provider is active
+
+## Build and quality
+
+- [ ] frozen install
+- [ ] format check, lint, typecheck, build
+- [ ] unit/contract tests
+- [ ] PostgreSQL integration tests
+- [ ] Playwright signed-out, signed-in/onboarding/likes,
+      watchlist-create-edit-delete, entitlement-gated analytics, degraded-provider,
+      session-expiry, and PostgreSQL account-deletion flows
+- [ ] axe-core WCAG A/AA scans pass; keyboard/screen-reader/zoom/mobile checks
+      remain manually reviewed
+- [ ] five consecutive clean full test runs
+- [ ] OpenAPI contract validation
+- [ ] dependency and image vulnerability policy
+- [ ] immutable image digests recorded
+
+## PostgreSQL
+
+- [ ] managed encrypted service and total pool budget approved
+- [ ] migration job reaches version `006`
+- [ ] migration names/checksums inspected
+- [ ] API readiness reports PostgreSQL and no pending migrations
+- [ ] concurrent writes, rollback, restart, lease contention, session
+      revocation/expiry verified on a real engine
+- [ ] fresh encrypted backup exists off host
+- [ ] isolated restore drill and row-count/schema evidence meet RPO/RTO
 
 ## Security
 
-- [ ] production HTTPS origins only
-- [ ] secure cookies
-- [ ] session pepper of at least 32 characters from secret management
-- [ ] database TLS verifies the server certificate where supported
-- [ ] logs/metrics contain no secrets or sensitive feature vectors
-- [ ] API/worker containers run unprivileged with `no-new-privileges`
-- [ ] credential rotation and incident contacts are tested
+- [ ] explicit HTTPS allowed origins
+- [ ] secure cookies and session pepper from secret management
+- [ ] database TLS certificate verification
+- [ ] body/origin/CSRF/rate-limit controls exercised
+- [ ] account verification/reset/export/deletion behavior exercised
+- [ ] logs/metrics contain no credentials, tokens, personal email, database URL,
+      or sensitive feature vectors
+- [ ] rotation and incident contacts tested
 
-## Worker
+## Worker and alerts
 
-- [ ] provider ingestion sources are registered in the worker entry point
-- [ ] scheduled jobs are seeded idempotently
-- [ ] ingestion last-success/lag and job failures are monitored
-- [ ] alert retries/dead letters are monitored
-- [ ] graceful shutdown is observed without duplicate work
+- [ ] `worker_jobs_seeded.activeProviderIds` is exactly expected
+- [ ] no unexpected `blockedProviders`
+- [ ] jobs seed idempotently and leases/checkpoints survive restart
+- [ ] active/sold scope matches provider capability
+- [ ] ingestion last success/lag, stale maintenance, and provider health advance
+- [ ] watchlist match, inbox unseen/seen/dismiss, frequency/quiet hours pass
+- [ ] delivery retry/dead-letter state is monitored
+- [ ] email, push, and SMS remain disabled unless separately approved and tested
 
-Provider-ingestion registration and idempotent schedule seeding are implemented.
-At deployment time, verify that `worker_jobs_seeded.activeProviderIds` contains
-the intended authorized providers and that `blockedProviders` contains no
-unexpected entry. An empty provider schedule without credentials is an explicit
-external/configuration blocker, not successful live ingestion.
+## ML
+
+- [ ] intended mode and immutable artifact digest recorded
+- [ ] active mode uses a promoted, non-stale artifact and explicit approval
+- [ ] rules and observed-range fallback tested
+- [ ] latency, fallback, coverage, diversity, provider/brand concentration, and
+      model version observed
+- [ ] no synthetic fixture is described as production performance evidence
 
 ## Rollout
 
-- [ ] fresh backup captured
 - [ ] previous image digests retained
-- [ ] canary API passes health and no-mock smoke
-- [ ] worker starts with bounded concurrency
-- [ ] web artifact targets the correct HTTPS API origin
-- [ ] error, provider, database, worker, and feed metrics are observed
-- [ ] rollback owner and decision deadline are set
+- [ ] rollback owner/deadline declared
+- [ ] migration, worker, API canary, then web deployed in order
+- [ ] liveness/readiness/provider health/no-mock smoke pass
+- [ ] `/operations/status` and `/metrics` expose current sanitized durable state
+      without payloads, cursors, credentials, raw errors, or unbounded route labels
+- [ ] critical user flows pass against the deployed environment
+- [ ] metrics stable through one normal ingestion interval
+- [ ] release evidence and remaining external blockers recorded
+
+An empty real-provider schedule is an external/configuration blocker, not a
+successful live deployment. This workstation lacks Docker, so a local Compose
+check cannot be marked complete here.

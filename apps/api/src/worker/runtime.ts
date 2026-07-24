@@ -1,15 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PostgresDataPlane } from "../db/postgres/data-plane.js";
-import {
-  LostJobLeaseError,
-  type WorkerJob,
-} from "../db/postgres/repositories/jobs.js";
+import { LostJobLeaseError, type WorkerJob } from "../db/postgres/repositories/jobs.js";
 import type { Clock } from "../db/postgres/types.js";
 import { systemClock } from "../db/postgres/types.js";
-import {
-  WorkerJobError,
-  type WorkerJobHandler,
-} from "./types.js";
+import { WorkerJobError, type WorkerJobHandler } from "./types.js";
 
 export interface WorkerRuntimeOptions {
   clock?: Clock;
@@ -65,23 +59,11 @@ export class WorkerRuntime {
   ) {
     this.clock = options.clock ?? systemClock;
     this.concurrency = Math.max(1, Math.min(options.concurrency ?? 4, 32));
-    this.leaseDurationMs = Math.max(
-      5_000,
-      Math.min(options.leaseDurationMs ?? 60_000, 900_000),
-    );
+    this.leaseDurationMs = Math.max(5_000, Math.min(options.leaseDurationMs ?? 60_000, 900_000));
     this.logger = options.logger ?? (() => undefined);
-    this.pollIntervalMs = Math.max(
-      100,
-      Math.min(options.pollIntervalMs ?? 2_000, 60_000),
-    );
-    this.retryBaseDelayMs = Math.max(
-      100,
-      options.retryBaseDelayMs ?? 1_000,
-    );
-    this.retryMaxDelayMs = Math.max(
-      this.retryBaseDelayMs,
-      options.retryMaxDelayMs ?? 300_000,
-    );
+    this.pollIntervalMs = Math.max(100, Math.min(options.pollIntervalMs ?? 2_000, 60_000));
+    this.retryBaseDelayMs = Math.max(100, options.retryBaseDelayMs ?? 1_000);
+    this.retryMaxDelayMs = Math.max(this.retryBaseDelayMs, options.retryMaxDelayMs ?? 300_000);
     this.workerId = options.workerId ?? `worker-${randomUUID()}`;
   }
 
@@ -96,10 +78,7 @@ export class WorkerRuntime {
     );
     const delay = Math.max(
       exponentialDelay,
-      Math.min(
-        Math.max(0, retryAfterMs ?? 0),
-        this.retryMaxDelayMs,
-      ),
+      Math.min(Math.max(0, retryAfterMs ?? 0), this.retryMaxDelayMs),
     );
     return new Date(this.clock.now().getTime() + delay);
   }
@@ -115,28 +94,31 @@ export class WorkerRuntime {
     parentSignal?.addEventListener("abort", forwardAbort, { once: true });
     let leaseLost = false;
     let heartbeatRunning = false;
-    const heartbeat = setInterval(() => {
-      if (heartbeatRunning || controller.signal.aborted) {
-        return;
-      }
+    const heartbeat = setInterval(
+      () => {
+        if (heartbeatRunning || controller.signal.aborted) {
+          return;
+        }
 
-      heartbeatRunning = true;
-      void this.dataPlane.jobs
-        .renewLease(job.id, job.leaseToken as string, this.leaseExpiry())
-        .then((renewed) => {
-          if (!renewed) {
+        heartbeatRunning = true;
+        void this.dataPlane.jobs
+          .renewLease(job.id, job.leaseToken as string, this.leaseExpiry())
+          .then((renewed) => {
+            if (!renewed) {
+              leaseLost = true;
+              controller.abort(new LostJobLeaseError(job.id));
+            }
+          })
+          .catch(() => {
             leaseLost = true;
             controller.abort(new LostJobLeaseError(job.id));
-          }
-        })
-        .catch(() => {
-          leaseLost = true;
-          controller.abort(new LostJobLeaseError(job.id));
-        })
-        .finally(() => {
-          heartbeatRunning = false;
-        });
-    }, Math.max(1_000, Math.floor(this.leaseDurationMs / 3)));
+          })
+          .finally(() => {
+            heartbeatRunning = false;
+          });
+      },
+      Math.max(1_000, Math.floor(this.leaseDurationMs / 3)),
+    );
     heartbeat.unref();
 
     try {
@@ -194,11 +176,7 @@ export class WorkerRuntime {
       const jobError =
         error instanceof WorkerJobError
           ? error
-          : new WorkerJobError(
-              safeErrorMessage(error),
-              "job_handler_failed",
-              false,
-            );
+          : new WorkerJobError(safeErrorMessage(error), "job_handler_failed", false);
       await this.dataPlane.jobs.fail(job, {
         errorCode: jobError.code,
         errorMessage: jobError.message,

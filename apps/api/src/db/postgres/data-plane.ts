@@ -3,10 +3,7 @@ import { AlertRepository } from "./repositories/alerts.js";
 import { EngagementRepository } from "./repositories/engagement.js";
 import { EntitlementRepository } from "./repositories/entitlements.js";
 import { JobRepository, type JobRepositoryOptions } from "./repositories/jobs.js";
-import {
-  ListingRepository,
-  type ListingRepositoryOptions,
-} from "./repositories/listings.js";
+import { ListingRepository, type ListingRepositoryOptions } from "./repositories/listings.js";
 import { ProviderRepository } from "./repositories/providers.js";
 import { PostgresRequestStore } from "./request-store.js";
 import type { RequestStoreOptions } from "./request-store-types.js";

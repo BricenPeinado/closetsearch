@@ -1,94 +1,132 @@
 # QA Baseline
 
-## Scope
+## Purpose
 
-Milestone 10 focused on stabilization, route verification, QA coverage, copy cleanup, and honest documentation. This pass did not add a real provider, persistence, production auth, payments, advanced analytics, or authenticity logic.
+This document separates executable repository coverage from release evidence.
+The presence of a test or CI job is not a claim that the final current commit has
+passed every gate.
 
-## Commands Run
+## Automated coverage
 
-- `corepack pnpm typecheck` - passed
-- `corepack pnpm lint` - failed initially because of an unused `brandDirectoryLink` constant in `apps/web/src/app.tsx`; passed after cleanup
-- `corepack pnpm test` - passed
-- `corepack pnpm build` - passed
-- `corepack pnpm install` - not needed in this pass because workspace dependencies were already present locally
+### Providers and discovery
 
-## Route Checklist
+- mock/eBay/Grailed fixture normalization
+- malformed/partial payload, credential-egress, redirect, and unsafe URL
+  handling
+- capability rejection
+- page/cursor continuation, stable merge, cross-page/provider dedupe
+- timeout, rate limit/`Retry-After`, retry, pacing, circuit, fresh/stale cache
+- production no-mock configuration
+- listing card, image fallback, filtering, URL persistence, and pagination
 
-Routes were verified through the web route smoke tests in `apps/web/src/app.test.tsx`, supporting API tests in `apps/api/src/app.test.ts`, and manual inspection of the current route table in `apps/web/src/app.tsx`.
+### Persistence and worker
 
-- [x] `/` home/feed
-- [x] `/search`
-- [x] `/recent-searches`
-- [x] `/brands`
-- [x] `/brands/:slug`
-- [x] `/signup`
-- [x] `/login`
-- [x] `/onboarding`
-- [x] `/profile`
-- [x] `/analytics`
-- [x] `*` not-found fallback
+- PostgreSQL migration idempotency/checksum drift
+- transaction rollback and transient retry
+- concurrent/idempotent listing upsert
+- restart semantics
+- monotonic same-timestamp price history
+- job lease contention/renewal/failure/resume/checkpoint
+- provider ingestion lifecycle/watchlist match
+- production request store, sessions, account tokens, saved features
+- engagement/event dedupe and alert lifecycle
 
-## Flow Checklist
+Fast repository integration tests use `pg-mem`. A separately gated suite uses
+`POSTGRES_INTEGRATION_DATABASE_URL` to verify upgrade from every prior schema,
+real concurrent upserts/rollback, unchanged-listing freshness, lease
+contention, and session revocation. CI runs that suite, the migration CLI, and
+logical backup/restore on PostgreSQL 17.
 
-This repo does not have browser E2E automation yet, so the current flow baseline was verified through route smoke tests, API tests, component tests, and manual code inspection instead of a click-through browser harness.
+### Security and API
 
-- [x] Feed browsing and load-more baseline
-- [x] Search and filters
-- [x] Recent searches
-- [x] Brand browsing and brand detail handoff
-- [x] Signup, login, onboarding, and profile baseline
-- [x] Likes/hearts and simple personalization hooks
-- [x] Analytics placeholder locked/unlocked states
-- [x] Trust/risk placeholder UI
+- signup/login/logout/session expiry/revocation
+- origin/CSRF, body limits, rate limits, secure production startup
+- spoofed user IDs
+- email verification/reset/export/deletion token lifecycle
+- entitlement authorization
+- request IDs, security headers, redaction, readiness, graceful close
+- OpenAPI path/method/schema/security contract
 
-## Issues Found In This Pass
+### ML
 
-- Workspace lint was failing because `brandDirectoryLink` was defined but unused in `apps/web/src/app.tsx`.
-- The API fallback 404 message still referenced an old milestone instead of a generic product-facing error.
-- The locked analytics UI still leaned on "coming soon" style scaffold copy instead of more honest preview/sample wording.
+- snapshot data validation and temporal leakage rejection
+- deterministic training/artifact fingerprint
+- cold-start and diversity reranking
+- offline recommendation metrics/promotion gates
+- asking-price target leakage prohibition
+- fair-value outliers, interval, drift/staleness, observed fallback
+- guarded runtime invalid/stale/timeout/failure fallback
 
-## Fixes Applied
+### Browser
 
-- Removed the unused `brandDirectoryLink` constant so lint passes cleanly.
-- Replaced the stale milestone-specific API 404 message with a generic "Route not found." response.
-- Cleaned up locked analytics copy to describe preview-only access and sample pricing context more honestly.
-- Added explicit route smoke coverage for the not-found web route.
-- Added an API test for unknown route 404 behavior.
+Playwright covers signed-out, signed-in/onboarding, provider-degraded,
+revoked-session recovery, account, alert, analytics, and restart-sensitive
+flows. Local default is hermetic mock/SQLite; CI runs the browser API against
+PostgreSQL while still using clearly labeled mock inventory. A
+provider-authorized staging smoke is separate and cannot use fixtures.
 
-## Mock And Placeholder Systems
+`tests/e2e/accessibility.spec.ts` runs axe-core WCAG 2 A/AA scans over signed-out
+Home/Login and signed-in Profile/Alerts. Its first run found the shared
+muted-label contrast at 3.08–3.30:1; the corrected token measured at least 5.16:1
+against the application background. The focused scans passed `2/2`; the local
+SQLite Playwright run passed eight tests and skipped only the PostgreSQL-only
+account-deletion case.
 
-- Feed and search still run entirely through the mock provider in `packages/providers`.
-- Auth is a lightweight local foundation backed by in-memory API state and browser-local session storage.
-- Likes, onboarding preferences, and personalization inputs are foundation behavior only and do not survive an API restart.
-- Premium analytics access is still a mock preview model driven by reserved usernames.
-- Analytics data is sample data only.
-- Trust/risk signals are placeholder heuristics with assistive disclaimers, not authenticity detection.
+## Required commands
 
-## Known Limitations
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm format:check
+corepack pnpm lint
+corepack pnpm typecheck
+corepack pnpm build
+corepack pnpm test
+corepack pnpm test:integration
+corepack pnpm test:e2e
+corepack pnpm db:migrate
+corepack pnpm smoke:test
+```
 
-- No real provider runtime, secrets handling, rate-limit strategy, or provider failover exists yet.
-- No database persistence exists for users, likes, onboarding preferences, or recent searches.
-- Sessions live in browser localStorage and there is no production auth/session lifecycle.
-- Recent searches are browser-local only.
-- Analytics and premium access are preview-only and should not be treated as production features.
-- Trust/risk signals are deterministic placeholders and should not be used for enforcement, filtering, or authenticity claims.
-- There is still no browser E2E harness, so route verification is smoke-test level rather than full interaction coverage.
+`db:migrate` is the PostgreSQL production command. SQLite compatibility uses
+`db:migrate:sqlite` and `db:seed:sqlite`.
 
-## Fragile Areas Before Beta
+## Recorded phase evidence
 
-- Personalization depends on in-memory likes and onboarding data, so behavior resets with API restarts.
-- Feed and search pagination behavior is only validated against the mock provider path.
-- API and web assumptions around `http://localhost:4000` remain lightweight development defaults.
-- Premium preview gating is username-based and not suitable for real entitlement checks.
-- Trust/risk heuristics use hardcoded thresholds that are useful for UI plumbing only.
+During the production-hardening passes, focused provider/API/web/ML/worker
+suites, typecheck, lint, build, and infrastructure static validation passed at
+their respective commits. An ephemeral PostgreSQL 17.10 run then passed the five
+real-engine reliability cases five consecutive times, the full API suite
+(`209/209`), PostgreSQL-backed Playwright (`7/7`), migrations `001`–`006`, and a
+checksummed isolated logical restore. The same-timestamp price regression was
+reproduced before the fix and its monotonic-sequence regression passed
+afterward.
 
-## Recommended Next Milestone
+This is not a final-release attestation. Re-run all commands after the last
+merged change and record five consecutive full-suite passes. Do not combine
+separate focused runs into a claim that one final SHA passed everything.
 
-Proceed to **Milestone 11: Real Data Provider Foundation**.
+## Environment limitations
 
-Recommended next-pass priorities:
+Docker is not installed on this workstation. Local validation covers static
+Compose/Dockerfile contracts, shell syntax, `pg-mem`, an ephemeral PostgreSQL
+17.10 engine, hermetic and PostgreSQL-backed Playwright, and an unencrypted
+isolated logical restore. It does not cover:
 
-- add provider runtime configuration and enable/disable flags
-- isolate mock vs. real provider selection behind explicit API configuration
-- add provider failure handling, timeout behavior, and fallback rules
-- document provider environment requirements and test expectations
+- a local Compose boot
+- a PostgreSQL service restart across the critical persistence flows
+- an encrypted off-host restore drill or managed HA/PITR
+- a live authorized provider
+- HTTPS staging behavior
+
+Use CI or an equipped staging environment and retain run URLs/artifacts.
+
+## Release-critical manual checks
+
+- keyboard and screen-reader navigation, visible focus, contrast, mobile layout
+- image failure, empty/retry/partial/stale/offline/session-expired states
+- account verification/reset/export/deletion with real configured email
+- persisted entitlement versus free/expired/revoked access
+- worker restart, database restart, watchlist/inbox lifecycle
+- provider outage/rate limit and explicit no-mock behavior
+- analytics sold/asking basis, sample/currency/freshness/disclaimers
+- deployment canary, metrics, backup/restore, and rollback

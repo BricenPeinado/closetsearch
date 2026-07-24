@@ -28,17 +28,13 @@ describe("provider ingestion failure state", () => {
       ],
       clock.now,
     );
-    const runtime = new WorkerRuntime(
-      harness.dataPlane,
-      new Map([["provider.ingest", handler]]),
-      {
-        clock,
-        concurrency: 1,
-        retryBaseDelayMs: 1_000,
-        retryMaxDelayMs: 300_000,
-        workerId: "failure-test-worker",
-      },
-    );
+    const runtime = new WorkerRuntime(harness.dataPlane, new Map([["provider.ingest", handler]]), {
+      clock,
+      concurrency: 1,
+      retryBaseDelayMs: 1_000,
+      retryMaxDelayMs: 300_000,
+      workerId: "failure-test-worker",
+    });
 
     try {
       await harness.dataPlane.jobs.enqueue({
@@ -65,17 +61,11 @@ describe("provider ingestion failure state", () => {
         lastErrorMessage: "Provider asked the worker to slow down.",
         nextRunAt: new Date("2026-07-24T12:02:00.000Z"),
       });
-      expect(
-        await harness.dataPlane.jobs.getByKey("rate-limited-ingestion"),
-      ).toMatchObject({
+      expect(await harness.dataPlane.jobs.getByKey("rate-limited-ingestion")).toMatchObject({
         runAfter: new Date("2026-07-24T12:02:00.000Z"),
         status: "retry_wait",
       });
-      expect(
-        await harness.dataPlane.providers.getHealth(
-          "rate-limited-provider",
-        ),
-      ).toMatchObject({
+      expect(await harness.dataPlane.providers.getHealth("rate-limited-provider")).toMatchObject({
         errorCode: "provider_rate_limited",
         rateLimitedUntil: new Date("2026-07-24T12:02:00.000Z"),
         state: "degraded",

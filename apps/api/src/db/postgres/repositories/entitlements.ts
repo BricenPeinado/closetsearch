@@ -3,11 +3,7 @@ import type { QueryResultRow } from "pg";
 import type { PostgresDatabase } from "../database.js";
 import type { PgQueryable } from "../types.js";
 
-export type EntitlementProvider =
-  | "admin"
-  | "migration"
-  | "promotion"
-  | "subscription";
+export type EntitlementProvider = "admin" | "migration" | "promotion" | "subscription";
 
 interface EntitlementRow extends QueryResultRow {
   id: string;

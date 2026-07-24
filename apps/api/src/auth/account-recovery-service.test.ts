@@ -1,34 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getDatabase } from "../db/database.js";
-import {
-  findAuthSessionByTokenHash,
-  insertAuthSession,
-} from "../db/repositories/auth-sessions.js";
-import {
-  listAccountTokensByUserId,
-} from "../db/repositories/account-tokens.js";
-import {
-  findUserEmailIdentityByUserId,
-} from "../db/repositories/user-email-identities.js";
-import {
-  cleanupIsolatedDatabase,
-  useIsolatedDatabase,
-} from "../db/test-helpers.js";
-import {
-  createUser,
-  getUserById,
-  loginUser,
-  resetUserStore,
-} from "../user-service.js";
+import { findAuthSessionByTokenHash, insertAuthSession } from "../db/repositories/auth-sessions.js";
+import { listAccountTokensByUserId } from "../db/repositories/account-tokens.js";
+import { findUserEmailIdentityByUserId } from "../db/repositories/user-email-identities.js";
+import { cleanupIsolatedDatabase, useIsolatedDatabase } from "../db/test-helpers.js";
+import { createUser, getUserById, loginUser, resetUserStore } from "../user-service.js";
 import { AccountLifecycleService } from "./account-lifecycle-service.js";
 import { registerUserWithPasswordPolicy } from "./account-registration-service.js";
 import { AccountRecoveryService } from "./account-recovery-service.js";
 import { AccountTokenService } from "./account-token-service.js";
-import {
-  createInjectedAccountEmailSender,
-  type AccountEmailMessage,
-} from "./email-sender.js";
+import { createInjectedAccountEmailSender, type AccountEmailMessage } from "./email-sender.js";
 import { PasswordPolicyError } from "./password-policy.js";
 
 function getMessageToken(message: AccountEmailMessage) {
@@ -66,7 +48,7 @@ describe("account recovery and lifecycle services", () => {
       };
     });
     tokenService = new AccountTokenService({
-      generateRawToken: () => `raw-account-token-${tokenSequence += 1}`,
+      generateRawToken: () => `raw-account-token-${(tokenSequence += 1)}`,
       now,
       tokenPepper: "account-token-test-pepper",
     });
@@ -90,10 +72,7 @@ describe("account recovery and lifecycle services", () => {
 
   function createAccount() {
     const signup = createUser("recoveryfan", "starting-password");
-    recoveryService.setEmailIdentity(
-      signup.userId,
-      "RecoveryFan@Example.com",
-    );
+    recoveryService.setEmailIdentity(signup.userId, "RecoveryFan@Example.com");
     return signup;
   }
 
@@ -105,21 +84,16 @@ describe("account recovery and lifecycle services", () => {
         throw new Error("Verification message was not captured.");
       }
 
-      return recoveryService.verifyEmail(
-        getMessageToken(verificationMessage),
-      );
+      return recoveryService.verifyEmail(getMessageToken(verificationMessage));
     });
   }
 
   it("offers a policy-enforced registration boundary for route integration", async () => {
+    await expect(registerUserWithPasswordPolicy("securefan", "short")).rejects.toBeInstanceOf(
+      PasswordPolicyError,
+    );
     await expect(
-      registerUserWithPasswordPolicy("securefan", "short"),
-    ).rejects.toBeInstanceOf(PasswordPolicyError);
-    await expect(
-      registerUserWithPasswordPolicy(
-        "securefan",
-        "violet sparrow orbit lantern",
-      ),
+      registerUserWithPasswordPolicy("securefan", "violet sparrow orbit lantern"),
     ).resolves.toMatchObject({
       user: {
         username: "securefan",
@@ -157,10 +131,7 @@ describe("account recovery and lifecycle services", () => {
       userId: first.userId,
     });
     expect(() =>
-      recoveryService.setEmailIdentity(
-        second.userId,
-        "recoveryfan@example.com",
-      ),
+      recoveryService.setEmailIdentity(second.userId, "recoveryfan@example.com"),
     ).toThrowError(
       expect.objectContaining({
         code: "email_in_use",
@@ -170,9 +141,7 @@ describe("account recovery and lifecycle services", () => {
 
   it("stores only a token hash and consumes verification exactly once", async () => {
     const signup = createAccount();
-    const request = await recoveryService.requestEmailVerification(
-      signup.userId,
-    );
+    const request = await recoveryService.requestEmailVerification(signup.userId);
     const rawToken = getMessageToken(messages[0] as AccountEmailMessage);
     const storedToken = listAccountTokensByUserId(signup.userId)[0];
 
@@ -219,23 +188,23 @@ describe("account recovery and lifecycle services", () => {
   it("does not reveal whether a password-reset email exists or is verified", async () => {
     const signup = createAccount();
 
-    await expect(
-      recoveryService.requestPasswordReset("unknown@example.com"),
-    ).resolves.toEqual({ accepted: true });
-    await expect(
-      recoveryService.requestPasswordReset("not-an-email"),
-    ).resolves.toEqual({ accepted: true });
-    await expect(
-      recoveryService.requestPasswordReset("recoveryfan@example.com"),
-    ).resolves.toEqual({ accepted: true });
+    await expect(recoveryService.requestPasswordReset("unknown@example.com")).resolves.toEqual({
+      accepted: true,
+    });
+    await expect(recoveryService.requestPasswordReset("not-an-email")).resolves.toEqual({
+      accepted: true,
+    });
+    await expect(recoveryService.requestPasswordReset("recoveryfan@example.com")).resolves.toEqual({
+      accepted: true,
+    });
 
     expect(messages).toHaveLength(0);
 
     await verifyAccountEmail(signup.userId);
     messages = [];
-    await expect(
-      recoveryService.requestPasswordReset("RECOVERYFAN@example.com"),
-    ).resolves.toEqual({ accepted: true });
+    await expect(recoveryService.requestPasswordReset("RECOVERYFAN@example.com")).resolves.toEqual({
+      accepted: true,
+    });
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({
       kind: "password_reset",
@@ -259,19 +228,14 @@ describe("account recovery and lifecycle services", () => {
       });
     }
 
-    await recoveryService.requestPasswordReset(
-      "recoveryfan@example.com",
-    );
+    await recoveryService.requestPasswordReset("recoveryfan@example.com");
     const rawToken = getMessageToken(messages[0] as AccountEmailMessage);
 
+    await expect(recoveryService.resetPassword(rawToken, "short")).rejects.toBeInstanceOf(
+      PasswordPolicyError,
+    );
     await expect(
-      recoveryService.resetPassword(rawToken, "short"),
-    ).rejects.toBeInstanceOf(PasswordPolicyError);
-    await expect(
-      recoveryService.resetPassword(
-        rawToken,
-        "violet sparrow orbit lantern",
-      ),
+      recoveryService.resetPassword(rawToken, "violet sparrow orbit lantern"),
     ).resolves.toEqual({
       sessionsRevoked: 2,
       status: "password_reset",
@@ -284,17 +248,10 @@ describe("account recovery and lifecycle services", () => {
     expect(findAuthSessionByTokenHash("session-hash-two")?.revokedAt).toBe(
       "2026-07-24T12:00:00.000Z",
     );
-    expect(() =>
-      loginUser("recoveryfan", "starting-password"),
-    ).toThrow();
-    expect(
-      loginUser("recoveryfan", "violet sparrow orbit lantern").userId,
-    ).toBe(signup.userId);
+    expect(() => loginUser("recoveryfan", "starting-password")).toThrow();
+    expect(loginUser("recoveryfan", "violet sparrow orbit lantern").userId).toBe(signup.userId);
     await expect(
-      recoveryService.resetPassword(
-        rawToken,
-        "another violet orbit lantern",
-      ),
+      recoveryService.resetPassword(rawToken, "another violet orbit lantern"),
     ).resolves.toEqual({
       status: "invalid_or_expired",
     });
@@ -304,18 +261,13 @@ describe("account recovery and lifecycle services", () => {
     const signup = createAccount();
     await verifyAccountEmail(signup.userId);
     messages = [];
-    await recoveryService.requestPasswordReset(
-      "recoveryfan@example.com",
-    );
+    await recoveryService.requestPasswordReset("recoveryfan@example.com");
     const rawToken = getMessageToken(messages[0] as AccountEmailMessage);
 
     nowMs += 30 * 60 * 1_000;
 
     await expect(
-      recoveryService.resetPassword(
-        rawToken,
-        "violet sparrow orbit lantern",
-      ),
+      recoveryService.resetPassword(rawToken, "violet sparrow orbit lantern"),
     ).resolves.toEqual({
       status: "invalid_or_expired",
     });
@@ -327,14 +279,9 @@ describe("account recovery and lifecycle services", () => {
       now: () => new Date(nowMs),
       tokenService,
     });
-    disabledService.setEmailIdentity(
-      signup.userId,
-      "disabled@example.com",
-    );
+    disabledService.setEmailIdentity(signup.userId, "disabled@example.com");
 
-    const result = await disabledService.requestEmailVerification(
-      signup.userId,
-    );
+    const result = await disabledService.requestEmailVerification(signup.userId);
 
     expect(result).toMatchObject({
       delivery: {

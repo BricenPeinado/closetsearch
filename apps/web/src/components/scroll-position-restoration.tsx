@@ -15,9 +15,7 @@ export function ScrollPositionRestoration() {
     let frameId: number | undefined;
 
     try {
-      const storedPosition = window.sessionStorage.getItem(
-        `${storagePrefix}${locationKey}`,
-      );
+      const storedPosition = window.sessionStorage.getItem(`${storagePrefix}${locationKey}`);
       const parsedPosition = Number(storedPosition);
 
       if (storedPosition && Number.isFinite(parsedPosition)) {
@@ -38,10 +36,7 @@ export function ScrollPositionRestoration() {
       }
 
       try {
-        window.sessionStorage.setItem(
-          `${storagePrefix}${locationKey}`,
-          String(window.scrollY),
-        );
+        window.sessionStorage.setItem(`${storagePrefix}${locationKey}`, String(window.scrollY));
       } catch {
         // Navigation must still work when session storage is unavailable.
       }

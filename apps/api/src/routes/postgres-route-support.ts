@@ -1,10 +1,7 @@
 import { ApiError } from "../api-error.js";
 import { resolvePersistenceDriver } from "../db/persistence-driver.js";
 import { getPostgresDataPlane } from "../db/persistence-runtime.js";
-import {
-  RequestStoreError,
-  type PostgresDataPlane,
-} from "../db/postgres/index.js";
+import { RequestStoreError, type PostgresDataPlane } from "../db/postgres/index.js";
 import { PasswordPolicyError } from "../auth/password-policy.js";
 import { AccountSecurityError } from "../auth/account-security-error.js";
 
@@ -35,8 +32,7 @@ export function toPostgresApiError(error: unknown): never {
         ? 409
         : error.code === "user_not_found"
           ? 404
-          : error.code === "email_missing" ||
-              error.code === "email_not_verified"
+          : error.code === "email_missing" || error.code === "email_not_verified"
             ? 409
             : 400;
     throw new ApiError(statusCode, error.code, error.message);
@@ -51,11 +47,7 @@ export function toPostgresApiError(error: unknown): never {
       "watchlist_conflict",
     ]);
 
-    throw new ApiError(
-      conflictCodes.has(error.code) ? 409 : 400,
-      error.code,
-      error.message,
-    );
+    throw new ApiError(conflictCodes.has(error.code) ? 409 : 400, error.code, error.message);
   }
 
   throw error;
@@ -70,9 +62,7 @@ export function optionalBoolean(value: unknown) {
 }
 
 export function optionalNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 export function stringArray(value: unknown) {

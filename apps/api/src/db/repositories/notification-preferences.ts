@@ -28,8 +28,7 @@ function mapNotificationPreferencesRow(row: NotificationPreferencesRow): Notific
     pushEnabled: row.push_enabled !== 0,
     smsEnabled: row.sms_enabled !== 0,
     inAppEnabled: row.in_app_enabled !== 0,
-    frequency:
-      row.frequency === "instant" || row.frequency === "weekly" ? row.frequency : "daily",
+    frequency: row.frequency === "instant" || row.frequency === "weekly" ? row.frequency : "daily",
     quietHoursStart: toTrimmedString(row.quiet_hours_start) || undefined,
     quietHoursEnd: toTrimmedString(row.quiet_hours_end) || undefined,
     createdAt: row.created_at,

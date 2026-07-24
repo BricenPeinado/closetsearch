@@ -396,9 +396,7 @@ describe("handleRequest", () => {
           }),
         ]),
       );
-      expect(snapshot.body).not.toContain(
-        "legal-approval-fixture-CS-123",
-      );
+      expect(snapshot.body).not.toContain("legal-approval-fixture-CS-123");
       expect(snapshot.body).not.toContain("ClosetSearchBot/0.1 contact:team.com");
     } finally {
       if (previousMode === undefined) delete process.env.PROVIDER_RUNTIME_MODE;

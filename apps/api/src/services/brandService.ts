@@ -1,7 +1,4 @@
-import {
-  CANONICAL_BRANDS,
-  type Brand,
-} from "@closetsearch/shared";
+import { CANONICAL_BRANDS, type Brand } from "@closetsearch/shared";
 
 function normalizeValue(value: string) {
   return value
@@ -21,11 +18,7 @@ function cloneBrand(brand: Brand): Brand {
 
 function matchesQuery(brand: Brand, query: string) {
   const terms = normalizeValue(query).split(/\s+/).filter(Boolean);
-  const searchableFields = [
-    brand.name,
-    ...(brand.aliases ?? []),
-    ...(brand.tags ?? []),
-  ]
+  const searchableFields = [brand.name, ...(brand.aliases ?? []), ...(brand.tags ?? [])]
     .map(normalizeValue)
     .join(" ");
 
@@ -33,9 +26,7 @@ function matchesQuery(brand: Brand, query: string) {
 }
 
 export function listBrands(query?: string) {
-  return CANONICAL_BRANDS.filter(
-    (brand) => !query?.trim() || matchesQuery(brand, query),
-  )
+  return CANONICAL_BRANDS.filter((brand) => !query?.trim() || matchesQuery(brand, query))
     .map(cloneBrand)
     .sort((left, right) => left.name.localeCompare(right.name));
 }

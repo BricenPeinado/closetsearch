@@ -8,10 +8,7 @@ export interface TemporalSplitValidation {
 
 function validateBoundaries(boundaries: TemporalBoundaries) {
   const trainEnd = toTimestamp(boundaries.trainEndExclusive, "trainEndExclusive");
-  const validationEnd = toTimestamp(
-    boundaries.validationEndExclusive,
-    "validationEndExclusive",
-  );
+  const validationEnd = toTimestamp(boundaries.validationEndExclusive, "validationEndExclusive");
 
   if (trainEnd >= validationEnd) {
     throw new Error("trainEndExclusive must be earlier than validationEndExclusive.");

@@ -13,9 +13,7 @@ export interface WorkerJobContext {
   signal: AbortSignal;
 }
 
-export type WorkerJobHandler = (
-  context: WorkerJobContext,
-) => Promise<WorkerJobResult | void>;
+export type WorkerJobHandler = (context: WorkerJobContext) => Promise<WorkerJobResult | void>;
 
 export class WorkerJobError extends Error {
   constructor(

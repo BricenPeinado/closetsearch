@@ -21,7 +21,9 @@ function toTrimmedString(value: string | null | undefined) {
 }
 
 function normalizeOptionalNumber(value: number | undefined) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : undefined;
 }
 
 function buildSavedFilterParamsKey(input: PersistSavedFilterInput) {
@@ -55,9 +57,10 @@ function mapSavedFilterRow(row: SavedFilterRow): SavedFilter {
 }
 
 export function listSavedFiltersByUserId(userId: string) {
-  return ((getDatabase()
-    .prepare(
-      `SELECT
+  return (
+    getDatabase()
+      .prepare(
+        `SELECT
         id,
         user_id,
         label,
@@ -72,8 +75,9 @@ export function listSavedFiltersByUserId(userId: string) {
       FROM saved_filters
       WHERE user_id = ?
       ORDER BY updated_at DESC, created_at DESC, id DESC`,
-    )
-    .all(userId) as unknown as SavedFilterRow[])).map(mapSavedFilterRow);
+      )
+      .all(userId) as unknown as SavedFilterRow[]
+  ).map(mapSavedFilterRow);
 }
 
 export function saveSavedFilter(input: PersistSavedFilterInput) {

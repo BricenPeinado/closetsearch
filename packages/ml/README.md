@@ -1,13 +1,24 @@
 # ClosetSearch ML
 
-`@closetsearch/ml` is a dependency-light, offline-first foundation for recommendation and fair-value experiments. It does not make network calls, read production databases, or replace the current API ranker.
+`@closetsearch/ml` is the dependency-light, offline training/evaluation boundary
+for recommendation and fair-value experiments. It does not make network calls,
+read production databases, or remove the API's rules/observed fallbacks. The
+guarded online adapter lives in `apps/api`.
 
 ## Current runtime status
 
-- Recommendation model: **shadow only**. `recommendWithFallback` returns the caller's rules-based ranking in `shadow` mode and records the ML ranking separately.
-- Fair-value model: **shadow only**. `estimateMarketValue` returns robust observed comparable ranges while the artifact is unpromoted, under-calibrated, stale, drifted, or low confidence.
-- Training data: versioned synthetic recorded fixtures only. Fixture provider names are labels for diversity tests, not live marketplace inventory or authorization claims.
-- Production promotion: blocked until multiple temporal production snapshots, adequate users/sold samples, latency evidence, privacy review, and every executable promotion gate pass.
+- Recommendation artifact: lifecycle **shadow**. The API supports
+  disabled/shadow/guarded-active modes, but active requires an immutable promoted
+  artifact and explicit deployment approval. Shadow returns the rules ranking to
+  users and records bounded comparison metadata.
+- Fair-value artifact: **unpromoted**. `estimateMarketValue` returns robust
+  observed comparable ranges while the artifact is unpromoted,
+  under-calibrated, stale, drifted, or low confidence.
+- Training data: versioned synthetic recorded fixtures only. Fixture provider
+  names are diversity-test labels, not live inventory or authorization evidence.
+- Production promotion: blocked until multiple temporal production snapshots,
+  adequate users/sold samples, latency evidence, privacy review, and every
+  executable promotion gate pass.
 
 ## Boundaries
 
@@ -27,7 +38,8 @@ The package intentionally does not contain:
 - provider raw payloads or network clients
 - database queries
 - API or web integration
-- online model serving
+- HTTP routing, artifact deployment, or online feature lookup (owned by the API
+  adapter)
 - billing or entitlement logic
 - authenticity/fake-risk predictions
 
@@ -46,8 +58,15 @@ corepack pnpm --filter @closetsearch/ml evaluate
 
 ## Integration contract
 
-Recommendation callers provide normalized active candidates, a user id, optional non-sensitive preferences, a strict timeout, and the existing rules ranker as `baselineRanker`. Production should begin in `shadow` mode. A request result includes the model version, chosen ranking, optional shadow ranking, and fallback reason.
+Recommendation callers provide normalized active candidates, a user ID,
+optional non-sensitive preferences, a strict timeout, and the existing rules
+ranker as `baselineRanker`. Production may begin only in `shadow` mode until
+promotion gates pass. A result includes the model version, chosen ranking,
+optional shadow ranking, and fallback reason.
 
-Market callers provide exact minor-unit prices, normalized currencies with rate provenance upstream, confirmed sold outcomes, and an `asOf` timestamp. `askingPriceMinor` is retained for dataset audits but is prohibited from model features and targets.
+Market callers provide exact minor-unit prices, normalized currencies with rate
+provenance upstream, confirmed sold outcomes, and an `asOf` timestamp.
+`askingPriceMinor` is retained for dataset audits but is prohibited from model
+features and targets.
 
 See [`docs/ml`](../../docs/ml/README.md) for dataset cards, model cards, fixture evaluation, and activation gates.

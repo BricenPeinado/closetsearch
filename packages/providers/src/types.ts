@@ -84,9 +84,7 @@ export interface ProviderSearchFailure {
   failure: ProviderFailure;
 }
 
-export type ProviderSearchResponse =
-  | ProviderSearchResult
-  | ProviderSearchFailure;
+export type ProviderSearchResponse = ProviderSearchResult | ProviderSearchFailure;
 
 export interface ProviderCapabilities {
   dataOrigin?: ListingDataOrigin;

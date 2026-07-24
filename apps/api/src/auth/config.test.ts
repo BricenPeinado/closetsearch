@@ -18,7 +18,8 @@ describe("getAuthConfig", () => {
 
   it("parses explicit env overrides and falls back safely for invalid values", () => {
     const config = getAuthConfig({
-      AUTH_ALLOWED_ORIGINS: "https://beta.closetsearch.example, https://staging.closetsearch.example ",
+      AUTH_ALLOWED_ORIGINS:
+        "https://beta.closetsearch.example, https://staging.closetsearch.example ",
       AUTH_COOKIE_SECURE: "true",
       AUTH_SESSION_COOKIE_NAME: "beta_session",
       AUTH_SESSION_PEPPER: "session-pepper",

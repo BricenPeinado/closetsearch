@@ -1,8 +1,5 @@
 import type { IncomingMessage } from "node:http";
-import {
-  findBrandBySlug,
-  listBrands,
-} from "../services/brandService.js";
+import { findBrandBySlug, listBrands } from "../services/brandService.js";
 import type { RouteResult } from "./route-result.js";
 
 export function handleBrandRoute(
@@ -32,9 +29,7 @@ export function handleBrandRoute(
     return undefined;
   }
 
-  const brand = findBrandBySlug(
-    decodeURIComponent(requestUrl.pathname.replace("/brands/", "")),
-  );
+  const brand = findBrandBySlug(decodeURIComponent(requestUrl.pathname.replace("/brands/", "")));
 
   if (!brand) {
     return {

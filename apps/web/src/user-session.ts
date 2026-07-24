@@ -20,10 +20,7 @@ export function isAuthRequiredError(error: unknown) {
   );
 }
 
-export function getAuthErrorMessage(
-  error: unknown,
-  fallbackMessage: string,
-) {
+export function getAuthErrorMessage(error: unknown, fallbackMessage: string) {
   if (error instanceof ApiClientError) {
     switch (error.code) {
       case "invalid_credentials":

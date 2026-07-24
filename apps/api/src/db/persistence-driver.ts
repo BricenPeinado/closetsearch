@@ -11,9 +11,7 @@ export function resolvePersistenceDriver(
 
   if (configuredDriver === "sqlite") {
     if (env.NODE_ENV === "production") {
-      throw new Error(
-        "PERSISTENCE_DRIVER=sqlite is forbidden in production; use postgres.",
-      );
+      throw new Error("PERSISTENCE_DRIVER=sqlite is forbidden in production; use postgres.");
     }
 
     return "sqlite";
@@ -23,7 +21,5 @@ export function resolvePersistenceDriver(
     return "sqlite";
   }
 
-  throw new Error(
-    "PERSISTENCE_DRIVER must be explicitly set to postgres or sqlite.",
-  );
+  throw new Error("PERSISTENCE_DRIVER must be explicitly set to postgres or sqlite.");
 }

@@ -46,10 +46,7 @@ export function upsertListing(listing: Listing) {
     );
 }
 
-export function findListingBySourceAndProviderListingId(
-  source: string,
-  providerListingId: string,
-) {
+export function findListingBySourceAndProviderListingId(source: string, providerListingId: string) {
   const row = getDatabase()
     .prepare(
       `SELECT listing_json
@@ -62,9 +59,11 @@ export function findListingBySourceAndProviderListingId(
 }
 
 export function listCachedListings() {
-  return ((getDatabase()
-    .prepare("SELECT listing_json FROM listing_cache")
-    .all() as unknown as ListingCacheRow[])).map((row) => parseListing(row.listing_json));
+  return (
+    getDatabase()
+      .prepare("SELECT listing_json FROM listing_cache")
+      .all() as unknown as ListingCacheRow[]
+  ).map((row) => parseListing(row.listing_json));
 }
 
 export function clearListingCache() {

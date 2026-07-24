@@ -1,10 +1,5 @@
-import {
-  deleteUserByIdAndNormalizedUsername,
-  findUserById,
-} from "../db/repositories/users.js";
-import {
-  findUserEmailIdentityByUserId,
-} from "../db/repositories/user-email-identities.js";
+import { deleteUserByIdAndNormalizedUsername, findUserById } from "../db/repositories/users.js";
+import { findUserEmailIdentityByUserId } from "../db/repositories/user-email-identities.js";
 import { getAccountDataExport } from "../db/repositories/account-data.js";
 import { runInImmediateTransaction } from "../db/transaction.js";
 import { AccountSecurityError } from "./account-security-error.js";
@@ -35,13 +30,10 @@ function normalizeUsername(value: string) {
 function validateActionBaseUrl(value: string) {
   const url = new URL(value);
   const isLocalHttp =
-    url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+    url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
 
   if (url.protocol !== "https:" && !isLocalHttp) {
-    throw new TypeError(
-      "Account action base URL must use HTTPS outside local development.",
-    );
+    throw new TypeError("Account action base URL must use HTTPS outside local development.");
   }
 
   return url;
@@ -60,9 +52,7 @@ export class AccountLifecycleService {
       );
     }
 
-    this.actionBaseUrl = validateActionBaseUrl(
-      options.actionBaseUrl ?? "http://localhost:5173",
-    );
+    this.actionBaseUrl = validateActionBaseUrl(options.actionBaseUrl ?? "http://localhost:5173");
     this.emailSender = options.emailSender ?? disabledAccountEmailSender;
     this.now = options.now ?? (() => new Date());
     this.tokenService =
@@ -72,9 +62,7 @@ export class AccountLifecycleService {
       });
   }
 
-  async requestAccountExport(
-    userId: string,
-  ): Promise<AccountExportRequestResult> {
+  async requestAccountExport(userId: string): Promise<AccountExportRequestResult> {
     const user = findUserById(userId);
 
     if (!user) {
@@ -142,10 +130,7 @@ export class AccountLifecycleService {
     });
   }
 
-  deleteAccount(input: {
-    confirmationUsername: string;
-    userId: string;
-  }) {
+  deleteAccount(input: { confirmationUsername: string; userId: string }) {
     const user = findUserById(input.userId);
 
     if (!user) {
@@ -154,10 +139,7 @@ export class AccountLifecycleService {
       };
     }
 
-    if (
-      normalizeUsername(input.confirmationUsername) !==
-      normalizeUsername(user.username)
-    ) {
+    if (normalizeUsername(input.confirmationUsername) !== normalizeUsername(user.username)) {
       return {
         status: "confirmation_mismatch" as const,
       };

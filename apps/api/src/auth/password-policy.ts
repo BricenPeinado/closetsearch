@@ -77,13 +77,10 @@ export class PasswordPolicyError extends Error {
 
 function accountIdentifiers(context: PasswordPolicyContext) {
   const username = context.username?.trim().toLowerCase();
-  const emailLocalPart = context.email
-    ?.trim()
-    .toLowerCase()
-    .split("@")[0];
+  const emailLocalPart = context.email?.trim().toLowerCase().split("@")[0];
 
-  return [username, emailLocalPart].filter(
-    (value): value is string => Boolean(value && value.length >= 3),
+  return [username, emailLocalPart].filter((value): value is string =>
+    Boolean(value && value.length >= 3),
   );
 }
 
@@ -144,8 +141,7 @@ export async function evaluatePasswordPolicy(
     });
   }
 
-  const checker =
-    options.breachedPasswordChecker ?? disabledBreachedPasswordChecker;
+  const checker = options.breachedPasswordChecker ?? disabledBreachedPasswordChecker;
   const breachCheck = await checker.check(password);
 
   if (breachCheck.status === "breached") {
@@ -153,10 +149,7 @@ export async function evaluatePasswordPolicy(
       code: "breached_password",
       message: "Choose a password that has not appeared in a known breach.",
     });
-  } else if (
-    breachCheck.status === "unavailable" &&
-    options.requireBreachedPasswordCheck
-  ) {
+  } else if (breachCheck.status === "unavailable" && options.requireBreachedPasswordCheck) {
     violations.push({
       code: "breach_check_unavailable",
       message: "Password safety validation is temporarily unavailable.",

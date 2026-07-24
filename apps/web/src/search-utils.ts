@@ -226,11 +226,7 @@ function formatSortLabel(sort: SearchSortMode): string | null {
   }
 }
 
-function formatPriceLabel(
-  minPrice: string,
-  maxPrice: string,
-  currency?: string,
-): string | null {
+function formatPriceLabel(minPrice: string, maxPrice: string, currency?: string): string | null {
   const normalizedCurrency = currency?.trim().toUpperCase();
   const prefix = normalizedCurrency ? `${normalizedCurrency} ` : "$";
 

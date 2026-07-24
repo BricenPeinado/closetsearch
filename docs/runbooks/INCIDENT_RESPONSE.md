@@ -13,7 +13,8 @@ Assign an incident commander, operations lead, communications owner, and scribe 
 1. Confirm impact and declare severity.
 2. Stop the rollout or risky maintenance operation.
 3. Capture:
-   - API `/health/live`, `/health/ready`, `/providers/health`
+   - API `/health/live`, `/health/ready`, `/operations/status`,
+     `/providers/health`
    - deployment/image digests and schema version
    - request ids and redacted structured logs
    - PostgreSQL pool/error/retry state
@@ -38,13 +39,16 @@ Never bypass provider controls, rotate identities, or enable mock fallback to co
 
 - keep old application traffic in place
 - do not edit an applied migration checksum
-- capture `schema_migrations` and the candidate migration artifact
+- capture `postgres_schema_migrations` and the candidate migration artifact
 - correct with a new forward migration
 - escalate checksum drift as a release-integrity incident
 
 ### Worker or ingestion lag
 
-- inspect last-success, retry, dead-letter, lease, and provider-health records
+- inspect the sanitized operations endpoint plus last-success, retry,
+  dead-letter, lease, and provider-health records
+- treat `operations_state_unavailable` as loss of operational visibility, not
+  proof that jobs/providers are healthy
 - stop duplicate worker deployments if lease contention is abnormal
 - confirm checkpoints before retrying
 - do not reset checkpoints or delete jobs without an explicit recovery plan
@@ -68,6 +72,23 @@ Never bypass provider controls, rotate identities, or enable mock fallback to co
 - understand that session-pepper rotation revokes all sessions
 - preserve forensic evidence without copying raw secrets into tickets
 - follow privacy/legal notification requirements
+
+### Account email or alert incident
+
+- distinguish the in-app inbox from outbound delivery
+- disable the outbound provider/worker without deleting alert matches
+- preserve delivery idempotency keys, attempt/dead-letter state, and provider
+  message IDs without exposing destinations
+- never mark a queued/failed attempt as delivered to quiet an alert
+
+### Recommendation or analytics regression
+
+- set recommendation mode to `disabled` or `shadow`; rules remain available
+- retain artifact/model/feature versions and fallback/latency/concentration
+  metrics
+- keep asking and sold observations separate
+- fall back to observed ranges when model confidence, calibration, drift, or
+  freshness is unsafe
 
 ## Communications
 

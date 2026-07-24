@@ -60,9 +60,7 @@ export function loadPostgresMigrations(
 
   for (const migration of migrations) {
     if (versions.has(migration.version)) {
-      throw new MigrationDriftError(
-        `Duplicate PostgreSQL migration version ${migration.version}.`,
-      );
+      throw new MigrationDriftError(`Duplicate PostgreSQL migration version ${migration.version}.`);
     }
 
     versions.add(migration.version);
@@ -104,9 +102,7 @@ function verifyMigrationHistory(
   migrations: PostgresMigration[],
   appliedRows: AppliedMigrationRow[],
 ) {
-  const localByVersion = new Map(
-    migrations.map((migration) => [migration.version, migration]),
-  );
+  const localByVersion = new Map(migrations.map((migration) => [migration.version, migration]));
 
   for (const applied of appliedRows) {
     const local = localByVersion.get(Number(applied.version));
@@ -137,9 +133,7 @@ function verifyMigrationHistory(
   const outOfOrder = migrations.find(
     (migration) =>
       migration.version < maximumAppliedVersion &&
-      !appliedRows.some(
-        (applied) => Number(applied.version) === migration.version,
-      ),
+      !appliedRows.some((applied) => Number(applied.version) === migration.version),
   );
 
   if (outOfOrder) {
@@ -188,9 +182,7 @@ export async function inspectPostgresMigrationState(
       [migrationNamespace],
     );
     verifyMigrationHistory(migrations, appliedResult.rows);
-    const appliedVersions = appliedResult.rows.map((row) =>
-      Number(row.version),
-    );
+    const appliedVersions = appliedResult.rows.map((row) => Number(row.version));
     const appliedSet = new Set(appliedVersions);
     const pendingVersions = migrations
       .filter((migration) => !appliedSet.has(migration.version))
@@ -201,10 +193,7 @@ export async function inspectPostgresMigrationState(
       expectedVersion,
       pendingVersions,
       ready: pendingVersions.length === 0,
-      reason:
-        pendingVersions.length === 0
-          ? undefined
-          : ("pending_migrations" as const),
+      reason: pendingVersions.length === 0 ? undefined : ("pending_migrations" as const),
     };
   } finally {
     client.release();
@@ -222,9 +211,7 @@ export async function runPostgresMigrations(
 
   try {
     if (useAdvisoryLock) {
-      await client.query("SELECT pg_advisory_lock($1::bigint)", [
-        advisoryLockKey,
-      ]);
+      await client.query("SELECT pg_advisory_lock($1::bigint)", [advisoryLockKey]);
     }
 
     await ensureMigrationLedger(client);
@@ -237,9 +224,7 @@ export async function runPostgresMigrations(
     );
 
     verifyMigrationHistory(migrations, appliedResult.rows);
-    const appliedVersions = new Set(
-      appliedResult.rows.map((row) => Number(row.version)),
-    );
+    const appliedVersions = new Set(appliedResult.rows.map((row) => Number(row.version)));
 
     for (const migration of migrations) {
       if (appliedVersions.has(migration.version)) {
@@ -277,8 +262,7 @@ export async function runPostgresMigrations(
 
     return {
       applied: appliedNow,
-      currentVersion:
-        migrations.at(-1)?.version ?? 0,
+      currentVersion: migrations.at(-1)?.version ?? 0,
     };
   } finally {
     if (useAdvisoryLock) {

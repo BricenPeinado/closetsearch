@@ -24,10 +24,7 @@ export function normalizeEmailAddress(value: string): NormalizedEmailAddress {
     hasControlCharacters(email) ||
     !emailPattern.test(email)
   ) {
-    throw new AccountSecurityError(
-      "invalid_email",
-      "Enter a valid email address.",
-    );
+    throw new AccountSecurityError("invalid_email", "Enter a valid email address.");
   }
 
   const atIndex = email.lastIndexOf("@");

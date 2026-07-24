@@ -154,18 +154,13 @@ describe("sanitizeProviderListing", () => {
         displayText: "View on eBay",
       },
     });
-    expect(
-      "rawPayload" in (listing as unknown as Record<string, unknown>),
-    ).toBe(false);
+    expect("rawPayload" in (listing as unknown as Record<string, unknown>)).toBe(false);
   });
 
   it.each([
     ["non-http source URL", { sourceUrl: "javascript:alert(1)" }],
     ["non-http image URL", { imageUrl: "data:text/html,bad" }],
-    [
-      "invalid currency",
-      { price: { amount: 100, currency: "US dollars" } },
-    ],
+    ["invalid currency", { price: { amount: 100, currency: "US dollars" } }],
     ["invalid timestamp", { fetchedAt: "not-a-time" }],
   ])("rejects %s", (_label, override) => {
     const validListing = {
@@ -186,8 +181,6 @@ describe("sanitizeProviderListing", () => {
       fetchedAt: "2026-07-24T12:00:00.000Z",
     };
 
-    expect(
-      sanitizeProviderListing({ ...validListing, ...override }),
-    ).toBeNull();
+    expect(sanitizeProviderListing({ ...validListing, ...override })).toBeNull();
   });
 });

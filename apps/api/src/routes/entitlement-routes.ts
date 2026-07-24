@@ -7,8 +7,7 @@ import { parseJsonRequestBody } from "../http/request-body.js";
 import { PersistedEntitlementService } from "../services/entitlementService.js";
 import type { RouteResult } from "./route-result.js";
 
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requiredUuid(payload: Record<string, unknown>, name: string) {
   const value = payload[name];
@@ -26,21 +25,13 @@ function optionalExpiry(payload: Record<string, unknown>) {
   }
 
   if (typeof payload.endsAt !== "string") {
-    throw new ApiError(
-      400,
-      "invalid_request",
-      "endsAt must be an ISO timestamp.",
-    );
+    throw new ApiError(400, "invalid_request", "endsAt must be an ISO timestamp.");
   }
 
   const endsAt = new Date(payload.endsAt);
 
   if (Number.isNaN(endsAt.getTime())) {
-    throw new ApiError(
-      400,
-      "invalid_request",
-      "endsAt must be an ISO timestamp.",
-    );
+    throw new ApiError(400, "invalid_request", "endsAt must be an ISO timestamp.");
   }
 
   return endsAt;
@@ -69,11 +60,7 @@ export async function handleEntitlementRoute(
 
   const rawPayload = await parseJsonRequestBody(request);
 
-  if (
-    !rawPayload ||
-    typeof rawPayload !== "object" ||
-    Array.isArray(rawPayload)
-  ) {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) {
     throw new ApiError(400, "invalid_request", "A JSON object is required.");
   }
 
@@ -88,17 +75,10 @@ export async function handleEntitlementRoute(
   }
 
   const targetUserId = requiredUuid(payload, "targetUserId");
-  const featureKey =
-    typeof payload.featureKey === "string"
-      ? payload.featureKey.trim()
-      : undefined;
+  const featureKey = typeof payload.featureKey === "string" ? payload.featureKey.trim() : undefined;
 
   if (featureKey && featureKey.length > 120) {
-    throw new ApiError(
-      400,
-      "invalid_request",
-      "featureKey must be at most 120 characters.",
-    );
+    throw new ApiError(400, "invalid_request", "featureKey must be at most 120 characters.");
   }
 
   const dataPlane = await getPostgresDataPlane();
@@ -111,9 +91,7 @@ export async function handleEntitlementRoute(
      LIMIT 1`,
     [actor.id],
   );
-  const entitlement = await new PersistedEntitlementService(
-    dataPlane,
-  ).grantDevelopmentEntitlement(
+  const entitlement = await new PersistedEntitlementService(dataPlane).grantDevelopmentEntitlement(
     {
       isAdmin: adminIdentity.rowCount === 1,
       userId: actor.id,
@@ -128,8 +106,7 @@ export async function handleEntitlementRoute(
   return {
     body: {
       entitlement,
-      warning:
-        "Development entitlement only. No billing provider or subscription is attached.",
+      warning: "Development entitlement only. No billing provider or subscription is attached.",
     },
     kind: "json",
     statusCode: 201,

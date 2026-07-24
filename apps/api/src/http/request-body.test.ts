@@ -15,15 +15,13 @@ function createRequest(body: string, contentLength?: number) {
 
 describe("parseJsonRequestBody", () => {
   it("parses a body within the configured limit", async () => {
-    await expect(
-      parseJsonRequestBody(createRequest('{"ok":true}'), 32),
-    ).resolves.toEqual({ ok: true });
+    await expect(parseJsonRequestBody(createRequest('{"ok":true}'), 32)).resolves.toEqual({
+      ok: true,
+    });
   });
 
   it("rejects a declared oversized body before reading it", async () => {
-    await expect(
-      parseJsonRequestBody(createRequest("{}", 100), 16),
-    ).rejects.toMatchObject({
+    await expect(parseJsonRequestBody(createRequest("{}", 100), 16)).rejects.toMatchObject({
       code: "payload_too_large",
       statusCode: 413,
     });
