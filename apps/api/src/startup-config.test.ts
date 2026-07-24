@@ -71,6 +71,28 @@ describe("startup environment validation", () => {
     ).toThrowError("ENGAGEMENT_SESSION_PEPPER");
   });
 
+  it("fails closed on invalid or incomplete production recommendation rollout", () => {
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        CLOSETSEARCH_RECOMMENDATION_MODE: "force-active",
+      }),
+    ).toThrowError("must be disabled, shadow, or active");
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        CLOSETSEARCH_RECOMMENDATION_MODE: "shadow",
+      }),
+    ).toThrowError("ARTIFACT_PATH");
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        CLOSETSEARCH_RECOMMENDATION_ARTIFACT_PATH: "/run/closetsearch/recommendation.json",
+        CLOSETSEARCH_RECOMMENDATION_MODE: "active",
+      }),
+    ).toThrowError("PROMOTION_APPROVED=true");
+  });
+
   it("allows SQLite only when explicitly selected outside production", () => {
     expect(
       validateStartupEnvironment({

@@ -25,7 +25,21 @@ Rank normalized active ClosetSearch discovery candidates in offline evaluation a
 
 ## Runtime safety
 
-The default rollout mode is `shadow`. Shadow mode computes an ML ranking but returns the caller-supplied rules ranking. `disabled` returns rules immediately. `active` refuses an unapproved model. Timeout or inference errors return rules with a structured fallback reason. Production integration must preserve these semantics.
+The package-level experiment helper defaults to `shadow`; the deployed API
+adapter defaults to the safer `disabled` mode until an artifact path and
+rollout flag are explicitly configured. Shadow mode computes an ML ranking but
+returns the caller-supplied rules ranking. `disabled` returns rules
+immediately. `active` requires both an explicitly approved deployment and an
+artifact whose lifecycle status is `promoted`. Schema/version mismatch,
+artifact staleness, timeout, or inference errors return rules with a structured
+fallback reason. The API exposes reason codes but not raw feature vectors or
+user weights.
+
+The API adapter independently validates the serialized artifact boundary before
+inference so a package/runtime version mismatch fails closed. It bounds a
+request to 500 candidates and 1–250 ms, applies provider/brand dominance
+safeguards, and skips price-band affinity whenever candidates do not share one
+normalized comparison currency.
 
 ## Evaluation and promotion
 

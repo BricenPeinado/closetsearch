@@ -10,21 +10,14 @@ import { getSettingsByUserId } from "./user-settings-service.js";
 import { getWatchlistsByUserId } from "./watchlist-service.js";
 import { logWarn } from "./logger.js";
 import { rememberListings } from "./services/listingCatalogService.js";
+import { getMlRecommendationRuntime } from "./services/mlRecommendationRuntimeService.js";
 import { buildPersonalizationProfile } from "./services/personalizationSignalsService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
-import { rankListings } from "./services/recommendationService.js";
 import { generateRiskSignal } from "./services/riskService.js";
 import { applyDisplayCurrency } from "./services/exchangeRateService.js";
 
 const defaultFeedSort: SearchQuery["sort"] = "newest";
 const defaultFeedPageSize = 12;
-
-function sortListings(listings: Listing[]) {
-  return [...listings].sort(
-    (left, right) =>
-      new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime(),
-  );
-}
 
 function attachRiskSignal(listing: Listing): Listing {
   return {
@@ -87,24 +80,20 @@ export async function getFeed(
   );
 
   if (user === undefined) {
-    const rankedListings = sortListings(listings);
+    const recommendation = getMlRecommendationRuntime().rank({
+      includeDebug: Boolean(query.debugPersonalization),
+      listings,
+      userId: "anonymous",
+    });
 
     return {
-      listings: rankedListings,
-      isPersonalized: false,
+      listings: recommendation.listings,
+      isPersonalized: recommendation.isPersonalized,
       pagination: execution.pagination,
-      personalizationSummary: {
-        isPersonalized: false,
-        message: "Popular finds across resale marketplaces.",
-        signalCount: 0,
-        signalLabels: [],
-      },
+      personalizationSummary: recommendation.personalizationSummary,
       providers: execution.providers,
-      debugPersonalization: query.debugPersonalization
-        ? {
-            scoreBreakdowns: [],
-          }
-        : undefined,
+      debugPersonalization: recommendation.debugPersonalization,
+      recommendation: recommendation.recommendation,
     };
   }
 
@@ -116,10 +105,11 @@ export async function getFeed(
     watchlists: getWatchlistsByUserId(user.id),
     settings: getSettingsByUserId(user.id),
   });
-  const recommendation = rankListings({
+  const recommendation = getMlRecommendationRuntime().rank({
     listings,
     profile: personalizationProfile,
     includeDebug: Boolean(query.debugPersonalization),
+    userId: user.id,
   });
 
   return {
@@ -129,5 +119,6 @@ export async function getFeed(
     personalizationSummary: recommendation.personalizationSummary,
     providers: execution.providers,
     debugPersonalization: recommendation.debugPersonalization,
+    recommendation: recommendation.recommendation,
   };
 }

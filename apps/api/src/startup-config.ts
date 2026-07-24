@@ -5,6 +5,7 @@ import {
 } from "./db/persistence-driver.js";
 import { loadPostgresRuntimeConfig } from "./db/postgres/config.js";
 import { getEngagementRuntimeConfig } from "./services/durableEngagementService.js";
+import { readRecommendationRuntimeConfig } from "./services/mlRecommendationRuntimeService.js";
 
 export interface StartupConfig {
   host: string;
@@ -48,12 +49,40 @@ export function validateStartupEnvironment(
   const authConfig = getAuthConfig(env);
   const persistenceDriver = resolvePersistenceDriver(env);
   getEngagementRuntimeConfig(env);
+  const recommendationConfig = readRecommendationRuntimeConfig(env);
 
   if (persistenceDriver === "postgres") {
     loadPostgresRuntimeConfig(env);
   }
 
   if (env.NODE_ENV === "production") {
+    const recommendationMode =
+      env.CLOSETSEARCH_RECOMMENDATION_MODE?.trim() ?? "disabled";
+
+    if (!["active", "disabled", "shadow"].includes(recommendationMode)) {
+      throw new Error(
+        "CLOSETSEARCH_RECOMMENDATION_MODE must be disabled, shadow, or active.",
+      );
+    }
+
+    if (
+      recommendationMode !== "disabled" &&
+      !recommendationConfig.artifactPath
+    ) {
+      throw new Error(
+        "CLOSETSEARCH_RECOMMENDATION_ARTIFACT_PATH is required for shadow or active recommendation mode.",
+      );
+    }
+
+    if (
+      recommendationMode === "active" &&
+      !recommendationConfig.promotionApproved
+    ) {
+      throw new Error(
+        "Active recommendation mode requires CLOSETSEARCH_RECOMMENDATION_PROMOTION_APPROVED=true.",
+      );
+    }
+
     if (persistenceDriver !== "postgres") {
       throw new Error("PostgreSQL persistence is required in production.");
     }

@@ -71,6 +71,22 @@ Compose uses disabled TLS only inside its isolated local network and sets `POSTG
 
 Rotating the session pepper revokes existing sessions.
 
+## Recommendation runtime
+
+| Variable                                            | Default    | Notes                                                                                          |
+| --------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------- |
+| `CLOSETSEARCH_RECOMMENDATION_MODE`                  | `disabled` | `disabled`, `shadow`, or `active`; unknown values fail closed to `disabled`                    |
+| `CLOSETSEARCH_RECOMMENDATION_ARTIFACT_PATH`         | none       | immutable JSON artifact emitted from the reviewed `packages/ml` training pipeline              |
+| `CLOSETSEARCH_RECOMMENDATION_PROMOTION_APPROVED`    | `false`    | must be exactly `true`, in addition to artifact status `promoted`, before active model ranking |
+| `CLOSETSEARCH_RECOMMENDATION_TIMEOUT_MS`            | `25`       | 1–250 ms; invalid values use 25 ms                                                             |
+| `CLOSETSEARCH_RECOMMENDATION_MAX_ARTIFACT_AGE_DAYS` | `45`       | 1–365 days; an older active artifact falls back to rules                                       |
+
+The checked-in synthetic fixture is evaluation evidence only and is not a
+promotable production artifact. Start with `shadow`, inspect fallback,
+concentration, overlap, and latency metrics, and use `disabled` as the immediate
+rollback. Artifact files are immutable deployment inputs; changing a file at
+the same path requires an API restart.
+
 ## Provider orchestration
 
 | Variable                        | Development default                         | Production |
