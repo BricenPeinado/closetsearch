@@ -8,6 +8,16 @@ fail() {
   exit 1
 }
 
+checksum_verify() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -c "$1"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 -c "$1"
+  else
+    fail "sha256sum or shasum is required"
+  fi
+}
+
 backup_path=${1:-}
 database_url=${RESTORE_DATABASE_URL:-}
 target_database=${RESTORE_TARGET_DATABASE:-}
@@ -33,7 +43,7 @@ checksum_path="${backup_path}.sha256"
 if [ -f "$checksum_path" ]; then
   (
     cd "$backup_directory"
-    sha256sum -c "$(basename "$checksum_path")"
+    checksum_verify "$(basename "$checksum_path")"
   )
 else
   fail "matching checksum file is required: ${checksum_path}"

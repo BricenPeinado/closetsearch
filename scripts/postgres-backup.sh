@@ -8,6 +8,16 @@ fail() {
   exit 1
 }
 
+checksum_create() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1"
+  else
+    fail "sha256sum or shasum is required"
+  fi
+}
+
 database_url=${DATABASE_URL:-}
 backup_dir=${BACKUP_DIR:-/backups}
 retention_days=${BACKUP_RETENTION_DAYS:-14}
@@ -66,7 +76,7 @@ fi
 
 (
   cd "$backup_dir"
-  sha256sum "$(basename "$final_dump")" >"$(basename "$final_dump").sha256"
+  checksum_create "$(basename "$final_dump")" >"$(basename "$final_dump").sha256"
 )
 
 find "$backup_dir" -type f \
