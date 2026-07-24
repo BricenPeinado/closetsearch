@@ -1,4 +1,9 @@
-import type { Brand, Listing, ListingCondition, ListingType } from "@closetsearch/shared";
+import {
+  resolveCanonicalBrand,
+  type Listing,
+  type ListingCondition,
+  type ListingType,
+} from "@closetsearch/shared";
 import { createMoneyFromMajor } from "../money.js";
 import type { RawGrailedFixtureListing } from "./fixtures.js";
 import type { ParsedGrailedListingCard } from "./parser.js";
@@ -36,16 +41,12 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-function normalizeBrand(raw: GrailedListingInput): Brand {
+function normalizeBrand(raw: GrailedListingInput) {
   const rawName = toTrimmedString(raw.brandName);
-  const name = rawName || "Unknown Brand";
-  const slug = toTrimmedString(raw.brandSlug) || slugify(name) || "unknown-brand";
-
-  return {
-    id: "brand:" + slug,
-    slug,
-    name,
-  };
+  return resolveCanonicalBrand(
+    rawName || "Unknown brand",
+    toTrimmedString(raw.brandSlug),
+  );
 }
 
 function normalizeListingType(value: string | null | undefined): ListingType {

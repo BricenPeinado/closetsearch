@@ -1,9 +1,10 @@
-import type {
-  Listing,
-  ListingCondition,
-  ListingMarketStatus,
-  ListingSeller,
-  SellerTrustTier,
+import {
+  resolveCanonicalBrand,
+  type Listing,
+  type ListingCondition,
+  type ListingMarketStatus,
+  type ListingSeller,
+  type SellerTrustTier,
 } from "@closetsearch/shared";
 import type { ProviderSearchQuery } from "../types.js";
 import type { GrailedAlgoliaCredentials } from "./credentials.js";
@@ -75,14 +76,6 @@ function firstNumber(...values: unknown[]) {
   }
 
   return undefined;
-}
-
-function slugify(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function normalizePath(
@@ -318,10 +311,11 @@ export function normalizeGrailedAlgoliaHit(
       hit.brand_name,
       hit.brand,
     ) ?? "Unknown Brand";
-  const generatedBrandSlug = slugify(brandName);
-  const brandSlug =
-    firstString(designer?.slug, firstDesigner?.slug, hit.brand_slug) ??
-    (generatedBrandSlug.length > 0 ? generatedBrandSlug : "unknown-brand");
+  const providerBrandSlug = firstString(
+    designer?.slug,
+    firstDesigner?.slug,
+    hit.brand_slug,
+  );
   const priceInCents =
     firstNumber(
       hit.price_in_cents,
@@ -370,11 +364,7 @@ export function normalizeGrailedAlgoliaHit(
     },
     sourceUrl,
     title: firstString(hit.title, hit.full_title, hit.name) ?? "Grailed listing",
-    brand: {
-      id: `brand:${brandSlug}`,
-      slug: brandSlug,
-      name: brandName,
-    },
+    brand: resolveCanonicalBrand(brandName, providerBrandSlug),
     imageUrl,
     images: [
       {

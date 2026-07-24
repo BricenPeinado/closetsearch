@@ -1,10 +1,12 @@
 export {
+  CANONICAL_BRANDS,
   RISK_LEVEL_LABELS,
   RISK_SIGNAL_CATEGORIES,
   RISK_SIGNAL_DISCLAIMER,
   RISK_SIGNAL_INPUT_FAMILIES,
   RISK_SIGNAL_LABEL,
   RISK_SIGNAL_PRODUCT_LANGUAGE,
+  resolveCanonicalBrand,
 } from "./domain/index.js";
 export type {
   AlertDeliveryChannel,

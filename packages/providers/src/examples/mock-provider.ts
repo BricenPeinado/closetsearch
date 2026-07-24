@@ -1,9 +1,9 @@
-import type {
-  Brand,
-  Listing,
-  ListingCondition,
-  ListingType,
-  SearchSortMode,
+import {
+  resolveCanonicalBrand,
+  type Listing,
+  type ListingCondition,
+  type ListingType,
+  type SearchSortMode,
 } from "@closetsearch/shared";
 import { createMoneyFromMajor } from "../money.js";
 import type { Provider, ProviderSearchQuery, ProviderSearchRequest } from "../types.js";
@@ -127,12 +127,8 @@ const rawMockListings: RawMockListing[] = [
   },
 ];
 
-function normalizeBrand(raw: RawMockListing): Brand {
-  return {
-    id: `brand:${raw.designerSlug}`,
-    slug: raw.designerSlug,
-    name: raw.designer,
-  };
+function normalizeBrand(raw: RawMockListing) {
+  return resolveCanonicalBrand(raw.designer, raw.designerSlug);
 }
 
 export function normalizeMockListing(raw: RawMockListing): Listing {

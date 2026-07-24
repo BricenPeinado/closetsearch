@@ -1,13 +1,13 @@
-import type {
-  Brand,
-  Listing,
-  ListingCondition,
-  ListingImage,
-  ListingSeller,
-  ListingShipping,
-  ListingType,
-  Money,
-  SellerTrustTier,
+import {
+  resolveCanonicalBrand,
+  type Listing,
+  type ListingCondition,
+  type ListingImage,
+  type ListingSeller,
+  type ListingShipping,
+  type ListingType,
+  type Money,
+  type SellerTrustTier,
 } from "@closetsearch/shared";
 import { createMoneyFromMajor } from "../money.js";
 import type {
@@ -49,30 +49,16 @@ function normalizeTimestamp(value: unknown) {
     : undefined;
 }
 
-function slugify(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 function findAspect(aspects: EbayRawAspect[] | undefined, name: string) {
   return aspects?.find(
     (aspect) => toTrimmedString(aspect.name).toLowerCase() === name.toLowerCase(),
   )?.value;
 }
 
-function normalizeBrand(raw: EbayRawItemSummary): Brand {
+function normalizeBrand(raw: EbayRawItemSummary) {
   const name = toTrimmedString(findAspect(raw.localizedAspects, "Brand")) ||
     "Unknown brand";
-  const slug = slugify(name) || "unknown-brand";
-
-  return {
-    id: `brand:${slug}`,
-    slug,
-    name,
-  };
+  return resolveCanonicalBrand(name);
 }
 
 function normalizeCondition(value: unknown): ListingCondition | undefined {

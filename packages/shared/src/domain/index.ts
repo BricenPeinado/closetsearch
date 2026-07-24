@@ -19,6 +19,10 @@ export type {
   UnderpricedListingSignal,
 } from "./analytics.js";
 export type { Brand } from "./brand.js";
+export {
+  CANONICAL_BRANDS,
+  resolveCanonicalBrand,
+} from "./brand-registry.js";
 export type { FeedQuery, FeedResponse } from "./feed.js";
 export type {
   ConvertedMoney,

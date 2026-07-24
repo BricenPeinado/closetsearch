@@ -60,7 +60,7 @@ describe("normalizeGrailedListing", () => {
     expect(listing.brand).toEqual({
       id: "brand:unknown-brand",
       slug: "unknown-brand",
-      name: "Unknown Brand",
+      name: "Unknown brand",
     });
     expect(listing.imageUrl).toBe("https://closetsearch.dev/placeholders/grailed-listing.png");
     expect(listing.price).toMatchObject({ amount: 0, currency: "USD" });
