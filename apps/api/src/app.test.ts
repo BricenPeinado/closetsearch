@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import type { Brand } from "@closetsearch/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, resetHttpSecurityStateForTests } from "./app.js";
 import { resetAuthSessionStore } from "./auth/session-service.js";
 import { getDatabase } from "./db/database.js";
 import { cleanupIsolatedDatabase, useIsolatedDatabase } from "./db/test-helpers.js";
@@ -200,6 +200,7 @@ describe("handleRequest", () => {
   let databasePath = "";
 
   beforeEach(() => {
+    resetHttpSecurityStateForTests();
     databasePath = useIsolatedDatabase("app");
     resetAuthSessionStore();
     resetUserStore();

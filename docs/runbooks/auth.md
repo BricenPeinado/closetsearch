@@ -68,6 +68,7 @@ Relevant environment variables:
 - `AUTH_ALLOWED_ORIGINS`
 - `AUTH_SESSION_PEPPER`
 - `AUTH_TOKEN_PEPPER`
+- `HTTP_BODY_LIMIT_BYTES`
 
 Notes:
 
@@ -100,6 +101,24 @@ Signed-out browsing still works for:
 - locked analytics preview
 
 Feed personalization and analytics premium access now use the authenticated cookie session when available instead of query-string `userId` authority.
+
+## CSRF And Request Abuse Controls
+
+Cookie-authenticated mutation requests enforce browser-origin checks:
+
+- requests with `Sec-Fetch-Site: cross-site` are rejected
+- an `Origin` or `Referer` origin, when present, must exactly match
+  `AUTH_ALLOWED_ORIGINS`
+- production rejects browser-context mutations that do not carry a trustworthy
+  origin
+
+Signup and login use a bounded process-local IP rate limiter as a first line of
+defense. Multi-instance durable rate limiting remains required before horizontal
+production scaling.
+
+JSON bodies are streamed through a byte counter and rejected with `413` when
+they exceed `HTTP_BODY_LIMIT_BYTES`; declared oversized bodies are rejected
+before being read.
 
 ## Session Expiry and Logout
 
@@ -140,5 +159,9 @@ Intentionally deferred after Milestone 15:
 - roles and admin permissions
 - managed production secrets strategy
 - distributed or multi-instance session infrastructure
+
+Production startup fails closed when the session pepper is shorter than 32
+characters, cookies are not secure, allowed origins are not explicit HTTPS
+origins, or provider configuration permits mock inventory.
 
 The current implementation is a production-auth foundation, not a complete account platform.

@@ -1,20 +1,59 @@
-import { getDatabase } from "./db/database.js";
+import { closeDatabaseConnection, getDatabase } from "./db/database.js";
 import { createApp } from "./app.js";
-import { logInfo } from "./logger.js";
+import { logError, logInfo } from "./logger.js";
+import { validateStartupEnvironment } from "./startup-config.js";
 
+const startupConfig = validateStartupEnvironment();
 getDatabase();
-
-const defaultPort = 4000;
-const parsedPort = Number.parseInt(process.env.PORT ?? `${defaultPort}`, 10);
-const port = Number.isNaN(parsedPort) ? defaultPort : parsedPort;
-const host = process.env.HOST ?? "127.0.0.1";
 
 const server = createApp();
 
-server.listen(port, host, () => {
+server.listen(startupConfig.port, startupConfig.host, () => {
   logInfo("ClosetSearch API listening", {
-    host,
-    port,
-    url: `http://${host}:${port}`,
+    host: startupConfig.host,
+    port: startupConfig.port,
+    url: `http://${startupConfig.host}:${startupConfig.port}`,
   });
 });
+
+let shuttingDown = false;
+
+function shutdown(signal: NodeJS.Signals) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  logInfo("Graceful shutdown started", { signal });
+
+  const forceTimer = setTimeout(() => {
+    logError("Graceful shutdown timed out", {
+      signal,
+      timeoutMs: startupConfig.shutdownTimeoutMs,
+    });
+    server.closeAllConnections();
+    closeDatabaseConnection();
+    process.exitCode = 1;
+  }, startupConfig.shutdownTimeoutMs);
+  forceTimer.unref();
+
+  server.close((error) => {
+    clearTimeout(forceTimer);
+    closeDatabaseConnection();
+
+    if (error) {
+      logError("Graceful shutdown failed", {
+        errorName: error.name,
+        message: error.message,
+        signal,
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    logInfo("Graceful shutdown completed", { signal });
+  });
+}
+
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);

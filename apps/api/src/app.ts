@@ -23,6 +23,10 @@ import {
 import { getFeed } from "./feed-service.js";
 import { addLike, getLikedListingsByUserId, getLikesByUserId, removeLike } from "./like-service.js";
 import { createRequestId, logError, logWarn } from "./logger.js";
+import { parseJsonRequestBody } from "./http/request-body.js";
+import { FixedWindowRateLimiter, getRequestIpHint } from "./http/rate-limit.js";
+import { assertCsrfSafeRequest, buildSecurityHeaders } from "./http/security.js";
+import { incrementCounter, renderMetrics } from "./metrics.js";
 import {
   addRecentSearch,
   getRecentSearchesByUserId,
@@ -36,6 +40,7 @@ import {
 import { addSavedFilter, getSavedFiltersByUserId, removeSavedFilter } from "./saved-filter-service.js";
 import { searchListings } from "./search-service.js";
 import { createProviderRuntime } from "./providers/registry.js";
+import { getDatabase } from "./db/database.js";
 import { getSettingsByUserId, updateSettings } from "./user-settings-service.js";
 import {
   analyticsUsesSampleData,
@@ -64,6 +69,14 @@ import {
 } from "./services/watchlistService.js";
 
 const requestIdHeaderName = "x-request-id";
+const authRateLimiter = new FixedWindowRateLimiter({
+  limit: 10,
+  windowMs: 60_000,
+});
+
+export function resetHttpSecurityStateForTests() {
+  authRateLimiter.reset();
+}
 
 function buildCorsHeaders(request: IncomingMessage) {
   const origin =
@@ -92,6 +105,7 @@ function buildResponseHeaders(
   extraHeaders?: Record<string, string>,
 ) {
   return {
+    ...buildSecurityHeaders(),
     ...buildCorsHeaders(request),
     [requestIdHeaderName]: getRequestId(request),
     ...extraHeaders,
@@ -124,29 +138,7 @@ function sendEmpty(
   response.end();
 }
 
-async function parseJsonBody(request: IncomingMessage) {
-  const chunks: Buffer[] = [];
-
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
-  if (chunks.length === 0) {
-    return null;
-  }
-
-  const body = Buffer.concat(chunks).toString("utf-8").trim();
-
-  if (body.length === 0) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(body) as unknown;
-  } catch {
-    throw new Error("invalid_json");
-  }
-}
+const parseJsonBody = parseJsonRequestBody;
 
 function parseListParameter(value: string | null) {
   if (!value) {
@@ -464,6 +456,7 @@ async function handleSignup(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  authRateLimiter.consume(`signup:${getRequestIpHint(request)}`);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
   const username = toTrimmedString(body?.username);
   const password = typeof body?.password === "string" ? body.password : "";
@@ -486,6 +479,7 @@ async function handleLogin(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
+  authRateLimiter.consume(`login:${getRequestIpHint(request)}`);
   const body = (await parseJsonBody(request)) as Record<string, unknown> | null;
   const username = toTrimmedString(body?.username);
   const password = typeof body?.password === "string" ? body.password : "";
@@ -1224,6 +1218,64 @@ export async function handleRequest(
     return;
   }
 
+  assertCsrfSafeRequest(request);
+
+  if (method === "GET" && requestUrl.pathname === "/health/live") {
+    sendJson(request, response, 200, {
+      service: "closetsearch-api",
+      status: "alive",
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/health/ready") {
+    try {
+      getDatabase().prepare("SELECT 1 AS ready").get();
+      const providerRuntime = createProviderRuntime();
+      const activeRealProviderCount = providerRuntime.activeProviders.filter(
+        (provider) => provider.mode === "real",
+      ).length;
+      const productionProviderReady =
+        process.env.NODE_ENV !== "production" || activeRealProviderCount > 0;
+
+      sendJson(
+        request,
+        response,
+        productionProviderReady ? 200 : 503,
+        {
+          checks: {
+            database: "ready",
+            realProviders:
+              activeRealProviderCount > 0 ? "ready" : "not_configured",
+          },
+          service: "closetsearch-api",
+          status: productionProviderReady ? "ready" : "not_ready",
+          timestamp: new Date().toISOString(),
+        },
+      );
+    } catch {
+      sendJson(request, response, 503, {
+        checks: {
+          database: "unavailable",
+        },
+        service: "closetsearch-api",
+        status: "not_ready",
+        timestamp: new Date().toISOString(),
+      });
+    }
+    return;
+  }
+
+  if (method === "GET" && requestUrl.pathname === "/metrics") {
+    response.writeHead(200, {
+      ...buildResponseHeaders(request),
+      "content-type": "text/plain; version=0.0.4; charset=utf-8",
+    });
+    response.end(renderMetrics());
+    return;
+  }
+
   if (method === "GET" && requestUrl.pathname === "/health") {
     sendJson(request, response, 200, {
       service: "closetsearch-api",
@@ -1466,8 +1518,19 @@ export async function handleRequest(
 
 export function createApp() {
   return createServer((request, response) => {
+    const startedAt = performance.now();
     const requestWithContext = request as IncomingMessage & { __requestId?: string };
     requestWithContext.__requestId = createRequestId();
+    const recordCompletion = () => {
+      incrementCounter("closetsearch_http_requests_total", {
+        method: request.method ?? "GET",
+        status: String(response.statusCode || 0),
+      });
+    };
+
+    if (typeof response.once === "function") {
+      response.once("finish", recordCompletion);
+    }
 
     void handleRequest(request, response).catch((error: unknown) => {
       const requestContext = {
@@ -1475,12 +1538,6 @@ export function createApp() {
         path: request.url ?? "/",
         requestId: getRequestId(request),
       };
-
-      if (error instanceof Error && error.message === "invalid_json") {
-        logWarn("Rejected invalid JSON request body", requestContext);
-        sendValidationError(request, response, "The request body must be valid JSON.", 400, "invalid_json");
-        return;
-      }
 
       if (isApiError(error)) {
         logWarn("Handled API error", {
@@ -1496,7 +1553,15 @@ export function createApp() {
             error: error.code,
             message: error.message,
           },
-          getErrorHeaders(error),
+          {
+            ...getErrorHeaders(error),
+            ...("retryAfterSeconds" in error &&
+            typeof error.retryAfterSeconds === "number"
+              ? {
+                  "retry-after": String(error.retryAfterSeconds),
+                }
+              : {}),
+          },
         );
         return;
       }
@@ -1511,6 +1576,20 @@ export function createApp() {
         error: "internal_error",
         message: "The API could not complete the request.",
       });
+    }).finally(() => {
+      if (typeof response.once !== "function") {
+        recordCompletion();
+      }
+
+      const durationMs = performance.now() - startedAt;
+      if (durationMs >= 1_000) {
+        logWarn("Slow API request", {
+          durationMs: Math.round(durationMs),
+          method: request.method ?? "GET",
+          path: request.url ?? "/",
+          requestId: getRequestId(request),
+        });
+      }
     });
   });
 }

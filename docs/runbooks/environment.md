@@ -30,6 +30,22 @@ Do not commit real secrets. Use `.env.example`, `apps/api/.env.example`, and `ap
 - Beta note: point at writable persistent storage
 - Safety note: not a secret, but avoid exposing internal filesystem paths broadly
 
+### `HTTP_BODY_LIMIT_BYTES`
+
+- Required: optional
+- Default: `65536`
+- Local example: `HTTP_BODY_LIMIT_BYTES=65536`
+- Production note: bounds every JSON request body before parsing
+- Safety note: not sensitive
+
+### `SHUTDOWN_TIMEOUT_MS`
+
+- Required: optional
+- Default: `10000`
+- Local example: `SHUTDOWN_TIMEOUT_MS=10000`
+- Production note: maximum graceful HTTP drain time before open connections are closed
+- Safety note: not sensitive
+
 ## Auth and Session
 
 ### `AUTH_ALLOWED_ORIGINS`
