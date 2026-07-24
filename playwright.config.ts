@@ -2,6 +2,30 @@ import { defineConfig, devices } from "@playwright/test";
 
 const apiUrl = "http://127.0.0.1:4400";
 const webUrl = "http://127.0.0.1:4173";
+const persistenceDriver = process.env.PLAYWRIGHT_PERSISTENCE_DRIVER ?? "sqlite";
+
+if (persistenceDriver !== "sqlite" && persistenceDriver !== "postgres") {
+  throw new Error("PLAYWRIGHT_PERSISTENCE_DRIVER must be sqlite or postgres.");
+}
+
+const playwrightDatabaseUrl = process.env.PLAYWRIGHT_DATABASE_URL ?? process.env.DATABASE_URL;
+
+if (persistenceDriver === "postgres" && !playwrightDatabaseUrl) {
+  throw new Error(
+    "PLAYWRIGHT_DATABASE_URL or DATABASE_URL is required for PostgreSQL Playwright runs.",
+  );
+}
+
+const persistenceEnvironment =
+  persistenceDriver === "postgres"
+    ? {
+        DATABASE_URL: playwrightDatabaseUrl,
+        POSTGRES_ALLOW_INSECURE: process.env.POSTGRES_ALLOW_INSECURE ?? "true",
+        POSTGRES_SSL_MODE: process.env.POSTGRES_SSL_MODE ?? "disable",
+      }
+    : {
+        CLOSETSEARCH_DB_PATH: ":memory:",
+      };
 
 export default defineConfig({
   expect: {
@@ -31,14 +55,14 @@ export default defineConfig({
         AUTH_COOKIE_SECURE: "false",
         AUTH_SESSION_PEPPER: "closetsearch-playwright-session-pepper-000000000000",
         AUTH_TOKEN_PEPPER: "closetsearch-playwright-token-pepper-00000000000000",
-        CLOSETSEARCH_DB_PATH: ":memory:",
         EBAY_PROVIDER_ENABLED: "false",
         GRAILED_PROVIDER_ENABLED: "false",
         GRAILED_SCRAPING_ALLOWED: "false",
         HOST: "127.0.0.1",
         NODE_ENV: "test",
-        PERSISTENCE_DRIVER: "sqlite",
+        PERSISTENCE_DRIVER: persistenceDriver,
         PORT: "4400",
+        ...persistenceEnvironment,
         PROVIDER_ALLOW_MOCK_FALLBACK: "false",
         PROVIDER_MOCK_ENABLED: "true",
         PROVIDER_RUNTIME_MODE: "mock",

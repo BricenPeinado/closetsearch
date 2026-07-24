@@ -1,10 +1,6 @@
 import { pathToFileURL } from "node:url";
 
-const apiBaseUrl = (process.env.CLOSETSEARCH_API_BASE_URL ?? "https://api.example.invalid").replace(
-  /\/+$/,
-  "",
-);
-const timeoutMs = boundedInteger(process.env.CLOSETSEARCH_SMOKE_TIMEOUT_MS, 10_000, 1_000, 60_000);
+const configuredApiBaseUrl = process.env.CLOSETSEARCH_API_BASE_URL?.trim();
 const requireHttps = process.env.CLOSETSEARCH_SMOKE_REQUIRE_HTTPS?.toLowerCase() !== "false";
 const expectedProviderIds = new Set(
   (process.env.CLOSETSEARCH_EXPECTED_PROVIDER_IDS ?? "")
@@ -13,9 +9,17 @@ const expectedProviderIds = new Set(
     .filter(Boolean),
 );
 
-function boundedInteger(raw, fallback, minimum, maximum) {
+function boundedInteger(raw, fallback, minimum, maximum, name) {
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+
   const value = Number(raw);
-  return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}.`);
+  }
+
+  return value;
 }
 
 function assert(condition, message) {
@@ -24,7 +28,7 @@ function assert(condition, message) {
   }
 }
 
-async function fetchJson(path) {
+async function fetchJson(apiBaseUrl, timeoutMs, path) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     headers: {
       accept: "application/json",
@@ -50,24 +54,71 @@ function assertNoMockListing(listing) {
   );
 }
 
+function assertNormalizedListing(listing) {
+  assertNoMockListing(listing);
+  assert(
+    typeof listing?.id === "string" && listing.id.length > 0,
+    "A smoke listing is missing its normalized ID.",
+  );
+  assert(
+    typeof listing?.providerId === "string" && listing.providerId.length > 0,
+    "A smoke listing is missing its provider ID.",
+  );
+  assert(
+    typeof listing?.providerListingId === "string" && listing.providerListingId.length > 0,
+    "A smoke listing is missing its source listing ID.",
+  );
+  assert(
+    typeof listing?.title === "string" && listing.title.trim().length > 0,
+    "A smoke listing is missing its title.",
+  );
+  const destination = new URL(listing?.sourceUrl);
+  assert(
+    destination.protocol === "https:" || destination.protocol === "http:",
+    "A smoke listing has an invalid marketplace URL.",
+  );
+  assert(
+    Number.isSafeInteger(listing?.price?.amountMinor) && listing.price.amountMinor >= 0,
+    "A smoke listing is missing an exact non-negative price.",
+  );
+  assert(/^[A-Z]{3}$/.test(listing?.price?.currency), "A smoke listing has an invalid currency.");
+}
+
 export async function main() {
+  assert(
+    configuredApiBaseUrl,
+    "CLOSETSEARCH_API_BASE_URL is required; smoke:test never defaults to a local or mock runtime.",
+  );
+  const apiBaseUrl = configuredApiBaseUrl.replace(/\/+$/, "");
   const parsedBaseUrl = new URL(apiBaseUrl);
+  const timeoutMs = boundedInteger(
+    process.env.CLOSETSEARCH_SMOKE_TIMEOUT_MS,
+    10_000,
+    1_000,
+    60_000,
+    "CLOSETSEARCH_SMOKE_TIMEOUT_MS",
+  );
 
   if (requireHttps) {
     assert(parsedBaseUrl.protocol === "https:", "Production smoke requires HTTPS.");
+  } else {
+    assert(
+      parsedBaseUrl.protocol === "http:" || parsedBaseUrl.protocol === "https:",
+      "Smoke URL must use HTTP or HTTPS.",
+    );
   }
 
-  const live = await fetchJson("/health/live");
+  const live = await fetchJson(apiBaseUrl, timeoutMs, "/health/live");
   assert(live?.status === "alive", "Liveness did not report alive.");
 
-  const ready = await fetchJson("/health/ready");
+  const ready = await fetchJson(apiBaseUrl, timeoutMs, "/health/ready");
   assert(ready?.status === "ready", "Readiness did not report ready.");
   assert(
     ready?.checks?.realProviders === "ready",
     "Readiness did not confirm an active real provider.",
   );
 
-  const providerHealth = await fetchJson("/providers/health");
+  const providerHealth = await fetchJson(apiBaseUrl, timeoutMs, "/providers/health");
   assert(providerHealth?.providerRuntimeMode === "real", "Provider runtime is not in real mode.");
   assert(providerHealth?.allowMockFallback === false, "Mock provider fallback is enabled.");
   assert(Array.isArray(providerHealth?.providers), "Provider health is malformed.");
@@ -91,12 +142,13 @@ export async function main() {
     );
   }
 
-  const feed = await fetchJson("/feed?pageSize=3");
+  const feed = await fetchJson(apiBaseUrl, timeoutMs, "/feed?pageSize=3");
   assert(Array.isArray(feed?.listings), "Feed response is missing listings.");
   assert(Array.isArray(feed?.providers), "Feed response is missing provider summaries.");
+  assert(feed.listings.length > 0, "The production feed returned no real listings.");
 
   for (const listing of feed.listings) {
-    assertNoMockListing(listing);
+    assertNormalizedListing(listing);
   }
 
   for (const provider of feed.providers) {
@@ -105,6 +157,14 @@ export async function main() {
       "Feed provider summary contains mock data.",
     );
   }
+  assert(
+    feed.providers.some(
+      (provider) =>
+        provider?.status === "success" &&
+        activeRealProviders.some((activeProvider) => activeProvider.id === provider.providerId),
+    ),
+    "The production feed has no successful active real-provider result.",
+  );
 
   process.stdout.write(
     `${JSON.stringify({

@@ -16,20 +16,31 @@
     "test": "corepack pnpm -r --if-present test",
     "test:integration": "corepack pnpm --filter @closetsearch/api test:integration",
     "test:e2e": "playwright test",
-    "db:migrate": "corepack pnpm --filter @closetsearch/api db:migrate",
-    "db:seed": "corepack pnpm --filter @closetsearch/api db:seed",
+    "deps:check": "corepack pnpm audit --audit-level high",
+    "infrastructure:check": "node scripts/validate-infrastructure.mjs",
+    "db:migrate": "corepack pnpm --filter @closetsearch/api db:migrate:postgres",
+    "db:migrate:sqlite": "corepack pnpm --filter @closetsearch/api db:migrate",
+    "db:seed:sqlite": "corepack pnpm --filter @closetsearch/api db:seed",
     "beta:smoke": "node scripts/beta-smoke-test.mjs",
+    "smoke:local": "node scripts/smoke-test.mjs",
     "smoke:production": "node scripts/production-smoke-test.mjs",
-    "smoke:test": "node scripts/smoke-test.mjs"
+    "smoke:test": "node scripts/production-smoke-test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@eslint/js": "^9.25.0",
-    "eslint": "^9.25.0",
+    "eslint": "^9.39.5",
     "globals": "^16.0.0",
     "prettier": "^3.9.6",
     "typescript": "^5.8.0",
-    "typescript-eslint": "^8.30.0",
-    "vitest": "^3.1.0"
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^3.2.6"
+  },
+  "pnpm": {
+    "overrides": {
+      "@eslint/eslintrc>js-yaml": "4.3.0",
+      "minimatch@3>brace-expansion": "1.1.16",
+      "minimatch@10>brace-expansion": "5.0.8"
+    }
   }
 }
