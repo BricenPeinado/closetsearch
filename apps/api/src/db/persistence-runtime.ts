@@ -226,7 +226,14 @@ export function createPersistenceRuntime(
   const database = createPostgresDatabase(env);
   return new PostgresPersistenceRuntime(
     database,
-    new PostgresDataPlane(database),
+    new PostgresDataPlane(database, {
+      requestStore: {
+        ipHintPepper:
+          env.REQUEST_STORE_IP_HINT_PEPPER?.trim() ||
+          env.AUTH_SESSION_PEPPER?.trim(),
+        nodeEnv: env.NODE_ENV,
+      },
+    }),
     {
       migrateOnStart: parseMigrateOnStart(env),
     },

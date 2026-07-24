@@ -10,7 +10,7 @@
     "lint": "eslint src --ext .ts && eslint vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "test:integration": "vitest run src/db/postgres/postgres.integration.test.ts src/db/postgres/request-store.integration.test.ts src/db/persistence-runtime.test.ts src/services/durableDataServices.integration.test.ts src/services/postgresAnalyticsService.integration.test.ts src/worker/worker.integration.test.ts",
+    "test:integration": "vitest run src/db/postgres/postgres.integration.test.ts src/db/postgres/request-store.integration.test.ts src/db/persistence-runtime.test.ts src/services/durableDataServices.integration.test.ts src/services/postgresAnalyticsService.integration.test.ts src/worker/worker.integration.test.ts src/auth/postgres-account-security-service.integration.test.ts src/routes/postgres-request-routes.integration.test.ts",
     "db:migrate": "tsx src/db/migrations.ts",
     "db:migrate:postgres": "tsx src/db/postgres/migrate-cli.ts",
     "db:seed": "tsx src/db/seed.ts",

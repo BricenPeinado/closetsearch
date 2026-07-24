@@ -105,6 +105,7 @@ export class PostgresRequestStore {
 
       if (previous && previous.normalizedEmail !== identity.normalizedEmail) {
         await store.accounts.invalidateActiveAccountTokens({
+          invalidatedAt: input.createdAt,
           reason: "email_identity_changed",
           userId: input.userId,
         });

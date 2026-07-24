@@ -62,7 +62,7 @@ function parseCookieHeader(cookieHeader: string | undefined) {
   return cookies;
 }
 
-function hashSessionToken(token: string) {
+export function hashSessionToken(token: string) {
   const authConfig = getAuthConfig();
 
   return createHash("sha256")
@@ -72,7 +72,11 @@ function hashSessionToken(token: string) {
     .digest("hex");
 }
 
-function formatCookie(name: string, value: string, maxAgeSeconds: number) {
+export function formatSessionCookie(
+  name: string,
+  value: string,
+  maxAgeSeconds: number,
+) {
   const authConfig = getAuthConfig();
   const attributes = [
     `${name}=${encodeURIComponent(value)}`,
@@ -89,7 +93,7 @@ function formatCookie(name: string, value: string, maxAgeSeconds: number) {
   return attributes.join("; ");
 }
 
-function resolveIpHint(request: IncomingMessage) {
+export function resolveSessionIpHint(request: IncomingMessage) {
   const forwardedFor = toHeaderString(request.headers?.["x-forwarded-for"]);
 
   if (forwardedFor) {
@@ -99,7 +103,7 @@ function resolveIpHint(request: IncomingMessage) {
   return request.socket?.remoteAddress?.trim() || undefined;
 }
 
-function getSessionTokenFromRequest(request: IncomingMessage) {
+export function getSessionTokenFromRequest(request: IncomingMessage) {
   const authConfig = getAuthConfig();
   const cookies = parseCookieHeader(toHeaderString(request.headers?.cookie));
 
@@ -119,7 +123,7 @@ export function createAuthSession(
     createdAt: createdAtIso,
     expiresAt: expiresAt.toISOString(),
     id: randomUUID(),
-    ipHint: resolveIpHint(request),
+    ipHint: resolveSessionIpHint(request),
     lastSeenAt: createdAtIso,
     sessionTokenHash: hashSessionToken(token),
     userAgent: toHeaderString(request.headers?.["user-agent"]),
@@ -129,7 +133,7 @@ export function createAuthSession(
   insertAuthSession(session);
 
   return {
-    cookieValue: formatCookie(
+    cookieValue: formatSessionCookie(
       authConfig.cookieName,
       token,
       authConfig.sessionTtlSeconds,
@@ -141,7 +145,7 @@ export function createAuthSession(
 export function clearSessionCookie() {
   const authConfig = getAuthConfig();
 
-  return formatCookie(authConfig.cookieName, "", 0);
+  return formatSessionCookie(authConfig.cookieName, "", 0);
 }
 
 export function revokeCurrentSession(request: IncomingMessage) {

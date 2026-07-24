@@ -77,7 +77,7 @@ describe("PostgreSQL production data plane", () => {
       });
       expect(secondRun).toEqual({
         applied: [],
-        currentVersion: 5,
+        currentVersion: 6,
       });
 
       const migrations = loadPostgresMigrations();
@@ -275,6 +275,12 @@ describe("PostgreSQL production data plane", () => {
         uniqueSessionCount: 1n,
         viewCount: 1n,
       });
+      await expect(
+        harness.dataPlane.engagement.getUserListingScores(
+          userId,
+          new Date("2026-07-01T00:00:00.000Z"),
+        ),
+      ).resolves.toEqual(new Map([["fixture-provider:listing-1", 0.25]]));
 
       const entitlement = await harness.dataPlane.entitlements.grant({
         featureKey: "market_analytics",

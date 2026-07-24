@@ -9,9 +9,12 @@ import { getUserById } from "./user-service.js";
 import { getSettingsByUserId } from "./user-settings-service.js";
 import { getWatchlistsByUserId } from "./watchlist-service.js";
 import { logWarn } from "./logger.js";
+import { resolvePersistenceDriver } from "./db/persistence-driver.js";
+import { getPostgresDataPlane } from "./db/persistence-runtime.js";
 import { rememberListings } from "./services/listingCatalogService.js";
 import { getMlRecommendationRuntime } from "./services/mlRecommendationRuntimeService.js";
 import { buildPersonalizationProfile } from "./services/personalizationSignalsService.js";
+import { listPostgresLikedListings } from "./services/postgresLikedListingService.js";
 import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { generateRiskSignal } from "./services/riskService.js";
 import { applyDisplayCurrency } from "./services/exchangeRateService.js";
@@ -27,6 +30,10 @@ function attachRiskSignal(listing: Listing): Listing {
 }
 
 function rememberAnalyticsListings(listings: Listing[]) {
+  if (resolvePersistenceDriver() === "postgres") {
+    return;
+  }
+
   try {
     recordObservedListings(listings);
   } catch (error) {
@@ -35,6 +42,59 @@ function rememberAnalyticsListings(listings: Listing[]) {
       route: "feed",
     });
   }
+}
+
+async function loadPersonalizationInputs(userId: string) {
+  if (resolvePersistenceDriver() !== "postgres") {
+    const user = getUserById(userId);
+
+    return user
+      ? {
+          engagementByListingId: undefined,
+          likedListings: getLikedListingsByUserId(user.id),
+          savedFilters: getSavedFiltersByUserId(user.id),
+          savedSearches: getSavedSearchesByUserId(user.id),
+          settings: getSettingsByUserId(user.id),
+          user,
+          watchlists: getWatchlistsByUserId(user.id),
+        }
+      : undefined;
+  }
+
+  const dataPlane = await getPostgresDataPlane();
+  const user = await dataPlane.requestStore.findUserById(userId);
+
+  if (!user) {
+    return undefined;
+  }
+
+  const engagementSince = new Date();
+  engagementSince.setUTCDate(engagementSince.getUTCDate() - 90);
+  const [
+    engagementByListingId,
+    likedListings,
+    savedFilters,
+    savedSearches,
+    settings,
+    watchlists,
+  ] = await Promise.all([
+    dataPlane.engagement.getUserListingScores(user.id, engagementSince),
+    listPostgresLikedListings(dataPlane, user.id),
+    dataPlane.requestStore.listSavedFiltersByUserId(user.id),
+    dataPlane.requestStore.listSavedSearchesByUserId(user.id),
+    dataPlane.requestStore.getUserSettings(user.id),
+    dataPlane.requestStore.listWatchlistsByUserId(user.id),
+  ]);
+
+  return {
+    engagementByListingId,
+    likedListings,
+    savedFilters,
+    savedSearches,
+    settings,
+    user,
+    watchlists,
+  };
 }
 
 function shouldThrowProviderUnavailable(
@@ -70,16 +130,21 @@ export async function getFeed(
 
   const providerListings = execution.listings.map(attachRiskSignal);
 
-  rememberListings(providerListings);
+  if (resolvePersistenceDriver() !== "postgres") {
+    rememberListings(providerListings);
+  }
   rememberAnalyticsListings(providerListings);
 
-  const user = query.userId ? getUserById(query.userId) : undefined;
+  const personalizationInputs = query.userId
+    ? await loadPersonalizationInputs(query.userId)
+    : undefined;
+  const user = personalizationInputs?.user;
   const listings = await applyDisplayCurrency(
     providerListings,
     user?.currencyPreference,
   );
 
-  if (user === undefined) {
+  if (personalizationInputs === undefined || user === undefined) {
     const recommendation = getMlRecommendationRuntime().rank({
       includeDebug: Boolean(query.debugPersonalization),
       listings,
@@ -98,14 +163,15 @@ export async function getFeed(
   }
 
   const personalizationProfile = buildPersonalizationProfile({
+    likedListings: personalizationInputs.likedListings,
+    savedFilters: personalizationInputs.savedFilters,
+    savedSearches: personalizationInputs.savedSearches,
+    settings: personalizationInputs.settings,
     user,
-    likedListings: getLikedListingsByUserId(user.id),
-    savedSearches: getSavedSearchesByUserId(user.id),
-    savedFilters: getSavedFiltersByUserId(user.id),
-    watchlists: getWatchlistsByUserId(user.id),
-    settings: getSettingsByUserId(user.id),
+    watchlists: personalizationInputs.watchlists,
   });
   const recommendation = getMlRecommendationRuntime().rank({
+    engagementByListingId: personalizationInputs.engagementByListingId,
     listings,
     profile: personalizationProfile,
     includeDebug: Boolean(query.debugPersonalization),

@@ -12,11 +12,15 @@ import type {
 } from "@closetsearch/shared";
 import { isApiError } from "./api-error.js";
 import { getAuthConfig } from "./auth/config.js";
-import { requireAuth, getOptionalAuthContext } from "./auth/auth-context.js";
+import {
+  getAuthSessionResolution,
+  getOptionalAuthContext,
+  requireAuth,
+} from "./auth/auth-context.js";
+import { prepareRequestAuthContext } from "./auth/postgres-session-service.js";
 import {
   clearSessionCookie,
   createAuthSession,
-  getAuthSessionFromRequest,
   revokeAllSessionsForUser,
   revokeCurrentSession,
 } from "./auth/session-service.js";
@@ -59,6 +63,9 @@ import { handleOperationsRoute } from "./routes/operations-routes.js";
 import { handleBrandRoute } from "./routes/brand-routes.js";
 import { handleAnalyticsRoute } from "./routes/analytics-routes.js";
 import { handleEntitlementRoute } from "./routes/entitlement-routes.js";
+import { handlePostgresAccountRoute } from "./routes/postgres-account-routes.js";
+import { handlePostgresAuthRoute } from "./routes/postgres-auth-routes.js";
+import { handlePostgresSavedRoute } from "./routes/postgres-saved-routes.js";
 
 const requestIdHeaderName = "x-request-id";
 const authRateLimiter = new FixedWindowRateLimiter({
@@ -77,7 +84,7 @@ function buildCorsHeaders(request: IncomingMessage) {
   const headers: Record<string, string> = {
     "access-control-allow-headers":
       "content-type,x-privacy-session-id",
-    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
   };
 
   if (origin && authConfig.allowedOrigins.has(origin)) {
@@ -512,7 +519,7 @@ function handleAuthMe(
   request: IncomingMessage,
   response: ServerResponse<IncomingMessage>,
 ) {
-  const authSession = getAuthSessionFromRequest(request);
+  const authSession = getAuthSessionResolution(request);
 
   if (authSession.status !== "authenticated") {
     sendJson(
@@ -1078,7 +1085,57 @@ export async function handleRequest(
     return;
   }
 
+  await prepareRequestAuthContext(request);
+
   assertCsrfSafeRequest(request);
+
+  const postgresAuthRoute = await handlePostgresAuthRoute(
+    request,
+    requestUrl,
+  );
+
+  if (postgresAuthRoute) {
+    sendJson(
+      request,
+      response,
+      postgresAuthRoute.statusCode,
+      postgresAuthRoute.body,
+      postgresAuthRoute.headers,
+    );
+    return;
+  }
+
+  const postgresAccountRoute = await handlePostgresAccountRoute(
+    request,
+    requestUrl,
+  );
+
+  if (postgresAccountRoute) {
+    sendJson(
+      request,
+      response,
+      postgresAccountRoute.statusCode,
+      postgresAccountRoute.body,
+      postgresAccountRoute.headers,
+    );
+    return;
+  }
+
+  const postgresSavedRoute = await handlePostgresSavedRoute(
+    request,
+    requestUrl,
+  );
+
+  if (postgresSavedRoute) {
+    sendJson(
+      request,
+      response,
+      postgresSavedRoute.statusCode,
+      postgresSavedRoute.body,
+      postgresSavedRoute.headers,
+    );
+    return;
+  }
 
   const engagementRoute = await handleEngagementRoute(request, requestUrl);
 

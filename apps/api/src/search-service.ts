@@ -1,5 +1,6 @@
 import type { Listing, SearchQuery, SearchResponse } from "@closetsearch/shared";
 import { ApiError } from "./api-error.js";
+import { resolvePersistenceDriver } from "./db/persistence-driver.js";
 import { logWarn } from "./logger.js";
 import { createProviderRuntime, type ProviderRuntime } from "./providers/registry.js";
 import { runProviderSearch } from "./providers/orchestrator.js";
@@ -69,6 +70,10 @@ function attachRiskSignal(listing: Listing): Listing {
 }
 
 function rememberAnalyticsListings(listings: Listing[]) {
+  if (resolvePersistenceDriver() === "postgres") {
+    return;
+  }
+
   try {
     recordObservedListings(listings);
   } catch (error) {
@@ -102,7 +107,9 @@ export async function searchListings(
     query.sort,
   );
 
-  rememberListings(providerListings);
+  if (resolvePersistenceDriver() !== "postgres") {
+    rememberListings(providerListings);
+  }
   rememberAnalyticsListings(providerListings);
 
   return {

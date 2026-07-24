@@ -14,6 +14,12 @@ interface AggregateRow extends QueryResultRow {
   view_count: string | number | bigint;
 }
 
+interface UserListingScoreRow extends QueryResultRow {
+  provider_id: string;
+  score: string | number;
+  source_listing_id: string;
+}
+
 export class EngagementRepository {
   constructor(private readonly database: PostgresDatabase) {}
 
@@ -110,8 +116,75 @@ export class EngagementRepository {
         [eventDate, start, end],
       );
 
+      await client.query(
+        "DELETE FROM user_listing_engagement_daily WHERE event_date = $1",
+        [eventDate],
+      );
+      await client.query(
+        `INSERT INTO user_listing_engagement_daily (
+           user_id,
+           listing_id,
+           event_date,
+           view_count,
+           open_count,
+           like_count,
+           unlike_count,
+           hide_count,
+           conversion_count
+         )
+         SELECT
+           user_id,
+           listing_id,
+           $1::date,
+           SUM(CASE WHEN event_type = 'listing_view' THEN 1 ELSE 0 END),
+           SUM(CASE WHEN event_type = 'listing_open' THEN 1 ELSE 0 END),
+           SUM(CASE WHEN event_type = 'like' THEN 1 ELSE 0 END),
+           SUM(CASE WHEN event_type = 'unlike' THEN 1 ELSE 0 END),
+           SUM(CASE WHEN event_type = 'hide' THEN 1 ELSE 0 END),
+           SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END)
+         FROM engagement_events
+         WHERE occurred_at >= $2
+           AND occurred_at < $3
+           AND user_id IS NOT NULL
+           AND listing_id IS NOT NULL
+         GROUP BY user_id, listing_id`,
+        [eventDate, start, end],
+      );
+
       return result.rowCount;
     });
+  }
+
+  async getUserListingScores(
+    userId: string,
+    since: Date,
+  ): Promise<Map<string, number>> {
+    const result = await this.database.query<UserListingScoreRow>(
+      `SELECT
+         l.provider_id,
+         l.source_listing_id,
+         SUM(
+           feature.view_count * 0.25
+           + feature.open_count * 1.5
+           + feature.like_count * 3
+           - feature.unlike_count * 3
+           - feature.hide_count * 4
+           + feature.conversion_count * 5
+         )::double precision AS score
+       FROM user_listing_engagement_daily feature
+       JOIN listings l ON l.id = feature.listing_id
+       WHERE feature.user_id = $1
+         AND feature.event_date >= $2::date
+       GROUP BY l.provider_id, l.source_listing_id`,
+      [userId, since],
+    );
+
+    return new Map(
+      result.rows.map((row) => [
+        `${row.provider_id}:${row.source_listing_id}`,
+        Number(row.score),
+      ]),
+    );
   }
 
   async getDailyAggregate(listingId: string, day: Date) {
