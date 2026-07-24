@@ -14,6 +14,11 @@ Current auth flow:
 
 The web app now loads the signed-in user from `/auth/me` and keeps session state in React memory only.
 
+The API also contains route-ready account-security services for email identity,
+verification, password reset, account export, and account deletion. These
+services are not public routes yet. Outbound email is disabled unless a caller
+explicitly injects a configured sender.
+
 ## Password Hashing
 
 ClosetSearch currently uses Node's built-in `crypto.scrypt` with:
@@ -31,6 +36,74 @@ Stored password hashes currently use a `scrypt$...` format that includes:
 - derived hash
 
 Legacy SHA-256 hashes remain readable only as a compatibility bridge for old demo users. On successful login, legacy hashes are re-hashed into the new `scrypt` format.
+
+New password-reset flows apply the policy in
+`apps/api/src/auth/password-policy.ts`:
+
+- 12 to 128 Unicode characters
+- no control characters
+- reject a maintained local set of known-common values
+- reject passwords containing the current username or email local-part
+- allow passphrases without arbitrary character-class rules
+
+The policy supports an injected breached-password checker. The default checker
+is deliberately disabled and performs no network request. Production activation
+is blocked until an approved privacy-preserving provider and data-handling terms
+are selected, its timeout and outage policy are defined, and integration tests
+prove that plaintext passwords are never logged or sent to an unapproved
+service. A deployment may set the policy to fail closed when that configured
+check is unavailable.
+
+`registerUserWithPasswordPolicy` is the route-ready registration boundary. The
+existing signup route must be moved to that asynchronous boundary when the
+account routes are integrated; the legacy synchronous `createUser` function is
+retained for compatibility with the current router and seed/tests.
+
+## Verified Email And One-Time Tokens
+
+SQLite migration `007_account_security` adds:
+
+- one normalized email identity per user, with a distinct `verified_at`
+  timestamp
+- purpose-bound tokens for `email_verification`, `password_reset`, and
+  `account_export`
+
+Only a SHA-256 hash of each high-entropy token plus the configured auth pepper
+is stored. Raw tokens exist only long enough to construct the injected outbound
+message. Browser action links put the token in the URL fragment so it is not
+sent in ordinary HTTP request targets or referrer headers. Tokens have
+purpose-specific expiry:
+
+- email verification: 24 hours
+- password reset: 30 minutes
+- account export: 15 minutes
+
+Issuing another token supersedes the prior active token for that user and
+purpose. Consumption is atomic and one-time. Changing an email invalidates
+outstanding account tokens. Password reset consumes the token, changes the
+password hash, and revokes all user sessions in one `BEGIN IMMEDIATE`
+transaction.
+
+`AccountRecoveryService` returns the same accepted response for unknown,
+unverified, and malformed password-reset email input so a route adapter does not
+have to expose account existence.
+
+## Account Export And Deletion
+
+`AccountLifecycleService` provides route-ready operations:
+
+- export requires a verified email and a short-lived one-time export token
+- the export includes account data, email identity, likes, searches, filters,
+  watchlists, alert preferences/matches, settings, and non-secret session
+  metadata
+- password hashes, session-token hashes, and one-time tokens are excluded
+- deletion requires an explicit username confirmation and deletes the user plus
+  foreign-key-cascaded user-owned records in one transaction
+
+Provider-wide listing observations and price history are not keyed to a user and
+are therefore not deleted with an account. The beta privacy copy calls this out.
+Expired-token cleanup exists at the repository boundary but still needs to be
+wired into the production retention worker.
 
 ## Session Storage
 
@@ -152,9 +225,10 @@ If the API and web app are running on different local ports, the frontend must s
 Intentionally deferred after Milestone 15:
 
 - OAuth and social login
-- email verification
-- password reset
-- advanced account recovery
+- public route and web-UI integration for email verification, password reset,
+  export, and deletion
+- a configured transactional email provider
+- an approved breached-password integration
 - device/session management UI
 - roles and admin permissions
 - managed production secrets strategy

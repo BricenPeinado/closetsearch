@@ -51,6 +51,13 @@ const migrationDefinitions: MigrationDefinition[] = [
       "utf-8",
     ),
   },
+  {
+    id: "007_account_security",
+    sql: readFileSync(
+      new URL("./schema/007_account_security.sql", import.meta.url),
+      "utf-8",
+    ),
+  },
 ];
 
 function ensureMigrationTable(database: DatabaseSync) {

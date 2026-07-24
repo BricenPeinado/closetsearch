@@ -20,9 +20,12 @@ ClosetSearch can produce a constrained preview launch candidate, not a full publ
 
 - cookie-backed auth is a safer foundation, but not a full account platform yet
 - beta testers may need to log in again after session expiry or auth configuration changes
-- password reset is not implemented
-- email verification is not implemented
-- advanced account recovery is not implemented
+- hashed one-time email verification, password-reset, and export services exist,
+  but their authenticated routes and web UI are not integrated yet
+- outbound account email is disabled until an approved provider is configured
+- breached-password checking has an injectable policy boundary but no approved
+  production provider yet
+- account export/deletion services exist but are not user-facing yet
 
 ## Saved Features and Watchlists
 

@@ -135,6 +135,20 @@ export function updateUserPasswordHash(userId: string, passwordHash: string) {
   return findUserById(userId);
 }
 
+export function deleteUserByIdAndNormalizedUsername(
+  userId: string,
+  normalizedUsername: string,
+) {
+  const result = getDatabase()
+    .prepare(
+      `DELETE FROM users
+      WHERE id = ? AND normalized_username = ?`,
+    )
+    .run(userId, normalizedUsername);
+
+  return result.changes === 1;
+}
+
 export function clearUsers() {
   getDatabase().prepare("DELETE FROM users").run();
 }

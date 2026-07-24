@@ -7,8 +7,22 @@ This is beta data-use copy for a constrained launch. It is operational guidance,
 ClosetSearch uses stored account and saved-feature data to:
 
 - keep users signed in with server-side sessions
+- verify an email identity and support one-time account recovery/export actions
 - persist likes, saved searches, saved filters, watchlists, notification preference shell data, and settings
 - personalize the signed-in feed with explainable rules
+
+Account-action tokens are stored only as purpose-bound hashes with short expiry.
+Email, password-reset, and export messages are not sent unless a delivery
+provider is explicitly configured. No breached-password network lookup is made
+by default.
+
+## Account Data Requests
+
+The route-ready account lifecycle can produce a one-time JSON export of
+user-owned data and can delete a confirmed account with its linked user-owned
+records. It excludes credential and token hashes from exports. Marketplace
+listing and price observations are retained because they are not attributed to
+an individual user.
 
 ## Observed Listing Data
 
