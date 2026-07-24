@@ -1,3 +1,9 @@
+import {
+  createResilientHttpClient,
+  type ProviderFetch,
+  type ProviderHttpMetric,
+} from "../http/resilient-http.js";
+
 export interface GrailedHttpClientResponse {
   body: string;
   ok: boolean;
@@ -10,25 +16,18 @@ export interface GrailedJsonClientResponse<T> {
   status: number;
 }
 
-export interface GrailedFetchResponse {
-  ok: boolean;
-  status: number;
-  text(): Promise<string>;
-}
-
-export type GrailedFetch = (
-  input: string,
-  init?: {
-    body?: string;
-    headers?: Record<string, string>;
-    method?: string;
-    signal?: AbortSignal;
-  },
-) => Promise<GrailedFetchResponse>;
+export type GrailedFetch = ProviderFetch;
 
 export interface GrailedHttpClientOptions {
+  baseBackoffMs?: number;
+  circuitBreakerCooldownMs?: number;
+  circuitBreakerFailureThreshold?: number;
   fetchImpl: GrailedFetch;
+  maxConcurrency?: number;
+  maxRetries?: number;
+  maxRetryAfterMs?: number;
   minRequestIntervalMs: number;
+  onHttpMetric?: (metric: ProviderHttpMetric) => void;
   requestTimeoutMs: number;
   sleepImpl?: (ms: number) => Promise<void>;
   nowImpl?: () => number;
@@ -37,10 +36,7 @@ export interface GrailedHttpClientOptions {
 
 export interface GrailedHttpClient {
   getHtml(url: string): Promise<GrailedHttpClientResponse>;
-  getText(
-    url: string,
-    headers?: Record<string, string>,
-  ): Promise<GrailedHttpClientResponse>;
+  getText(url: string, headers?: Record<string, string>): Promise<GrailedHttpClientResponse>;
   postJson<T>(
     url: string,
     body: unknown,
@@ -65,14 +61,21 @@ function createBaseHeaders(userAgent: string) {
   };
 }
 
-export function createGrailedHttpClient(
-  options: GrailedHttpClientOptions,
-): GrailedHttpClient {
-  let nextAllowedRequestAt = 0;
-  const sleepImpl =
-    options.sleepImpl ??
-    ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const nowImpl = options.nowImpl ?? (() => Date.now());
+export function createGrailedHttpClient(options: GrailedHttpClientOptions): GrailedHttpClient {
+  const resilientClient = createResilientHttpClient({
+    baseBackoffMs: options.baseBackoffMs,
+    circuitBreakerCooldownMs: options.circuitBreakerCooldownMs,
+    circuitBreakerFailureThreshold: options.circuitBreakerFailureThreshold,
+    fetchImpl: options.fetchImpl,
+    maxConcurrency: options.maxConcurrency,
+    maxRetries: options.maxRetries,
+    maxRetryAfterMs: options.maxRetryAfterMs,
+    minRequestIntervalMs: options.minRequestIntervalMs,
+    nowImpl: options.nowImpl,
+    onMetric: options.onHttpMetric,
+    requestTimeoutMs: options.requestTimeoutMs,
+    sleepImpl: options.sleepImpl,
+  });
 
   async function requestText(
     url: string,
@@ -80,43 +83,31 @@ export function createGrailedHttpClient(
       body?: string;
       headers?: Record<string, string>;
       method?: string;
-    } = {},
+      operation: string;
+    },
   ) {
-    const waitMs = Math.max(0, nextAllowedRequestAt - nowImpl());
+    const response = await resilientClient.request({
+      body: init.body,
+      method: init.method,
+      operation: init.operation,
+      url,
+      headers: {
+        ...createBaseHeaders(options.userAgent),
+        ...init.headers,
+      },
+    });
 
-    if (waitMs > 0) {
-      await sleepImpl(waitMs);
-    }
-
-    nextAllowedRequestAt = nowImpl() + options.minRequestIntervalMs;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), options.requestTimeoutMs);
-
-    try {
-      const response = await options.fetchImpl(url, {
-        body: init.body,
-        method: init.method,
-        headers: {
-          ...createBaseHeaders(options.userAgent),
-          ...init.headers,
-        },
-        signal: controller.signal,
-      });
-
-      return {
-        ok: response.ok,
-        status: response.status,
-        body: await response.text(),
-      } satisfies GrailedHttpClientResponse;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      body: await response.text(),
+    } satisfies GrailedHttpClientResponse;
   }
 
   return {
     getHtml(url: string): Promise<GrailedHttpClientResponse> {
       return requestText(url, {
+        operation: "credential_html",
         headers: {
           accept: "text/html,application/xhtml+xml",
           connection: "keep-alive",
@@ -124,11 +115,9 @@ export function createGrailedHttpClient(
         },
       });
     },
-    getText(
-      url: string,
-      headers: Record<string, string> = {},
-    ): Promise<GrailedHttpClientResponse> {
+    getText(url: string, headers: Record<string, string> = {}): Promise<GrailedHttpClientResponse> {
       return requestText(url, {
+        operation: "credential_asset",
         headers: {
           accept: "*/*",
           connection: "keep-alive",
@@ -144,6 +133,7 @@ export function createGrailedHttpClient(
       const response = await requestText(url, {
         body: JSON.stringify(body),
         method: "POST",
+        operation: "algolia_query",
         headers: {
           accept: "application/json",
           connection: "keep-alive",

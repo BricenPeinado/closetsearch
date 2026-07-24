@@ -1,4 +1,5 @@
 import type { ProviderFailureCode } from "../types.js";
+import { ProviderHttpError } from "../http/resilient-http.js";
 import { validateGrailedAlgoliaCredentials } from "./algolia.js";
 import type { GrailedHttpClient } from "./http-client.js";
 import { buildGrailedSearchUrl } from "./search-url.js";
@@ -41,8 +42,7 @@ export class GrailedCredentialResolutionError extends Error {
 
 const publicConfigAssignmentPattern = /window\.PUBLIC_CONFIG\s*=\s*/i;
 const scriptSourcePattern = /<script\b[^>]*\bsrc=(['"])(.*?)\1[^>]*>/gi;
-const nextDataPattern =
-  /<script\b[^>]*\bid=(['"])__NEXT_DATA__\1[^>]*>([\s\S]*?)<\/script>/gi;
+const nextDataPattern = /<script\b[^>]*\bid=(['"])__NEXT_DATA__\1[^>]*>([\s\S]*?)<\/script>/gi;
 const maxScriptBundlesToInspect = 20;
 const maxBundleCandidatesPerScript = 8;
 const configAssignments = [
@@ -63,12 +63,7 @@ const configAssignments = [
     pattern: /window\.__PRELOADED_STATE__\s*=\s*/i,
   },
 ] as const;
-const appIdFieldNames = [
-  "appId",
-  "applicationId",
-  "applicationID",
-  "ALGOLIA_APP_ID",
-] as const;
+const appIdFieldNames = ["appId", "applicationId", "applicationID", "ALGOLIA_APP_ID"] as const;
 const apiKeyFieldNames = ["apiKey", "ALGOLIA_API_KEY"] as const;
 const bundleAppIdPattern =
   /(?:["']?(?:appId|applicationID|applicationId|ALGOLIA_APP_ID)["']?\s*[:=]\s*["']([^"'\\\s]{3,})["'])/g;
@@ -214,10 +209,7 @@ function extractAssignedJsonObject(
     throw new Error(missingMessage);
   }
 
-  const objectStartIndex = html.indexOf(
-    "{",
-    assignmentMatch.index + assignmentMatch[0].length,
-  );
+  const objectStartIndex = html.indexOf("{", assignmentMatch.index + assignmentMatch[0].length);
 
   if (objectStartIndex === -1) {
     throw new Error(missingObjectMessage);
@@ -226,10 +218,7 @@ function extractAssignedJsonObject(
   return findBalancedJsonObject(html, objectStartIndex);
 }
 
-function getStringField(
-  record: Record<string, unknown>,
-  fieldNames: readonly string[],
-) {
+function getStringField(record: Record<string, unknown>, fieldNames: readonly string[]) {
   for (const fieldName of fieldNames) {
     const value = toTrimmedString(record[fieldName]);
 
@@ -381,14 +370,10 @@ function collectInlineCredentialCandidates(
     try {
       const parsedValue = JSON.parse(jsonBlock.json) as unknown;
       candidates.push(
-        ...collectCredentialCandidatesFromJsonValue(parsedValue, source).map(
-          (candidate) => ({
-            ...candidate,
-            detail: candidate.detail
-              ? `${jsonBlock.label}:${candidate.detail}`
-              : jsonBlock.label,
-          }),
-        ),
+        ...collectCredentialCandidatesFromJsonValue(parsedValue, source).map((candidate) => ({
+          ...candidate,
+          detail: candidate.detail ? `${jsonBlock.label}:${candidate.detail}` : jsonBlock.label,
+        })),
       );
     } catch {
       continue;
@@ -493,8 +478,7 @@ function collectScriptBundleCredentialCandidates(
   const rankedCandidates = appIdMatches.flatMap((appIdMatch) => {
     const nearestApiKeyMatch = [...apiKeyMatches].sort(
       (left, right) =>
-        Math.abs(left.index - appIdMatch.index) -
-        Math.abs(right.index - appIdMatch.index),
+        Math.abs(left.index - appIdMatch.index) - Math.abs(right.index - appIdMatch.index),
     )[0];
 
     if (!nearestApiKeyMatch) {
@@ -585,6 +569,10 @@ async function validateCandidate(
       status: response.status,
     };
   } catch (error) {
+    if (error instanceof ProviderHttpError) {
+      throw error;
+    }
+
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }
@@ -676,6 +664,10 @@ async function fetchHtmlDocument(
       throw error;
     }
 
+    if (error instanceof ProviderHttpError) {
+      throw error;
+    }
+
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }
@@ -709,6 +701,10 @@ async function resolveFromScriptBundles(
     try {
       response = await options.client.getText(scriptUrl);
     } catch (error) {
+      if (error instanceof ProviderHttpError) {
+        throw error;
+      }
+
       if (error instanceof Error && error.name === "AbortError") {
         throw error;
       }
@@ -741,11 +737,7 @@ async function resolveFromScriptBundles(
         return scriptUrl;
       }
     })();
-    const candidates = collectScriptBundleCredentialCandidates(
-      response.body,
-      source,
-      detail,
-    );
+    const candidates = collectScriptBundleCredentialCandidates(response.body, source, detail);
 
     if (candidates.length === 0) {
       continue;
@@ -805,12 +797,7 @@ async function resolveFromHtmlDocument(
     }
   }
 
-  return resolveFromScriptBundles(
-    html,
-    `${pageLabel}-script`,
-    options,
-    state,
-  );
+  return resolveFromScriptBundles(html, `${pageLabel}-script`, options, state);
 }
 
 export function extractGrailedPublicConfigJson(html: string) {
@@ -822,9 +809,7 @@ export function extractGrailedPublicConfigJson(html: string) {
   );
 }
 
-export function extractGrailedAlgoliaCredentials(
-  html: string,
-): GrailedAlgoliaCredentials {
+export function extractGrailedAlgoliaCredentials(html: string): GrailedAlgoliaCredentials {
   const publicConfigJson = extractGrailedPublicConfigJson(html);
   const parsedValue = JSON.parse(publicConfigJson) as Record<string, unknown>;
   const algolia =
@@ -833,9 +818,7 @@ export function extractGrailedAlgoliaCredentials(
       : undefined;
 
   if (!algolia) {
-    throw new Error(
-      "Grailed PUBLIC_CONFIG no longer contains an algolia configuration object.",
-    );
+    throw new Error("Grailed PUBLIC_CONFIG no longer contains an algolia configuration object.");
   }
 
   const appId = toTrimmedString(algolia.appId);
@@ -846,9 +829,7 @@ export function extractGrailedAlgoliaCredentials(
   }
 
   if (!apiKey) {
-    throw new Error(
-      "Grailed PUBLIC_CONFIG.algolia.apiKey was missing or empty.",
-    );
+    throw new Error("Grailed PUBLIC_CONFIG.algolia.apiKey was missing or empty.");
   }
 
   return {
@@ -900,12 +881,7 @@ export async function resolveGrailedAlgoliaCredentials(
     });
   }
 
-  const homepageHtml = await fetchHtmlDocument(
-    options.baseUrl,
-    "homepage",
-    options,
-    state,
-  );
+  const homepageHtml = await fetchHtmlDocument(options.baseUrl, "homepage", options, state);
 
   if (homepageHtml) {
     const homepageCredentials = await resolveFromHtmlDocument(
@@ -929,12 +905,7 @@ export async function resolveGrailedAlgoliaCredentials(
         text: trimmedQueryText,
       },
     });
-    const searchPageHtml = await fetchHtmlDocument(
-      searchPageUrl,
-      "search",
-      options,
-      state,
-    );
+    const searchPageHtml = await fetchHtmlDocument(searchPageUrl, "search", options, state);
 
     if (searchPageHtml) {
       const searchCredentials = await resolveFromHtmlDocument(
@@ -962,13 +933,9 @@ export async function resolveGrailedAlgoliaCredentials(
     stages,
   });
 
-  throw new GrailedCredentialResolutionError(
-    code,
-    buildFailureMessage(stages),
-    {
-      stages,
-    },
-  );
+  throw new GrailedCredentialResolutionError(code, buildFailureMessage(stages), {
+    stages,
+  });
 }
 
 export function createGrailedCredentialCache(

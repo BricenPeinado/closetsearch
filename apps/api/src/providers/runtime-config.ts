@@ -5,7 +5,10 @@ export interface ProviderToggleConfig {
   affiliateReferenceId?: string;
   apiBaseUrl?: string;
   authorizationReference?: string;
+  baseBackoffMs?: number;
   baseUrl?: string;
+  circuitBreakerCooldownMs?: number;
+  circuitBreakerFailureThreshold?: number;
   clientId?: string;
   clientSecret?: string;
   configured: boolean;
@@ -14,6 +17,7 @@ export interface ProviderToggleConfig {
   marketplaceId?: string;
   maxConcurrency?: number;
   maxRetries?: number;
+  maxRetryAfterMs?: number;
   maxResultsPerSearch?: number;
   minRequestIntervalMs?: number;
   oauthScope?: string;
@@ -43,6 +47,12 @@ const defaultGrailedBaseUrl = "https://www.grailed.com";
 const defaultGrailedRequestTimeoutMs = 5_000;
 const defaultGrailedMinRequestIntervalMs = 3_000;
 const defaultGrailedMaxResultsPerSearch = 24;
+const defaultGrailedMaxConcurrency = 2;
+const defaultGrailedMaxRetries = 2;
+const defaultGrailedBaseBackoffMs = 250;
+const defaultGrailedMaxRetryAfterMs = 60_000;
+const defaultGrailedCircuitBreakerFailureThreshold = 5;
+const defaultGrailedCircuitBreakerCooldownMs = 30_000;
 const defaultGrailedUserAgent = "ClosetSearchBot/0.1 contact:<project-contact-email>";
 const defaultEbayApiBaseUrl = "https://api.ebay.com";
 const defaultEbayIdentityBaseUrl = "https://api.ebay.com";
@@ -101,26 +111,20 @@ function normalizeOptionalString(value: string | undefined) {
 export function loadProviderRuntimeConfig(
   env: ProviderEnvironment = process.env,
 ): ProviderRuntimeConfig {
-  const grailedBaseUrl =
-    normalizeOptionalString(env.GRAILED_BASE_URL) ?? defaultGrailedBaseUrl;
+  const grailedBaseUrl = normalizeOptionalString(env.GRAILED_BASE_URL) ?? defaultGrailedBaseUrl;
   const grailedUserAgent =
     normalizeOptionalString(env.GRAILED_USER_AGENT) ?? defaultGrailedUserAgent;
   const grailedScrapingAllowed = parseBooleanFlag(env.GRAILED_SCRAPING_ALLOWED, false);
   const grailedAuthorizationReference = normalizeOptionalString(
     env.GRAILED_AUTHORIZATION_REFERENCE,
   );
-  const grailedEnabled = parseBooleanFlag(
-    env.GRAILED_PROVIDER_ENABLED,
-    grailedScrapingAllowed,
-  );
+  const grailedEnabled = parseBooleanFlag(env.GRAILED_PROVIDER_ENABLED, grailedScrapingAllowed);
   const ebayClientId = normalizeOptionalString(env.EBAY_CLIENT_ID);
   const ebayClientSecret = normalizeOptionalString(env.EBAY_CLIENT_SECRET);
   const ebayEnabled = parseBooleanFlag(env.EBAY_PROVIDER_ENABLED, false);
   const isProduction = env.NODE_ENV?.trim().toLowerCase() === "production";
   const hasAuthorizedRealProvider =
-    (grailedEnabled &&
-      grailedScrapingAllowed &&
-      Boolean(grailedAuthorizationReference)) ||
+    (grailedEnabled && grailedScrapingAllowed && Boolean(grailedAuthorizationReference)) ||
     (ebayEnabled && Boolean(ebayClientId && ebayClientSecret));
   const runtimeModeFallback = isProduction
     ? "real"
@@ -174,6 +178,37 @@ export function loadProviderRuntimeConfig(
           1,
           100,
         ),
+        maxConcurrency: parsePositiveInteger(
+          env.GRAILED_MAX_CONCURRENCY,
+          defaultGrailedMaxConcurrency,
+          1,
+          10,
+        ),
+        maxRetries: parsePositiveInteger(env.GRAILED_MAX_RETRIES, defaultGrailedMaxRetries, 0, 5),
+        baseBackoffMs: parsePositiveInteger(
+          env.GRAILED_BASE_BACKOFF_MS,
+          defaultGrailedBaseBackoffMs,
+          0,
+          10_000,
+        ),
+        maxRetryAfterMs: parsePositiveInteger(
+          env.GRAILED_MAX_RETRY_AFTER_MS,
+          defaultGrailedMaxRetryAfterMs,
+          0,
+          300_000,
+        ),
+        circuitBreakerFailureThreshold: parsePositiveInteger(
+          env.GRAILED_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+          defaultGrailedCircuitBreakerFailureThreshold,
+          1,
+          20,
+        ),
+        circuitBreakerCooldownMs: parsePositiveInteger(
+          env.GRAILED_CIRCUIT_BREAKER_COOLDOWN_MS,
+          defaultGrailedCircuitBreakerCooldownMs,
+          1_000,
+          300_000,
+        ),
         userAgent: grailedUserAgent,
       },
       ebay: {
@@ -181,48 +216,22 @@ export function loadProviderRuntimeConfig(
         configured: Boolean(ebayClientId && ebayClientSecret),
         clientId: ebayClientId,
         clientSecret: ebayClientSecret,
-        apiBaseUrl:
-          normalizeOptionalString(env.EBAY_API_BASE_URL) ??
-          defaultEbayApiBaseUrl,
+        apiBaseUrl: normalizeOptionalString(env.EBAY_API_BASE_URL) ?? defaultEbayApiBaseUrl,
         identityBaseUrl:
-          normalizeOptionalString(env.EBAY_IDENTITY_BASE_URL) ??
-          defaultEbayIdentityBaseUrl,
-        marketplaceId:
-          normalizeOptionalString(env.EBAY_MARKETPLACE_ID) ??
-          defaultEbayMarketplaceId,
-        oauthScope:
-          normalizeOptionalString(env.EBAY_OAUTH_SCOPE) ??
-          defaultEbayOauthScope,
-        affiliateCampaignId: normalizeOptionalString(
-          env.EBAY_AFFILIATE_CAMPAIGN_ID,
-        ),
-        affiliateReferenceId: normalizeOptionalString(
-          env.EBAY_AFFILIATE_REFERENCE_ID,
-        ),
-        requestTimeoutMs: parsePositiveInteger(
-          env.EBAY_REQUEST_TIMEOUT_MS,
-          8_000,
-          1_000,
-          60_000,
-        ),
+          normalizeOptionalString(env.EBAY_IDENTITY_BASE_URL) ?? defaultEbayIdentityBaseUrl,
+        marketplaceId: normalizeOptionalString(env.EBAY_MARKETPLACE_ID) ?? defaultEbayMarketplaceId,
+        oauthScope: normalizeOptionalString(env.EBAY_OAUTH_SCOPE) ?? defaultEbayOauthScope,
+        affiliateCampaignId: normalizeOptionalString(env.EBAY_AFFILIATE_CAMPAIGN_ID),
+        affiliateReferenceId: normalizeOptionalString(env.EBAY_AFFILIATE_REFERENCE_ID),
+        requestTimeoutMs: parsePositiveInteger(env.EBAY_REQUEST_TIMEOUT_MS, 8_000, 1_000, 60_000),
         minRequestIntervalMs: parsePositiveInteger(
           env.EBAY_MIN_REQUEST_INTERVAL_MS,
           250,
           0,
           60_000,
         ),
-        maxConcurrency: parsePositiveInteger(
-          env.EBAY_MAX_CONCURRENCY,
-          2,
-          1,
-          10,
-        ),
-        maxRetries: parsePositiveInteger(
-          env.EBAY_MAX_RETRIES,
-          2,
-          0,
-          5,
-        ),
+        maxConcurrency: parsePositiveInteger(env.EBAY_MAX_CONCURRENCY, 2, 1, 10),
+        maxRetries: parsePositiveInteger(env.EBAY_MAX_RETRIES, 2, 0, 5),
       },
     },
   };

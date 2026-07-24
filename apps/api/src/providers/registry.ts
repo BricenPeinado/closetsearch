@@ -15,11 +15,7 @@ import {
 
 export type RegisteredProviderMode = "mock" | "real";
 export type ProviderImplementationStatus = "available" | "planned";
-export type ProviderHealthMode =
-  | "disabled"
-  | "fixture"
-  | "authorized-live"
-  | "official-api";
+export type ProviderHealthMode = "disabled" | "fixture" | "authorized-live" | "official-api";
 
 export interface ProviderDefinition {
   capabilities?: ProviderCapabilities;
@@ -116,17 +112,25 @@ const defaultProviderDefinitions: ProviderDefinition[] = [
       "GRAILED_REQUEST_TIMEOUT_MS",
       "GRAILED_MIN_REQUEST_INTERVAL_MS",
       "GRAILED_MAX_RESULTS_PER_SEARCH",
+      "GRAILED_MAX_CONCURRENCY",
+      "GRAILED_MAX_RETRIES",
+      "GRAILED_BASE_BACKOFF_MS",
+      "GRAILED_MAX_RETRY_AFTER_MS",
+      "GRAILED_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+      "GRAILED_CIRCUIT_BREAKER_COOLDOWN_MS",
       "GRAILED_USER_AGENT",
     ],
     createProvider: (config) =>
       createGrailedProvider({
-        authorizationReference:
-          config.providers.grailed.authorizationReference,
+        authorizationReference: config.providers.grailed.authorizationReference,
+        baseBackoffMs: config.providers.grailed.baseBackoffMs,
         baseUrl: config.providers.grailed.baseUrl,
-        fetchImpl:
-          typeof fetch === "function"
-            ? ((input, init) => fetch(input, init))
-            : undefined,
+        circuitBreakerCooldownMs: config.providers.grailed.circuitBreakerCooldownMs,
+        circuitBreakerFailureThreshold: config.providers.grailed.circuitBreakerFailureThreshold,
+        fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
+        maxConcurrency: config.providers.grailed.maxConcurrency,
+        maxRetries: config.providers.grailed.maxRetries,
+        maxRetryAfterMs: config.providers.grailed.maxRetryAfterMs,
         maxResultsPerSearch: config.providers.grailed.maxResultsPerSearch,
         minRequestIntervalMs: config.providers.grailed.minRequestIntervalMs,
         requestTimeoutMs: config.providers.grailed.requestTimeoutMs,
@@ -149,23 +153,17 @@ const defaultProviderDefinitions: ProviderDefinition[] = [
     ],
     createProvider: (config) =>
       createEbayProvider({
-        affiliateCampaignId:
-          config.providers.ebay.affiliateCampaignId,
-        affiliateReferenceId:
-          config.providers.ebay.affiliateReferenceId,
+        affiliateCampaignId: config.providers.ebay.affiliateCampaignId,
+        affiliateReferenceId: config.providers.ebay.affiliateReferenceId,
         apiBaseUrl: config.providers.ebay.apiBaseUrl,
         clientId: config.providers.ebay.clientId,
         clientSecret: config.providers.ebay.clientSecret,
-        fetchImpl:
-          typeof fetch === "function"
-            ? ((input, init) => fetch(input, init))
-            : undefined,
+        fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
         identityBaseUrl: config.providers.ebay.identityBaseUrl,
         marketplaceId: config.providers.ebay.marketplaceId,
         maxConcurrency: config.providers.ebay.maxConcurrency,
         maxRetries: config.providers.ebay.maxRetries,
-        minRequestIntervalMs:
-          config.providers.ebay.minRequestIntervalMs,
+        minRequestIntervalMs: config.providers.ebay.minRequestIntervalMs,
         oauthScope: config.providers.ebay.oauthScope,
         requestTimeoutMs: config.providers.ebay.requestTimeoutMs,
       }),
@@ -225,8 +223,7 @@ export function createProviderRuntime(
     const requiresAuthorization = definition.id === "grailed";
     const hasAuthorization =
       !requiresAuthorization ||
-      (toggle.scrapingAllowed === true &&
-        Boolean(toggle.authorizationReference));
+      (toggle.scrapingAllowed === true && Boolean(toggle.authorizationReference));
 
     if (!toggle.enabled) reasons.push("disabled");
     if (!toggle.configured) reasons.push("missing_configuration");
@@ -264,7 +261,9 @@ export function createProviderRuntime(
         failure = createPreflightFailure(
           definition,
           "unavailable",
-          "The " + definition.displayName + " provider is enabled but missing required runtime configuration.",
+          "The " +
+            definition.displayName +
+            " provider is enabled but missing required runtime configuration.",
         );
       } else if (requiresAuthorization && !hasAuthorization) {
         failure = createPreflightFailure(
@@ -305,9 +304,7 @@ export function createProviderRuntime(
       capabilities: definition.capabilities,
       reasons,
       authorizationReferencePresent:
-        definition.id === "grailed"
-          ? Boolean(toggle.authorizationReference)
-          : undefined,
+        definition.id === "grailed" ? Boolean(toggle.authorizationReference) : undefined,
       scrapingAllowed: definition.id === "grailed" ? toggle.scrapingAllowed : undefined,
       lastErrorCategory,
     });
