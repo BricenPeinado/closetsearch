@@ -518,11 +518,15 @@ export async function handlePostgresSavedRoute(
       if (method === "PATCH") {
         const body = await payload(request);
 
-        if (body.pushEnabled === true || body.smsEnabled === true) {
+        if (
+          body.emailEnabled === true ||
+          body.pushEnabled === true ||
+          body.smsEnabled === true
+        ) {
           throw new ApiError(
             409,
             "delivery_channel_unavailable",
-            "Push and SMS delivery are disabled until those channels are implemented.",
+            "Email, push, and SMS delivery are disabled until a verified delivery provider is implemented.",
           );
         }
 

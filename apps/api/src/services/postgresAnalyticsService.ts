@@ -60,14 +60,35 @@ function asIsoString(value: Date | string) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-function moneyMajorUnits(value: string | number | bigint) {
+const zeroFractionCurrencies = new Set(["CLP", "JPY", "KRW", "VND"]);
+const threeFractionCurrencies = new Set([
+  "BHD",
+  "IQD",
+  "JOD",
+  "KWD",
+  "OMR",
+  "TND",
+]);
+
+function currencyFractionDigits(currency: string) {
+  if (zeroFractionCurrencies.has(currency)) {
+    return 0;
+  }
+
+  return threeFractionCurrencies.has(currency) ? 3 : 2;
+}
+
+function moneyMajorUnits(
+  value: string | number | bigint,
+  currency: string,
+) {
   const minor = Number(value);
 
   if (!Number.isSafeInteger(minor)) {
     return undefined;
   }
 
-  return minor / 100;
+  return minor / 10 ** currencyFractionDigits(currency);
 }
 
 function listingType(value: string): ListingType {
@@ -89,8 +110,14 @@ function condition(value: string | null): ListingCondition | undefined {
 }
 
 function mapSnapshot(row: SnapshotRow): PriceSnapshot | undefined {
-  const priceAmount = moneyMajorUnits(row.original_price_minor);
-  const normalizedPriceAmount = moneyMajorUnits(row.normalized_price_minor);
+  const priceAmount = moneyMajorUnits(
+    row.original_price_minor,
+    row.original_currency,
+  );
+  const normalizedPriceAmount = moneyMajorUnits(
+    row.normalized_price_minor,
+    row.normalized_currency,
+  );
 
   if (
     priceAmount === undefined ||

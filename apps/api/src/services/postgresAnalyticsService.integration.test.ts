@@ -9,6 +9,7 @@ const observedAt = new Date("2026-07-24T12:00:00.000Z");
 function observation(
   sourceListingId: string,
   options: {
+    currency?: string;
     marketStatus: "active" | "sold";
     priceMinor: bigint;
   },
@@ -31,7 +32,7 @@ function observation(
     observedAt,
     originalPrice: {
       amountMinor: options.priceMinor,
-      currency: "USD",
+      currency: options.currency ?? "USD",
     },
     providerBrand: "Kapital",
     providerId: "fixture-provider",
@@ -39,7 +40,7 @@ function observation(
       options.marketStatus === "sold"
         ? {
             amountMinor: options.priceMinor,
-            currency: "USD",
+            currency: options.currency ?? "USD",
           }
         : undefined,
     sourceListingId,
@@ -110,5 +111,37 @@ describe("PostgreSQL observed analytics", () => {
       basis: "observed_asking",
       disclaimer: expect.stringContaining("do not imply guaranteed"),
     });
+  });
+
+  it("uses each currency's documented minor-unit precision", async () => {
+    const harness = await createPostgresTestHarness();
+    harnesses.push(harness);
+    await harness.dataPlane.listings.upsertObservation(
+      observation("jpy-active", {
+        currency: "JPY",
+        marketStatus: "active",
+        priceMinor: 12_500n,
+      }),
+    );
+    await harness.dataPlane.listings.upsertObservation(
+      observation("bhd-active", {
+        currency: "BHD",
+        marketStatus: "active",
+        priceMinor: 12_500n,
+      }),
+    );
+
+    const snapshots = await new PostgresObservedAnalyticsService(
+      harness.dataPlane,
+    ).listLatestSnapshots();
+    const byCurrency = new Map(
+      snapshots.map((snapshot) => [
+        snapshot.priceCurrency,
+        snapshot.priceAmount,
+      ]),
+    );
+
+    expect(byCurrency.get("JPY")).toBe(12_500);
+    expect(byCurrency.get("BHD")).toBe(12.5);
   });
 });
