@@ -15,12 +15,16 @@ import { rankListings } from "./recommendationService.js";
 
 const now = new Date("2026-07-14T12:00:00.000Z").getTime();
 
-function createListing(overrides: Partial<Listing> & { brandName: string; hoursAgo?: number; id: string }) {
+function createListing(
+  overrides: Partial<Listing> & { brandName: string; hoursAgo?: number; id: string },
+) {
   const sourceId = overrides.source?.id ?? "grailed";
-  const providerListingId = overrides.providerListingId ?? overrides.id.split(":").pop() ?? overrides.id;
-  const hoursAgo = typeof overrides.fetchedAt === "string"
-    ? undefined
-    : (overrides as Partial<Listing> & { hoursAgo?: number }).hoursAgo ?? 0;
+  const providerListingId =
+    overrides.providerListingId ?? overrides.id.split(":").pop() ?? overrides.id;
+  const hoursAgo =
+    typeof overrides.fetchedAt === "string"
+      ? undefined
+      : ((overrides as Partial<Listing> & { hoursAgo?: number }).hoursAgo ?? 0);
 
   return {
     id: overrides.id,
@@ -283,6 +287,39 @@ describe("rankListings", () => {
     expect(result.listings[0]?.id).toBe(inRangeListing.id);
   });
 
+  it("does not apply a liked-price range across currencies", () => {
+    const likedJpyListing = createListing({
+      brandName: "Auralee",
+      id: "grailed:liked-jpy",
+      price: { amount: 20_000, currency: "JPY" },
+    });
+    const usdCandidate = createListing({
+      brandName: "Auralee",
+      id: "grailed:usd-candidate",
+      price: { amount: 20_000, currency: "USD" },
+    });
+    const profile = createProfile({
+      likedListings: [likedJpyListing],
+    });
+    const result = rankListings({
+      includeDebug: true,
+      listings: [usdCandidate],
+      profile,
+    });
+    const breakdown = result.debugPersonalization?.scoreBreakdowns.find(
+      (entry) => entry.listingId === usdCandidate.id,
+    );
+
+    expect(profile.pricePreferences).toEqual([
+      expect.objectContaining({
+        currency: "JPY",
+      }),
+    ]);
+    expect(breakdown?.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "price_affinity" })]),
+    );
+  });
+
   it("keeps very old listings from dominating solely on preference matches", () => {
     const likedListing = createListing({
       id: "grailed:liked-kapital-old",
@@ -352,9 +389,24 @@ describe("rankListings", () => {
       hoursAgo: 50,
     });
     const listings = [
-      createListing({ id: "grailed:k1", brandName: "Kapital", category: "outerwear", hoursAgo: 10 }),
-      createListing({ id: "grailed:k2", brandName: "Kapital", category: "outerwear", hoursAgo: 11 }),
-      createListing({ id: "grailed:k3", brandName: "Kapital", category: "outerwear", hoursAgo: 12 }),
+      createListing({
+        id: "grailed:k1",
+        brandName: "Kapital",
+        category: "outerwear",
+        hoursAgo: 10,
+      }),
+      createListing({
+        id: "grailed:k2",
+        brandName: "Kapital",
+        category: "outerwear",
+        hoursAgo: 11,
+      }),
+      createListing({
+        id: "grailed:k3",
+        brandName: "Kapital",
+        category: "outerwear",
+        hoursAgo: 12,
+      }),
       createListing({ id: "grailed:v1", brandName: "Visvim", category: "outerwear", hoursAgo: 9 }),
       createListing({ id: "grailed:u1", brandName: "Undercover", category: "tops", hoursAgo: 8 }),
     ];

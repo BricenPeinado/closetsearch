@@ -89,11 +89,12 @@ function addWeight(map: Map<string, number>, key: string, amount: number) {
 
 function recommendationFeatureKeys(listing: RecommendationListing) {
   const priceBand = Math.floor(Math.log2(Math.max(1, listing.priceMinor / 100)));
+  const currency = listing.currency.trim().toUpperCase();
   const keys = [
     `brand:${normalizeToken(listing.brand) || "unknown"}`,
     `category:${normalizeToken(listing.category) || "unknown"}`,
     `source:${normalizeToken(listing.source) || "unknown"}`,
-    `price-band:${priceBand}`,
+    `price-band:${currency}:${priceBand}`,
   ];
 
   if (normalizeToken(listing.condition)) {
@@ -223,9 +224,7 @@ function buildItemCooccurrence(
   );
 }
 
-export function trainRecommendationModel(
-  snapshot: RecommendationSnapshot,
-): RecommendationArtifact {
+export function trainRecommendationModel(snapshot: RecommendationSnapshot): RecommendationArtifact {
   const split = validateRecommendationSnapshot(snapshot);
   const listingById = new Map(snapshot.listings.map((listing) => [listing.listingId, listing]));
   const mutableProfiles = new Map<string, MutableUserProfile>();
@@ -306,17 +305,12 @@ export function trainRecommendationModel(
       trainedAt: snapshot.metadata.createdAt,
       trainingWindowEnd,
     },
-    trainingListingIds: Array.from(
-      new Set(split.train.map((event) => event.listingId)),
-    ).sort(),
+    trainingListingIds: Array.from(new Set(split.train.map((event) => event.listingId))).sort(),
     userProfiles,
   };
 }
 
-export function generateRecommendationCandidates(
-  listings: RecommendationListing[],
-  asOf: string,
-) {
+export function generateRecommendationCandidates(listings: RecommendationListing[], asOf: string) {
   const asOfTimestamp = toTimestamp(asOf, "recommendation asOf");
   const byId = new Map<string, RecommendationListing>();
 
@@ -350,6 +344,7 @@ function scoreCandidate(
   userId: string,
   preference: RecommendationPreference | undefined,
   asOf: string,
+  allowUnscopedPricePreference: boolean,
 ) {
   const profile = artifact.userProfiles[userId];
   const candidateFeatures = recommendationFeatureKeys(listing);
@@ -363,18 +358,19 @@ function scoreCandidate(
     preferenceRaw += preferenceWeights.get(feature) ?? 0;
   }
 
-  if (preference) {
-    if (
-      preference.minPriceMinor !== undefined &&
-      listing.priceMinor >= preference.minPriceMinor
-    ) {
+  const preferenceCurrency = preference?.currency?.trim().toUpperCase();
+  const comparablePricePreference =
+    preference !== undefined &&
+    (preferenceCurrency
+      ? preferenceCurrency === listing.currency.trim().toUpperCase()
+      : allowUnscopedPricePreference);
+
+  if (preference && comparablePricePreference) {
+    if (preference.minPriceMinor !== undefined && listing.priceMinor >= preference.minPriceMinor) {
       preferenceRaw += 0.5;
     }
 
-    if (
-      preference.maxPriceMinor !== undefined &&
-      listing.priceMinor <= preference.maxPriceMinor
-    ) {
+    if (preference.maxPriceMinor !== undefined && listing.priceMinor <= preference.maxPriceMinor) {
       preferenceRaw += 0.7;
     }
   }
@@ -391,20 +387,16 @@ function scoreCandidate(
 
   const maximumPopularity = Math.max(1, ...Object.values(artifact.itemPopularity));
   const popularityScore =
-    Math.log1p(artifact.itemPopularity[listing.listingId] ?? 0) /
-    Math.log1p(maximumPopularity);
+    Math.log1p(artifact.itemPopularity[listing.listingId] ?? 0) / Math.log1p(maximumPopularity);
   const freshnessScore = clamp(1 - daysBetween(listing.availableAt, asOf) / 45, 0, 1);
   const contentScore = boundedAffinity(contentRaw / Math.max(candidateFeatures.length, 1));
   const implicitScore = boundedAffinity(implicitRaw);
-  const preferenceScore = boundedAffinity(
-    preferenceRaw / Math.max(preferenceWeights.size, 1),
-  );
+  const preferenceScore = boundedAffinity(preferenceRaw / Math.max(preferenceWeights.size, 1));
   const reasons: RecommendationReason[] = [];
   let score: number;
 
   if (isColdStart) {
-    score =
-      preferenceScore * 0.65 + popularityScore * 0.2 + freshnessScore * 0.15;
+    score = preferenceScore * 0.65 + popularityScore * 0.2 + freshnessScore * 0.15;
     reasons.push({ code: "cold_start", contribution: 0 });
 
     if (Math.abs(preferenceScore) > 0.000_001) {
@@ -502,17 +494,12 @@ export function rerankForDiversity(
         const brandCount = brandCounts.get(brand) ?? 0;
         const sourceCount = sourceCounts.get(source) ?? 0;
 
-        if (
-          !relaxedQuota &&
-          (brandCount >= maxPerBrand || sourceCount >= maxPerSource)
-        ) {
+        if (!relaxedQuota && (brandCount >= maxPerBrand || sourceCount >= maxPerSource)) {
           continue;
         }
 
         const adjustedScore =
-          candidate.score -
-          brandCount * config.brandPenalty -
-          sourceCount * config.sourcePenalty;
+          candidate.score - brandCount * config.brandPenalty - sourceCount * config.sourcePenalty;
 
         if (
           adjustedScore > bestAdjustedScore ||
@@ -560,16 +547,18 @@ export function rerankForDiversity(
     sourceCounts.set(source, sourceCount + 1);
   }
 
-  return selected.map(
-    (candidate, index): RankedRecommendation => ({
-      ...candidate,
-      rank: index + 1,
-    }),
-  );
+  return selected.map((candidate, index): RankedRecommendation => ({
+    ...candidate,
+    rank: index + 1,
+  }));
 }
 
 export function rankRecommendations(input: RankRecommendationInput) {
   const candidates = generateRecommendationCandidates(input.candidates, input.asOf);
+  const candidateCurrencies = new Set(
+    candidates.map((listing) => listing.currency.trim().toUpperCase()),
+  );
+  const allowUnscopedPricePreference = candidateCurrencies.size === 1;
   const profile = input.artifact.userProfiles[input.userId];
   const engagedListingIds = new Set(
     Object.entries(profile?.engagedListingWeights ?? {})
@@ -586,6 +575,7 @@ export function rankRecommendations(input: RankRecommendationInput) {
         input.userId,
         input.preference,
         input.asOf,
+        allowUnscopedPricePreference,
       );
     })
     .sort((left, right) => {
@@ -672,9 +662,7 @@ export function recommendWithFallback(
   } catch (error) {
     return {
       fallbackReason:
-        error instanceof RecommendationInferenceTimeout
-          ? "inference_timeout"
-          : "inference_error",
+        error instanceof RecommendationInferenceTimeout ? "inference_timeout" : "inference_error",
       modelVersion: input.artifact.metadata.modelVersion,
       ranking: baselineRanking,
       rolloutMode,

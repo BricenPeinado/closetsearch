@@ -33,13 +33,7 @@ export interface TemporalSplit<T> {
   validation: T[];
 }
 
-export type RecommendationEventType =
-  | "viewport"
-  | "click"
-  | "like"
-  | "save"
-  | "watchlist"
-  | "hide";
+export type RecommendationEventType = "viewport" | "click" | "like" | "save" | "watchlist" | "hide";
 
 export interface RecommendationEvent {
   eventId: string;
@@ -64,6 +58,7 @@ export interface RecommendationListing {
 }
 
 export interface RecommendationPreference {
+  currency?: string;
   favoriteBrands?: string[];
   favoriteCategories?: string[];
   maxPriceMinor?: number;
@@ -161,10 +156,7 @@ export type RecommendationRolloutMode = "disabled" | "shadow" | "active";
 
 export interface RecommendationRuntimeResult {
   fallbackReason?:
-    | "feature_flag_disabled"
-    | "model_not_promoted"
-    | "inference_timeout"
-    | "inference_error";
+    "feature_flag_disabled" | "model_not_promoted" | "inference_timeout" | "inference_error";
   modelVersion?: string;
   ranking: string[];
   rolloutMode: RecommendationRolloutMode;

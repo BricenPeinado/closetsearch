@@ -15,9 +15,7 @@ describe("hybrid recommendation and runtime fallback", () => {
       artifact,
       asOf: "2026-01-12T12:00:00.000Z",
       candidates: snapshot.listings,
-      preference: snapshot.preferences.find(
-        (preference) => preference.userId === "u1",
-      ),
+      preference: snapshot.preferences.find((preference) => preference.userId === "u1"),
       topK: 6,
       userId: "u1",
     });
@@ -25,9 +23,7 @@ describe("hybrid recommendation and runtime fallback", () => {
     expect(ranking.slice(0, 2).map((item) => item.listingId)).toContain("l03");
     expect(
       ranking.find((item) => item.listingId === "l03")?.reasons.map((reason) => reason.code),
-    ).toContain(
-      "content_affinity",
-    );
+    ).toContain("content_affinity");
     expect(ranking.every((item, index) => item.rank === index + 1)).toBe(true);
   });
 
@@ -38,20 +34,14 @@ describe("hybrid recommendation and runtime fallback", () => {
       artifact,
       asOf: "2026-01-12T12:00:00.000Z",
       candidates: snapshot.listings,
-      preference: snapshot.preferences.find(
-        (preference) => preference.userId === "u7",
-      ),
+      preference: snapshot.preferences.find((preference) => preference.userId === "u7"),
       topK: 4,
       userId: "u7",
     });
 
     expect(ranking[0]?.brand).toBe("Rick Owens");
-    expect(ranking[0]?.reasons.map((reason) => reason.code)).toContain(
-      "cold_start",
-    );
-    expect(ranking[0]?.reasons.map((reason) => reason.code)).toContain(
-      "preference_affinity",
-    );
+    expect(ranking[0]?.reasons.map((reason) => reason.code)).toContain("cold_start");
+    expect(ranking[0]?.reasons.map((reason) => reason.code)).toContain("preference_affinity");
   });
 
   it("limits brand and source concentration when alternatives exist", () => {
@@ -80,17 +70,59 @@ describe("hybrid recommendation and runtime fallback", () => {
     expect(Math.max(...sourceCounts.values())).toBeLessThanOrEqual(5);
   });
 
+  it("scopes price preferences and price-band features by currency", () => {
+    const snapshot = recommendationFixture();
+    const artifact = trainRecommendationModel(snapshot);
+    const base = snapshot.listings[0];
+
+    if (!base) {
+      throw new Error("Recommendation fixture requires a listing.");
+    }
+
+    const ranking = rankRecommendations({
+      artifact,
+      asOf: "2026-01-12T12:00:00.000Z",
+      candidates: [
+        {
+          ...base,
+          currency: "USD",
+          listingId: "currency-usd",
+          priceMinor: 15_000,
+        },
+        {
+          ...base,
+          currency: "JPY",
+          listingId: "currency-jpy",
+          priceMinor: 15_000,
+        },
+      ],
+      preference: {
+        currency: "JPY",
+        maxPriceMinor: 20_000,
+        minPriceMinor: 10_000,
+        userId: "currency-cold-start",
+      },
+      topK: 2,
+      userId: "currency-cold-start",
+    });
+    const jpyReasons =
+      ranking
+        .find((item) => item.listingId === "currency-jpy")
+        ?.reasons.map((reason) => reason.code) ?? [];
+    const usdReasons =
+      ranking
+        .find((item) => item.listingId === "currency-usd")
+        ?.reasons.map((reason) => reason.code) ?? [];
+
+    expect(jpyReasons).toContain("preference_affinity");
+    expect(usdReasons).not.toContain("preference_affinity");
+  });
+
   it("keeps the rules baseline active in shadow mode", () => {
     const snapshot = recommendationFixture();
     const artifact = trainRecommendationModel(snapshot);
     const baselineRanker = (candidates: typeof snapshot.listings, topK: number) =>
-      rankPopularityFreshnessBaseline(
-        artifact,
-        candidates,
-        "u1",
-        "2026-01-12T12:00:00.000Z",
-        topK,
-      );
+      rankPopularityFreshnessBaseline(artifact, candidates, "u1", "2026-01-12T12:00:00.000Z", topK);
     const result = recommendWithFallback({
       artifact,
       asOf: "2026-01-12T12:00:00.000Z",

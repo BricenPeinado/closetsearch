@@ -9,6 +9,7 @@ import type {
 } from "@closetsearch/shared";
 
 interface PricePreferenceRange {
+  currency: string;
   max?: number;
   min?: number;
   source: string;
@@ -56,7 +57,11 @@ function normalizeToken(value?: string | null) {
   return value?.trim().toLowerCase() ?? "";
 }
 
-function addWeightedSignal(signals: Map<string, number>, value: string | undefined, weight: number) {
+function addWeightedSignal(
+  signals: Map<string, number>,
+  value: string | undefined,
+  weight: number,
+) {
   const normalizedValue = normalizeToken(value);
 
   if (!normalizedValue || weight === 0) {
@@ -155,14 +160,22 @@ function addPricePreference(
   ranges: PricePreferenceRange[],
   source: string,
   weight: number,
+  currency?: string,
   min?: number,
   max?: number,
 ) {
-  if (min === undefined && max === undefined) {
+  const normalizedCurrency = currency?.trim().toUpperCase();
+
+  if (
+    !normalizedCurrency ||
+    !/^[A-Z]{3}$/.test(normalizedCurrency) ||
+    (min === undefined && max === undefined)
+  ) {
     return;
   }
 
   ranges.push({
+    currency: normalizedCurrency,
     source,
     weight,
     min,
@@ -229,6 +242,7 @@ function addOnboardingSignals(
   categoryAffinities: Map<string, number>,
   pricePreferences: PricePreferenceRange[],
   preferences: OnboardingPreferences,
+  currency: string,
 ) {
   for (const brand of preferences.favoriteBrands) {
     addWeightedSignal(brandAffinities, brand, 2.6);
@@ -245,6 +259,7 @@ function addOnboardingSignals(
       pricePreferences,
       "onboarding",
       0.95,
+      currency,
       onboardingPriceRange.min,
       onboardingPriceRange.max,
     );
@@ -261,7 +276,7 @@ function addLikedListingSignals(
   sourceAffinities: Map<string, number>,
   likedListings: LikedListing[],
 ) {
-  const likedPrices: number[] = [];
+  const likedPricesByCurrency = new Map<string, number[]>();
 
   for (const likedListing of likedListings) {
     const listing = likedListing.listing;
@@ -273,16 +288,25 @@ function addLikedListingSignals(
     addWeightedSignal(sourceAffinities, listing.source.id, 0.55);
     addWeightedSignal(listingTypeAffinities, listing.listingType, 0.5);
 
-    if (Number.isFinite(listing.price.amount) && listing.price.amount > 0) {
-      likedPrices.push(listing.price.amount);
+    const price =
+      listing.pricing?.display ??
+      listing.pricing?.comparison ??
+      listing.pricing?.original ??
+      listing.price;
+    const currency = price.currency.trim().toUpperCase();
+
+    if (/^[A-Z]{3}$/.test(currency) && Number.isFinite(price.amount) && price.amount > 0) {
+      const prices = likedPricesByCurrency.get(currency) ?? [];
+      prices.push(price.amount);
+      likedPricesByCurrency.set(currency, prices);
     }
   }
 
-  if (likedPrices.length > 0) {
+  for (const [currency, likedPrices] of likedPricesByCurrency.entries()) {
     const averagePrice = likedPrices.reduce((sum, value) => sum + value, 0) / likedPrices.length;
     const min = Math.max(0, Math.round(averagePrice * 0.7));
     const max = Math.max(min, Math.round(averagePrice * 1.3));
-    addPricePreference(pricePreferences, "likes", 0.4, min, max);
+    addPricePreference(pricePreferences, "likes", 0.4, currency, min, max);
   }
 }
 
@@ -329,6 +353,7 @@ function addSavedSearchSignals(
       pricePreferences,
       "saved-search",
       0.75,
+      searchParams.get("currency") ?? undefined,
       parseNumericValue(searchParams.get("minPrice")),
       parseNumericValue(searchParams.get("maxPrice")),
     );
@@ -350,6 +375,7 @@ function addSavedFilterSignals(
       pricePreferences,
       "saved-filter",
       0.9,
+      undefined,
       savedFilter.minPrice,
       savedFilter.maxPrice,
     );
@@ -379,6 +405,7 @@ function addWatchlistSignals(
       pricePreferences,
       "watchlist",
       0.55,
+      watchlist.priceCurrency,
       watchlist.minPriceAmount,
       watchlist.maxPriceAmount,
     );
@@ -409,6 +436,7 @@ export function buildPersonalizationProfile(
     categoryAffinities,
     pricePreferences,
     input.user.onboardingPreferences,
+    input.user.currencyPreference,
   );
   addLikedListingSignals(
     brandAffinities,

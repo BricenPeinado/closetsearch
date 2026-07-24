@@ -5,11 +5,7 @@ import {
   assertFeatureSchemaVersion,
 } from "./schema.js";
 import { assertTemporalIsolation, createTemporalSplit } from "./temporal.js";
-import type {
-  MarketObservation,
-  MarketSnapshot,
-  RecommendationSnapshot,
-} from "./types.js";
+import type { MarketObservation, MarketSnapshot, RecommendationSnapshot } from "./types.js";
 
 function assertIntegerMinorUnits(
   value: number | undefined,
@@ -47,13 +43,21 @@ export function validateRecommendationSnapshot(snapshot: RecommendationSnapshot)
 
   for (const listing of snapshot.listings) {
     if (!listing.listingId.trim() || listingIds.has(listing.listingId)) {
-      throw new Error(`Recommendation listing ids must be non-empty and unique: ${listing.listingId}`);
+      throw new Error(
+        `Recommendation listing ids must be non-empty and unique: ${listing.listingId}`,
+      );
     }
 
     listingIds.add(listing.listingId);
     assertIntegerMinorUnits(listing.priceMinor, "listing.priceMinor", false);
     assertCurrency(listing.currency, "listing.currency");
     toTimestamp(listing.availableAt, "listing.availableAt");
+  }
+
+  for (const preference of snapshot.preferences) {
+    if (preference.currency !== undefined) {
+      assertCurrency(preference.currency, "preference.currency");
+    }
   }
 
   const eventIds = new Set<string>();

@@ -38,8 +38,7 @@ function roundWeight(value: number) {
 }
 
 function compareListings(left: Listing, right: Listing) {
-  const timeDelta =
-    new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime();
+  const timeDelta = new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime();
 
   if (timeDelta !== 0) {
     return timeDelta;
@@ -52,12 +51,7 @@ function sortByNewest(listings: Listing[]) {
   return [...listings].sort(compareListings);
 }
 
-function addReason(
-  reasons: RecommendationReason[],
-  code: string,
-  label: string,
-  weight: number,
-) {
+function addReason(reasons: RecommendationReason[], code: string, label: string, weight: number) {
   if (Math.abs(weight) < 0.001) {
     return;
   }
@@ -176,29 +170,37 @@ function getListingQualityScore(listing: Listing) {
   return score - 0.4;
 }
 
-function getEngagementScore(
-  listing: Listing,
-  engagementByListingId?: ReadonlyMap<string, number>,
-) {
+function getEngagementScore(listing: Listing, engagementByListingId?: ReadonlyMap<string, number>) {
   return Math.min((engagementByListingId?.get(listing.id) ?? 0) * 0.08, 0.45);
 }
 
 function getPriceAffinityScore(listing: Listing, profile: PersonalizationProfile) {
-  if (profile.pricePreferences.length === 0 || listing.price.amount <= 0) {
+  const price =
+    listing.pricing?.display ??
+    listing.pricing?.comparison ??
+    listing.pricing?.original ??
+    listing.price;
+  const currency = price.currency.trim().toUpperCase();
+
+  if (profile.pricePreferences.length === 0 || price.amount <= 0 || !/^[A-Z]{3}$/.test(currency)) {
     return 0;
   }
 
   let bestScore = 0;
 
   for (const range of profile.pricePreferences) {
-    if (range.min !== undefined && listing.price.amount < range.min) {
-      const gapRatio = (range.min - listing.price.amount) / Math.max(range.min, 1);
+    if (range.currency !== currency) {
+      continue;
+    }
+
+    if (range.min !== undefined && price.amount < range.min) {
+      const gapRatio = (range.min - price.amount) / Math.max(range.min, 1);
       bestScore = Math.max(bestScore, gapRatio <= 0.2 ? range.weight * 0.5 : 0);
       continue;
     }
 
-    if (range.max !== undefined && listing.price.amount > range.max) {
-      const gapRatio = (listing.price.amount - range.max) / Math.max(range.max, 1);
+    if (range.max !== undefined && price.amount > range.max) {
+      const gapRatio = (price.amount - range.max) / Math.max(range.max, 1);
       bestScore = Math.max(bestScore, gapRatio <= 0.2 ? range.weight * 0.45 : 0);
       continue;
     }
@@ -217,10 +219,7 @@ function createGenericBreakdown(
   const reasons: RecommendationReason[] = [];
   const freshnessScore = getFreshnessScore(listing, newestTimestamp);
   const qualityScore = getListingQualityScore(listing);
-  const engagementScore = getEngagementScore(
-    listing,
-    engagementByListingId,
-  );
+  const engagementScore = getEngagementScore(listing, engagementByListingId);
 
   addReason(
     reasons,
@@ -269,10 +268,7 @@ function createPersonalizedBreakdown(
   const priceAffinity = getPriceAffinityScore(listing, profile);
   const freshnessScore = getFreshnessScore(listing, newestTimestamp);
   const qualityScore = getListingQualityScore(listing);
-  const engagementScore = getEngagementScore(
-    listing,
-    engagementByListingId,
-  );
+  const engagementScore = getEngagementScore(listing, engagementByListingId);
 
   addReason(reasons, "brand_affinity", "Matches your brand preferences", brandAffinity);
   addReason(reasons, "category_affinity", "Matches your category preferences", categoryAffinity);
@@ -314,11 +310,18 @@ function createPersonalizedBreakdown(
 }
 
 function listingSignature(listing: Listing) {
+  const price =
+    listing.pricing?.display ??
+    listing.pricing?.comparison ??
+    listing.pricing?.original ??
+    listing.price;
+
   return [
     normalizeToken(listing.brand.name),
     normalizeToken(listing.category),
     normalizeToken(listing.size),
-    Math.round(listing.price.amount / 25),
+    price.currency.trim().toUpperCase(),
+    Math.round(price.amount / 25),
   ].join("|");
 }
 
@@ -562,11 +565,7 @@ export function rankListings({
   }));
   const explorationCandidates = uniqueListings.map((listing) => ({
     listing,
-    breakdown: createGenericBreakdown(
-      listing,
-      newestTimestamp,
-      engagementByListingId,
-    ),
+    breakdown: createGenericBreakdown(listing, newestTimestamp, engagementByListingId),
   }));
 
   const personalizedRanked = selectWithDiversity(personalizedCandidates);
