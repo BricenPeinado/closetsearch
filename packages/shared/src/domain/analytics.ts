@@ -6,6 +6,7 @@ import type {
 
 export interface PriceSnapshot {
   id: string;
+  observationSequence: number;
   listingId: string;
   source: string;
   sourceListingId: string;

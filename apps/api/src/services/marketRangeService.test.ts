@@ -23,6 +23,7 @@ function createSnapshot(
 
   return {
     id: overrides.id,
+    observationSequence: overrides.observationSequence ?? 1,
     listingId,
     source: overrides.source ?? "mock",
     sourceListingId,
@@ -121,6 +122,33 @@ describe("marketRangeService", () => {
       label: "Limited data",
       status: "currency_mismatch",
     });
+  });
+
+  it("keeps grouped market summaries separated by comparison currency", () => {
+    const summaries = buildBrandMarketSummaries([
+      createSnapshot({
+        id: "usd-1",
+        brand: "Kapital",
+        category: "jackets",
+        priceAmount: 100,
+        normalizedPriceCurrency: "USD",
+      }),
+      createSnapshot({
+        id: "eur-1",
+        brand: "Kapital",
+        category: "jackets",
+        priceAmount: 90,
+        normalizedPriceCurrency: "EUR",
+        priceCurrency: "EUR",
+      }),
+    ]);
+
+    expect(summaries).toHaveLength(2);
+    expect(summaries.map((summary) => summary.range.currency).sort()).toEqual([
+      "EUR",
+      "USD",
+    ]);
+    expect(summaries.every((summary) => summary.range.count === 1)).toBe(true);
   });
 
   it("identifies cautious below-range signals from observed listings", () => {

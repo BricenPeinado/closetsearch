@@ -17,7 +17,13 @@ Recording rules:
 - keep recording best-effort so feed/search still succeed if analytics recording fails
 - skip listings with unusable prices or listings explicitly excluded from analytics
 - dedupe repeated same-price observations by updating `last_seen_at`
-- create a new snapshot row when the same source listing is seen at a changed observed price
+- create a new snapshot row when the latest state for the same source listing has
+  a changed price, currency, or market status
+- assign every changed observation a database-generated monotonic
+  `observation_sequence`; timestamps are metadata and are not used as the sole
+  latest-version key
+- preserve repeated transitions such as `$180 -> $140 -> $180` as three ordered
+  observations instead of updating the first `$180` row
 
 ## Market Range Calculations
 
@@ -34,7 +40,9 @@ Current summaries:
 - average
 - quartiles when sample size is large enough
 
-Ranges use normalized same-currency observed prices only.
+Ranges use normalized same-currency observed prices only. Brand and category
+summaries are partitioned by comparison currency; values from different
+currencies are never combined into one labeled range.
 
 ## Similar Listing Comparisons
 

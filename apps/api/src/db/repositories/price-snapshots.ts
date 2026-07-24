@@ -3,6 +3,7 @@ import type { Listing, PriceSnapshot } from "@closetsearch/shared";
 import { getDatabase } from "../database.js";
 
 interface PriceSnapshotRow {
+  observation_sequence: number;
   id: string;
   listing_id: string;
   source: string;
@@ -55,6 +56,7 @@ function mapPriceSnapshotRow(row: PriceSnapshotRow): PriceSnapshot {
 
   return {
     id: row.id,
+    observationSequence: row.observation_sequence,
     listingId: row.listing_id,
     source: row.source,
     sourceListingId: row.source_listing_id,
@@ -80,6 +82,7 @@ function getSnapshotRowById(id: string) {
   return getDatabase()
     .prepare(
       `SELECT
+        observation_sequence,
         id,
         listing_id,
         source,
@@ -105,10 +108,11 @@ function getSnapshotRowById(id: string) {
     .get(id) as PriceSnapshotRow | undefined;
 }
 
-function getExistingRow(input: PersistPriceSnapshotInput) {
+function getLatestRow(input: PersistPriceSnapshotInput) {
   return getDatabase()
     .prepare(
       `SELECT
+        observation_sequence,
         id,
         listing_id,
         source,
@@ -131,18 +135,12 @@ function getExistingRow(input: PersistPriceSnapshotInput) {
       FROM price_snapshots
       WHERE source = ?
         AND source_listing_id = ?
-        AND normalized_price_amount = ?
-        AND normalized_price_currency = ?
-        AND market_status = ?
-      ORDER BY observed_at DESC, last_seen_at DESC
+      ORDER BY observation_sequence DESC
       LIMIT 1`,
     )
     .get(
       input.listing.source.id,
       input.listing.providerListingId,
-      Math.trunc(input.listing.price.amount),
-      normalizeCurrency(input.listing.price.currency),
-      input.listing.market?.status ?? "active",
     ) as PriceSnapshotRow | undefined;
 }
 
@@ -150,9 +148,15 @@ export function persistPriceSnapshot(input: PersistPriceSnapshotInput) {
   const normalizedPriceAmount = Math.trunc(input.listing.price.amount);
   const normalizedPriceCurrency = normalizeCurrency(input.listing.price.currency);
   const marketStatus = input.listing.market?.status ?? "active";
-  const existingRow = getExistingRow(input);
+  const latestRow = getLatestRow(input);
+  const isSameObservedState =
+    latestRow !== undefined &&
+    latestRow.normalized_price_amount === normalizedPriceAmount &&
+    normalizeCurrency(latestRow.normalized_price_currency) ===
+      normalizedPriceCurrency &&
+    latestRow.market_status === marketStatus;
 
-  if (existingRow) {
+  if (latestRow && isSameObservedState) {
     getDatabase()
       .prepare(
         `UPDATE price_snapshots
@@ -184,10 +188,10 @@ export function persistPriceSnapshot(input: PersistPriceSnapshotInput) {
         input.listing.sourceUrl,
         input.observedAt,
         JSON.stringify(input.listing),
-        existingRow.id,
+        latestRow.id,
       );
 
-    return mapPriceSnapshotRow(getSnapshotRowById(existingRow.id) ?? existingRow);
+    return mapPriceSnapshotRow(getSnapshotRowById(latestRow.id) ?? latestRow);
   }
 
   const id = randomUUID();
@@ -245,6 +249,7 @@ export function listPriceSnapshots() {
   return ((getDatabase()
     .prepare(
       `SELECT
+        observation_sequence,
         id,
         listing_id,
         source,
@@ -265,7 +270,7 @@ export function listPriceSnapshots() {
         last_seen_at,
         listing_json
       FROM price_snapshots
-      ORDER BY observed_at DESC, last_seen_at DESC, id DESC`,
+      ORDER BY observation_sequence DESC`,
     )
     .all() as unknown as PriceSnapshotRow[])).map(mapPriceSnapshotRow);
 }
@@ -275,22 +280,14 @@ export function listLatestPriceSnapshots() {
 
   for (const snapshot of listPriceSnapshots()) {
     const key = `${snapshot.source}:${snapshot.sourceListingId}`;
-    const existingSnapshot = latestSnapshotsByListing.get(key);
 
-    if (
-      existingSnapshot === undefined ||
-      new Date(snapshot.lastSeenAt).getTime() > new Date(existingSnapshot.lastSeenAt).getTime() ||
-      (
-        snapshot.lastSeenAt === existingSnapshot.lastSeenAt &&
-        new Date(snapshot.observedAt).getTime() > new Date(existingSnapshot.observedAt).getTime()
-      )
-    ) {
+    if (!latestSnapshotsByListing.has(key)) {
       latestSnapshotsByListing.set(key, snapshot);
     }
   }
 
   return Array.from(latestSnapshotsByListing.values()).sort(
-    (left, right) => new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime(),
+    (left, right) => right.observationSequence - left.observationSequence,
   );
 }
 

@@ -25,8 +25,10 @@ function shouldRecordListing(listing: Listing) {
   );
 }
 
-export function recordObservedListings(listings: Listing[]) {
-  const observedAt = new Date().toISOString();
+export function recordObservedListings(
+  listings: Listing[],
+  observedAt = new Date().toISOString(),
+) {
 
   for (const listing of listings) {
     if (shouldRecordListing(listing) === false) {

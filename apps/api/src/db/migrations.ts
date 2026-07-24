@@ -44,6 +44,13 @@ const migrationDefinitions: MigrationDefinition[] = [
       "utf-8",
     ),
   },
+  {
+    id: "006_deterministic_price_observations",
+    sql: readFileSync(
+      new URL("./schema/006_deterministic_price_observations.sql", import.meta.url),
+      "utf-8",
+    ),
+  },
 ];
 
 function ensureMigrationTable(database: DatabaseSync) {

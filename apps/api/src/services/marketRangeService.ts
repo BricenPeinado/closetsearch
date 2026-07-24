@@ -96,7 +96,10 @@ function buildGroupedSummaries<T extends BrandMarketSummary | CategoryMarketSumm
       continue;
     }
 
-    const key = normalizeToken(label);
+    const key = [
+      normalizeToken(label),
+      snapshot.normalizedPriceCurrency.trim().toUpperCase(),
+    ].join("\u0000");
     const existingGroup = groupedSnapshots.get(key);
 
     if (existingGroup) {
