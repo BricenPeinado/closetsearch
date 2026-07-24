@@ -1,0 +1,20 @@
+{
+  "name": "@closetsearch/ml",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint src test --ext .ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:smoke": "vitest run test/training-smoke.test.ts",
+    "evaluate": "vitest run test/offline-evaluation.test.ts --reporter=verbose"
+  }
+}

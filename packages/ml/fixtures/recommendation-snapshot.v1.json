@@ -1,0 +1,73 @@
+{
+  "metadata": {
+    "createdAt": "2026-01-13T00:00:00.000Z",
+    "featureSchemaVersion": "recommendation-features/v1",
+    "isSynthetic": true,
+    "seed": 20260724,
+    "snapshotId": "fixture-recommendation-2026-01-v1",
+    "source": "recorded_fixture"
+  },
+  "splitBoundaries": {
+    "trainEndExclusive": "2026-01-07T00:00:00.000Z",
+    "validationEndExclusive": "2026-01-09T00:00:00.000Z"
+  },
+  "listings": [
+    {"listingId":"l01","availableAt":"2026-01-01T08:00:00.000Z","brand":"Rick Owens","category":"jackets","condition":"excellent","currency":"USD","marketStatus":"active","priceMinor":42000,"size":"M","source":"grailed-fixture","title":"Rick Owens black flight jacket"},
+    {"listingId":"l02","availableAt":"2026-01-01T09:00:00.000Z","brand":"Rick Owens","category":"shoes","condition":"good","currency":"USD","marketStatus":"active","priceMinor":38000,"size":"42","source":"ebay-fixture","title":"Rick Owens leather boots"},
+    {"listingId":"l03","availableAt":"2026-01-01T10:00:00.000Z","brand":"Rick Owens","category":"jackets","condition":"good","currency":"USD","marketStatus":"active","priceMinor":36000,"size":"M","source":"depop-fixture","title":"Rick Owens cropped bomber jacket"},
+    {"listingId":"l04","availableAt":"2026-01-01T11:00:00.000Z","brand":"Maison Margiela","category":"shoes","condition":"excellent","currency":"USD","marketStatus":"active","priceMinor":31000,"size":"42","source":"grailed-fixture","title":"Maison Margiela replica sneakers"},
+    {"listingId":"l05","availableAt":"2026-01-02T08:00:00.000Z","brand":"Maison Margiela","category":"knitwear","condition":"good","currency":"USD","marketStatus":"active","priceMinor":28000,"size":"L","source":"ebay-fixture","title":"Maison Margiela wool knit sweater"},
+    {"listingId":"l06","availableAt":"2026-01-02T09:00:00.000Z","brand":"Maison Margiela","category":"shoes","condition":"good","currency":"USD","marketStatus":"active","priceMinor":29500,"size":"42","source":"depop-fixture","title":"Maison Margiela painted replica shoes"},
+    {"listingId":"l07","availableAt":"2026-01-02T10:00:00.000Z","brand":"Prada","category":"bags","condition":"excellent","currency":"USD","marketStatus":"active","priceMinor":52000,"size":"OS","source":"ebay-fixture","title":"Prada nylon shoulder bag"},
+    {"listingId":"l08","availableAt":"2026-01-02T11:00:00.000Z","brand":"Prada","category":"jackets","condition":"good","currency":"USD","marketStatus":"active","priceMinor":47000,"size":"M","source":"grailed-fixture","title":"Prada sport technical jacket"},
+    {"listingId":"l09","availableAt":"2026-01-03T08:00:00.000Z","brand":"Prada","category":"bags","condition":"good","currency":"USD","marketStatus":"active","priceMinor":45000,"size":"OS","source":"depop-fixture","title":"Prada tessuto nylon bag"},
+    {"listingId":"l10","availableAt":"2026-01-03T09:00:00.000Z","brand":"Nike","category":"shoes","condition":"excellent","currency":"USD","marketStatus":"active","priceMinor":14000,"size":"10","source":"depop-fixture","title":"Nike Air Max sneakers"},
+    {"listingId":"l11","availableAt":"2026-01-03T10:00:00.000Z","brand":"Nike","category":"jackets","condition":"good","currency":"USD","marketStatus":"active","priceMinor":11000,"size":"L","source":"ebay-fixture","title":"Nike vintage track jacket"},
+    {"listingId":"l12","availableAt":"2026-01-03T11:00:00.000Z","brand":"Nike","category":"shoes","condition":"good","currency":"USD","marketStatus":"active","priceMinor":12500,"size":"10","source":"grailed-fixture","title":"Nike Air Max leather sneakers"},
+    {"listingId":"l13","availableAt":"2026-01-04T08:00:00.000Z","brand":"Stussy","category":"hoodies","condition":"excellent","currency":"USD","marketStatus":"active","priceMinor":12000,"size":"M","source":"depop-fixture","title":"Stussy logo hoodie"},
+    {"listingId":"l14","availableAt":"2026-01-04T09:00:00.000Z","brand":"Stussy","category":"jackets","condition":"good","currency":"USD","marketStatus":"active","priceMinor":16000,"size":"M","source":"grailed-fixture","title":"Stussy workwear jacket"},
+    {"listingId":"l15","availableAt":"2026-01-04T10:00:00.000Z","brand":"Stussy","category":"hoodies","condition":"good","currency":"USD","marketStatus":"active","priceMinor":10500,"size":"M","source":"ebay-fixture","title":"Stussy stock logo hoodie"},
+    {"listingId":"l16","availableAt":"2026-01-04T11:00:00.000Z","brand":"Acne Studios","category":"denim","condition":"excellent","currency":"USD","marketStatus":"active","priceMinor":18000,"size":"30","source":"ebay-fixture","title":"Acne Studios straight denim jeans"},
+    {"listingId":"l17","availableAt":"2026-01-05T08:00:00.000Z","brand":"Acne Studios","category":"knitwear","condition":"good","currency":"USD","marketStatus":"active","priceMinor":22000,"size":"M","source":"depop-fixture","title":"Acne Studios mohair sweater"},
+    {"listingId":"l18","availableAt":"2026-01-05T09:00:00.000Z","brand":"Acne Studios","category":"denim","condition":"good","currency":"USD","marketStatus":"active","priceMinor":17000,"size":"30","source":"grailed-fixture","title":"Acne Studios loose fit denim"}
+  ],
+  "preferences": [
+    {"userId":"u1","favoriteBrands":["Rick Owens"],"favoriteCategories":["jackets"],"preferredSizes":["M"],"queryTerms":["black bomber"]},
+    {"userId":"u2","favoriteBrands":["Maison Margiela"],"favoriteCategories":["shoes"],"preferredSizes":["42"]},
+    {"userId":"u3","favoriteBrands":["Prada"],"favoriteCategories":["bags"],"preferredSources":["depop-fixture"]},
+    {"userId":"u4","favoriteBrands":["Nike"],"favoriteCategories":["shoes"],"preferredSizes":["10"]},
+    {"userId":"u5","favoriteBrands":["Stussy"],"favoriteCategories":["hoodies"],"maxPriceMinor":15000},
+    {"userId":"u6","favoriteBrands":["Acne Studios"],"favoriteCategories":["denim"],"preferredSizes":["30"]},
+    {"userId":"u7","favoriteBrands":["Rick Owens"],"favoriteCategories":["jackets"],"maxPriceMinor":45000},
+    {"userId":"u8","favoriteBrands":["Nike"],"favoriteCategories":["shoes"],"preferredSizes":["10"]}
+  ],
+  "events": [
+    {"eventId":"e001","eventType":"like","listingId":"l01","occurredAt":"2026-01-02T09:00:00.000Z","userId":"u1"},
+    {"eventId":"e002","eventType":"click","listingId":"l02","occurredAt":"2026-01-03T09:00:00.000Z","userId":"u1"},
+    {"eventId":"e003","eventType":"viewport","listingId":"l03","occurredAt":"2026-01-04T09:00:00.000Z","userId":"u1"},
+    {"eventId":"e004","eventType":"like","listingId":"l04","occurredAt":"2026-01-02T10:00:00.000Z","userId":"u2"},
+    {"eventId":"e005","eventType":"click","listingId":"l05","occurredAt":"2026-01-03T10:00:00.000Z","userId":"u2"},
+    {"eventId":"e006","eventType":"like","listingId":"l07","occurredAt":"2026-01-02T11:00:00.000Z","userId":"u3"},
+    {"eventId":"e007","eventType":"save","listingId":"l08","occurredAt":"2026-01-04T11:00:00.000Z","userId":"u3"},
+    {"eventId":"e008","eventType":"like","listingId":"l10","occurredAt":"2026-01-03T12:00:00.000Z","userId":"u4"},
+    {"eventId":"e009","eventType":"click","listingId":"l11","occurredAt":"2026-01-05T12:00:00.000Z","userId":"u4"},
+    {"eventId":"e010","eventType":"like","listingId":"l13","occurredAt":"2026-01-04T13:00:00.000Z","userId":"u5"},
+    {"eventId":"e011","eventType":"click","listingId":"l14","occurredAt":"2026-01-05T13:00:00.000Z","userId":"u5"},
+    {"eventId":"e012","eventType":"like","listingId":"l16","occurredAt":"2026-01-05T14:00:00.000Z","userId":"u6"},
+    {"eventId":"e013","eventType":"click","listingId":"l17","occurredAt":"2026-01-06T14:00:00.000Z","userId":"u6"},
+    {"eventId":"e014","eventType":"click","listingId":"l03","occurredAt":"2026-01-07T09:00:00.000Z","userId":"u1"},
+    {"eventId":"e015","eventType":"viewport","listingId":"l06","occurredAt":"2026-01-07T10:00:00.000Z","userId":"u2"},
+    {"eventId":"e016","eventType":"click","listingId":"l09","occurredAt":"2026-01-07T11:00:00.000Z","userId":"u3"},
+    {"eventId":"e017","eventType":"click","listingId":"l12","occurredAt":"2026-01-08T09:00:00.000Z","userId":"u4"},
+    {"eventId":"e018","eventType":"click","listingId":"l15","occurredAt":"2026-01-08T10:00:00.000Z","userId":"u5"},
+    {"eventId":"e019","eventType":"viewport","listingId":"l18","occurredAt":"2026-01-08T11:00:00.000Z","userId":"u6"},
+    {"eventId":"e020","eventType":"like","listingId":"l03","occurredAt":"2026-01-09T09:00:00.000Z","userId":"u1"},
+    {"eventId":"e021","eventType":"like","listingId":"l06","occurredAt":"2026-01-09T10:00:00.000Z","userId":"u2"},
+    {"eventId":"e022","eventType":"save","listingId":"l09","occurredAt":"2026-01-10T09:00:00.000Z","userId":"u3"},
+    {"eventId":"e023","eventType":"like","listingId":"l12","occurredAt":"2026-01-10T10:00:00.000Z","userId":"u4"},
+    {"eventId":"e024","eventType":"click","listingId":"l15","occurredAt":"2026-01-11T09:00:00.000Z","userId":"u5"},
+    {"eventId":"e025","eventType":"save","listingId":"l18","occurredAt":"2026-01-11T10:00:00.000Z","userId":"u6"},
+    {"eventId":"e026","eventType":"click","listingId":"l03","occurredAt":"2026-01-12T09:00:00.000Z","userId":"u7"},
+    {"eventId":"e027","eventType":"click","listingId":"l12","occurredAt":"2026-01-12T10:00:00.000Z","userId":"u8"}
+  ]
+}
