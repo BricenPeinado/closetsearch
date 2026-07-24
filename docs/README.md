@@ -50,3 +50,9 @@ Root planning stays in `README.md`, `PRODUCT.md`, `ARCHITECTURE.md`, `TASKS.md`,
 
 - [Pre-implementation production gap matrix](./production-gap-matrix.md)
 - [Provider acquisition and compliance matrix](./provider-acquisition-matrix.md)
+- [Production deployment](./runbooks/PRODUCTION_DEPLOYMENT.md)
+- [Production environment reference](./runbooks/environment.md)
+- [PostgreSQL backup and restore](./runbooks/POSTGRES_BACKUP_RESTORE.md)
+- [Production rollback](./runbooks/PRODUCTION_ROLLBACK.md)
+- [Incident response](./runbooks/INCIDENT_RESPONSE.md)
+- [ML status and model cards](./ml/README.md)

@@ -1,7 +1,23 @@
 # Tests
 
-This folder is reserved for cross-package, integration, or end-to-end tests once Milestone 2 establishes the test runner.
+This folder contains cross-package and browser-level tests. Package-local unit and
+integration tests remain next to the code they cover.
 
-Package-local tests can live near the code they cover when that structure is introduced.
+`tests/e2e/closetsearch.spec.ts` runs the signed-out, signed-in/onboarding,
+provider-degraded, and revoked-session recovery flows with Playwright. Its server
+configuration is hermetic:
 
-Do not add product fixtures, provider data dumps, or marketplace research notes here.
+- API persistence is an in-memory SQLite database.
+- the provider runtime is mock-only with real providers explicitly disabled.
+- mock inventory remains visibly labeled in the UI.
+- external HTTPS requests are blocked by the browser context.
+
+Run it with:
+
+```sh
+corepack pnpm exec playwright install chromium
+corepack pnpm test:e2e
+```
+
+Do not add live marketplace credentials, product data dumps, or marketplace research
+notes here.

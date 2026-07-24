@@ -1,233 +1,177 @@
 # Environment Reference
 
-This reference documents the meaningful environment variables currently used by ClosetSearch.
+Environment examples are documentation only:
 
-Do not commit real secrets. Use `.env.example`, `apps/api/.env.example`, and `apps/web/.env.example` as starting points only.
+- root development: `.env.example`
+- API/worker development: `apps/api/.env.example`
+- web build: `apps/web/.env.example`
+- local container topology: `.env.compose.example`
 
-## API Runtime
+Never commit populated `.env` files. Production secrets must come from the deployment platform’s secret manager.
 
-### `HOST`
+## Production invariants
 
-- Required: optional
-- Default: `127.0.0.1`
-- Local example: `HOST=127.0.0.1`
-- Beta note: bind to the interface your process manager expects
-- Safety note: not sensitive
+`validateStartupEnvironment` rejects a production API start unless:
 
-### `PORT`
+- `AUTH_SESSION_PEPPER` is at least 32 characters
+- `AUTH_COOKIE_SECURE=true`
+- every `AUTH_ALLOWED_ORIGINS` value is explicit HTTPS and not localhost
+- `PROVIDER_RUNTIME_MODE=real`
+- mock fallback and the mock provider are disabled
+- `PERSISTENCE_DRIVER=postgres`
 
-- Required: optional
-- Default: `4000`
-- Local example: `PORT=4000`
-- Beta note: usually set by the host or process manager
-- Safety note: not sensitive
+Production also requires at least one authorized/configured real provider for readiness.
 
-### `CLOSETSEARCH_DB_PATH`
+`DATABASE_URL` is authoritative for PostgreSQL migrations, the worker, and the
+landed durable data-plane repositories. The current API request repositories
+and readiness database check still use `CLOSETSEARCH_DB_PATH` while those
+modules migrate incrementally. This split is a launch blocker, not a supported
+final production architecture.
 
-- Required: optional
-- Default: `apps/api/.data/closetsearch.sqlite`
-- Local example: `CLOSETSEARCH_DB_PATH=./apps/api/.data/closetsearch.sqlite`
-- Beta note: point at writable persistent storage
-- Safety note: not a secret, but avoid exposing internal filesystem paths broadly
+## API process
 
-### `HTTP_BODY_LIMIT_BYTES`
+| Variable               | Default                 | Production                                              |
+| ---------------------- | ----------------------- | ------------------------------------------------------- |
+| `NODE_ENV`             | runtime default         | `production`                                            |
+| `HOST`                 | `127.0.0.1`             | bind the platform interface, commonly `0.0.0.0`         |
+| `PORT`                 | `4000`                  | platform-assigned or `4000`                             |
+| `SHUTDOWN_TIMEOUT_MS`  | `10000`                 | 1–60 seconds; align with termination grace              |
+| `PERSISTENCE_DRIVER`   | explicit value required | `postgres`; `sqlite` is test/local only                 |
+| `CLOSETSEARCH_DB_PATH` | local `.data` file      | compatibility only; PostgreSQL cutover remains required |
 
-- Required: optional
-- Default: `65536`
-- Local example: `HTTP_BODY_LIMIT_BYTES=65536`
-- Production note: bounds every JSON request body before parsing
-- Safety note: not sensitive
+## PostgreSQL
 
-### `SHUTDOWN_TIMEOUT_MS`
+| Variable                           | Default                                      | Notes                                                             |
+| ---------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
+| `DATABASE_URL`                     | none                                         | required by migrations, worker, and PostgreSQL data-plane clients |
+| `POSTGRES_APPLICATION_NAME`        | `closetsearch-api`                           | use distinct API/worker/migration names                           |
+| `POSTGRES_SSL_MODE`                | `prefer`                                     | `disable`, `prefer`, `require`, or `verify-full`                  |
+| `POSTGRES_SSL_CA`                  | none                                         | CA PEM for `verify-full`; escaped newlines are accepted           |
+| `POSTGRES_ALLOW_INSECURE`          | false                                        | only explicit local/CI override for disabled TLS                  |
+| `POSTGRES_POOL_MAX`                | `10`                                         | 1–100; budget across all replicas                                 |
+| `POSTGRES_CONNECTION_TIMEOUT_MS`   | `5000`                                       | 100–120000                                                        |
+| `POSTGRES_IDLE_TIMEOUT_MS`         | `30000`                                      | 1000–600000                                                       |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`    | `10000`                                      | 100–300000                                                        |
+| `POSTGRES_QUERY_TIMEOUT_MS`        | `12000`                                      | 100–300000                                                        |
+| `POSTGRES_TRANSACTION_RETRY_LIMIT` | `3`                                          | 0–10 transient retries                                            |
+| `PERSISTENCE_MIGRATE_ON_START`     | true outside production, false in production | keep false in production and use the one-shot migration job       |
 
-- Required: optional
-- Default: `10000`
-- Local example: `SHUTDOWN_TIMEOUT_MS=10000`
-- Production note: maximum graceful HTTP drain time before open connections are closed
-- Safety note: not sensitive
+Compose uses disabled TLS only inside its isolated local network and sets `POSTGRES_ALLOW_INSECURE=true`. Managed production should use `verify-full` whenever supported.
 
-## Auth and Session
+## Auth and sessions
 
-### `AUTH_ALLOWED_ORIGINS`
+| Variable                   | Default                | Production                       |
+| -------------------------- | ---------------------- | -------------------------------- |
+| `AUTH_ALLOWED_ORIGINS`     | local Vite origins     | explicit HTTPS origins only      |
+| `AUTH_SESSION_COOKIE_NAME` | `closetsearch_session` | keep stable                      |
+| `AUTH_SESSION_TTL_DAYS`    | `14`                   | set according to security policy |
+| `AUTH_COOKIE_SECURE`       | production-sensitive   | must be `true`                   |
+| `AUTH_SESSION_PEPPER`      | empty                  | secret, at least 32 characters   |
+| `AUTH_TOKEN_PEPPER`        | empty                  | legacy fallback only             |
 
-- Required: yes for cross-origin cookie auth
-- Default: `http://localhost:5173,http://127.0.0.1:5173`
-- Local example: `AUTH_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
-- Beta note: must exactly match deployed web origins
-- Safety note: not sensitive
+Rotating the session pepper revokes existing sessions.
 
-### `AUTH_SESSION_COOKIE_NAME`
+## Provider orchestration
 
-- Required: optional
-- Default: `closetsearch_session`
-- Local example: `AUTH_SESSION_COOKIE_NAME=closetsearch_session`
-- Beta note: keep stable across restarts unless you intentionally want to rotate sessions
-- Safety note: not sensitive
+| Variable                        | Development default                         | Production |
+| ------------------------------- | ------------------------------------------- | ---------- |
+| `PROVIDER_RUNTIME_MODE`         | `mock` unless a real provider is configured | `real`     |
+| `PROVIDER_ALLOW_MOCK_FALLBACK`  | `true`                                      | `false`    |
+| `PROVIDER_MOCK_ENABLED`         | `true`                                      | `false`    |
+| `PROVIDER_REQUEST_TIMEOUT_MS`   | `10000`                                     | 1000–60000 |
+| `PROVIDER_MAX_ACTIVE_PROVIDERS` | `2`                                         | 1–5        |
 
-### `AUTH_SESSION_TTL_DAYS`
+Mock inventory is fixtures only and may not be substituted silently in production.
 
-- Required: optional
-- Default: `14`
-- Local example: `AUTH_SESSION_TTL_DAYS=14`
-- Beta note: shorter TTLs reduce risk but increase re-login frequency
-- Safety note: not sensitive
+### eBay official API
 
-### `AUTH_COOKIE_SECURE`
+| Variable                       | Default                | Notes                                   |
+| ------------------------------ | ---------------------- | --------------------------------------- |
+| `EBAY_PROVIDER_ENABLED`        | `false`                | enable only with approved credentials   |
+| `EBAY_CLIENT_ID`               | none                   | secret/config credential                |
+| `EBAY_CLIENT_SECRET`           | none                   | secret                                  |
+| `EBAY_API_BASE_URL`            | `https://api.ebay.com` | API origin                              |
+| `EBAY_IDENTITY_BASE_URL`       | `https://api.ebay.com` | OAuth origin                            |
+| `EBAY_MARKETPLACE_ID`          | `EBAY_US`              | marketplace header                      |
+| `EBAY_OAUTH_SCOPE`             | public API scope       | approved OAuth scope                    |
+| `EBAY_AFFILIATE_CAMPAIGN_ID`   | none                   | optional approved affiliate attribution |
+| `EBAY_AFFILIATE_REFERENCE_ID`  | none                   | optional attribution                    |
+| `EBAY_REQUEST_TIMEOUT_MS`      | `8000`                 | bounded request timeout                 |
+| `EBAY_MIN_REQUEST_INTERVAL_MS` | `250`                  | pacing                                  |
+| `EBAY_MAX_CONCURRENCY`         | `2`                    | 1–10                                    |
+| `EBAY_MAX_RETRIES`             | `3`                    | bounded retry count                     |
 
-- Required: optional
-- Default: `true` in production-like `NODE_ENV`, otherwise `false`
-- Local example: `AUTH_COOKIE_SECURE=false`
-- Beta note: set `true` for HTTPS deployments
-- Safety note: not sensitive
+### Grailed authorized scraping
 
-### `AUTH_SESSION_PEPPER`
+| Variable                          | Default                   | Notes                                    |
+| --------------------------------- | ------------------------- | ---------------------------------------- |
+| `GRAILED_PROVIDER_ENABLED`        | follows authorization     | explicit provider switch                 |
+| `GRAILED_SCRAPING_ALLOWED`        | `false`                   | compliance gate                          |
+| `GRAILED_AUTHORIZATION_REFERENCE` | none                      | retained written-authorization reference |
+| `GRAILED_BASE_URL`                | `https://www.grailed.com` | approved origin                          |
+| `GRAILED_REQUEST_TIMEOUT_MS`      | `5000`                    | timeout                                  |
+| `GRAILED_MIN_REQUEST_INTERVAL_MS` | `3000`                    | conservative pacing                      |
+| `GRAILED_MAX_RESULTS_PER_SEARCH`  | `24`                      | normalization cap                        |
+| `GRAILED_USER_AGENT`              | contact placeholder       | replace with accurate project contact    |
 
-- Required: strongly recommended for beta
-- Default: empty string
-- Local example: `AUTH_SESSION_PEPPER=replace-with-local-secret`
-- Beta note: use a real secret and keep it stable during a beta run
-- Safety note: sensitive secret, do not commit
+Do not enable Grailed without current written permission matching the request profile.
 
-### `AUTH_TOKEN_PEPPER`
+## Worker
 
-- Required: optional fallback only
-- Default: empty string
-- Local example: `AUTH_TOKEN_PEPPER=replace-with-local-secret`
-- Beta note: legacy fallback if `AUTH_SESSION_PEPPER` is not used
-- Safety note: sensitive secret, do not commit
+| Variable                                   | Default                 | Bounds                                            |
+| ------------------------------------------ | ----------------------- | ------------------------------------------------- |
+| `WORKER_CONCURRENCY`                       | `4`                     | 1–32                                              |
+| `WORKER_PROVIDER_INGESTION_ENABLED`        | `true`                  | set false only for an intentional ingestion pause |
+| `WORKER_DEFAULT_INGESTION_QUERY`           | `designer clothing`     | used when no JSON schedule is supplied            |
+| `WORKER_ACTIVE_INGESTION_INTERVAL_SECONDS` | `900`                   | 60–604800                                         |
+| `WORKER_SOLD_INGESTION_INTERVAL_SECONDS`   | `3600`                  | 60–604800                                         |
+| `WORKER_INGESTION_PAGE_SIZE`               | `50`                    | 1–200                                             |
+| `WORKER_INGESTION_SEARCHES_JSON`           | empty                   | optional 1–100 validated search definitions       |
+| `WORKER_LEASE_DURATION_MS`                 | `60000`                 | 5000–900000                                       |
+| `WORKER_POLL_INTERVAL_MS`                  | `2000`                  | 100–60000                                         |
+| `WORKER_ID`                                | generated UUID-based id | optional stable instance label                    |
 
-### `NODE_ENV`
+The worker entry point registers maintenance handlers and, when at least one
+authorized real provider is active, `provider.ingest`. It creates only the
+scopes a provider reports as supported, filters fixture/mock sources, seeds
+jobs idempotently, and records continuation checkpoints in PostgreSQL.
 
-- Required: optional
-- Default: runtime default
-- Local example: `NODE_ENV=development`
-- Beta note: affects auth cookie secure defaults
-- Safety note: not sensitive
+`WORKER_INGESTION_SEARCHES_JSON` is an array of objects with:
+`key`, `text`, `scope` (`active` or `sold`), and optional `providerIds`,
+`pageSize`, and `intervalSeconds`. Invalid JSON or invalid definitions fail
+worker startup. Provider credentials and authorization flags must be supplied
+to the worker as well as the API; the Compose topology does this through its
+shared provider environment.
 
-## Provider Runtime
+## Web build
 
-### `PROVIDER_RUNTIME_MODE`
+`VITE_API_BASE_URL` is embedded into the static bundle at build time. Changing it requires a new web artifact. Production must use the public HTTPS API origin.
 
-- Required: optional
-- Default: `mock`, unless a fully authorized Grailed setup causes the runtime fallback to prefer `real`
-- Local example: `PROVIDER_RUNTIME_MODE=mock`
-- Beta note: `mock` is safest, `hybrid` is useful when partial real coverage is allowed
-- Safety note: not sensitive
+## Smoke tests
 
-### `PROVIDER_ALLOW_MOCK_FALLBACK`
+| Variable                             | Purpose                                          |
+| ------------------------------------ | ------------------------------------------------ |
+| `CLOSETSEARCH_API_BASE_URL`          | API origin to verify                             |
+| `CLOSETSEARCH_SMOKE_TIMEOUT_MS`      | per-request timeout                              |
+| `CLOSETSEARCH_SMOKE_REQUIRE_HTTPS`   | defaults true in production smoke                |
+| `CLOSETSEARCH_EXPECTED_PROVIDER_IDS` | optional comma-separated required real providers |
 
-- Required: optional
-- Default: `true`
-- Local example: `PROVIDER_ALLOW_MOCK_FALLBACK=true`
-- Beta note: keep enabled for constrained beta unless you explicitly want hard real-provider failures
-- Safety note: not sensitive
+`scripts/production-smoke-test.mjs` rejects non-real mode, mock fallback, active fixture providers, and mock listings.
 
-### `PROVIDER_REQUEST_TIMEOUT_MS`
+## Backup and restore
 
-- Required: optional
-- Default: `10000`
-- Local example: `PROVIDER_REQUEST_TIMEOUT_MS=10000`
-- Beta note: larger values may improve resilience but slow user-visible failures
-- Safety note: not sensitive
+See [PostgreSQL backup and restore](POSTGRES_BACKUP_RESTORE.md).
 
-### `PROVIDER_MAX_ACTIVE_PROVIDERS`
+Backup variables:
 
-- Required: optional
-- Default: `2`
-- Local example: `PROVIDER_MAX_ACTIVE_PROVIDERS=2`
-- Beta note: keep low until provider reliability is proven
-- Safety note: not sensitive
+- `BACKUP_DIR`
+- `BACKUP_RETENTION_DAYS`
+- `BACKUP_REQUIRE_ENCRYPTION`
+- `BACKUP_AGE_RECIPIENT`
 
-### `PROVIDER_MOCK_ENABLED`
+Restore variables:
 
-- Required: optional
-- Default: `true`
-- Local example: `PROVIDER_MOCK_ENABLED=true`
-- Beta note: useful for demos and fallback
-- Safety note: not sensitive
-
-## Grailed Provider
-
-### `GRAILED_PROVIDER_ENABLED`
-
-- Required: optional
-- Default: inherits from `GRAILED_SCRAPING_ALLOWED`
-- Local example: `GRAILED_PROVIDER_ENABLED=false`
-- Beta note: keep off unless the beta is explicitly allowed to use the authorized live path
-- Safety note: not sensitive
-
-### `GRAILED_SCRAPING_ALLOWED`
-
-- Required: optional
-- Default: `false`
-- Local example: `GRAILED_SCRAPING_ALLOWED=false`
-- Beta note: this is the compliance gate; only enable with written permission
-- Safety note: not sensitive, but operationally important
-
-### `GRAILED_BASE_URL`
-
-- Required: optional
-- Default: `https://www.grailed.com`
-- Local example: `GRAILED_BASE_URL=https://www.grailed.com`
-- Beta note: only change when the authorized integration path changes
-- Safety note: not sensitive
-
-### `GRAILED_REQUEST_TIMEOUT_MS`
-
-- Required: optional
-- Default: `5000`
-- Local example: `GRAILED_REQUEST_TIMEOUT_MS=5000`
-- Beta note: keep conservative to avoid long hanging searches
-- Safety note: not sensitive
-
-### `GRAILED_MIN_REQUEST_INTERVAL_MS`
-
-- Required: optional
-- Default: `3000`
-- Local example: `GRAILED_MIN_REQUEST_INTERVAL_MS=3000`
-- Beta note: keep conservative for compliance and stability
-- Safety note: not sensitive
-
-### `GRAILED_MAX_RESULTS_PER_SEARCH`
-
-- Required: optional
-- Default: `24`
-- Local example: `GRAILED_MAX_RESULTS_PER_SEARCH=24`
-- Beta note: low limits are safer until live demand is known
-- Safety note: not sensitive
-
-### `GRAILED_USER_AGENT`
-
-- Required: optional
-- Default: `ClosetSearchBot/0.1 contact:<project-contact-email>`
-- Local example: `GRAILED_USER_AGENT=ClosetSearchBot/0.1 contact:team@example.com`
-- Beta note: replace the placeholder contact before any authorized live beta
-- Safety note: not a secret, but should be accurate
-
-## Web Runtime
-
-### `VITE_API_BASE_URL`
-
-- Required: optional
-- Default: `http://localhost:4000`
-- Local example: `VITE_API_BASE_URL=http://localhost:4000`
-- Beta note: must point to the deployed API origin and align with `AUTH_ALLOWED_ORIGINS`
-- Safety note: not sensitive
-
-## Beta Smoke Test
-
-### `CLOSETSEARCH_API_BASE_URL`
-
-- Required: optional
-- Default: `http://127.0.0.1:4000`
-- Local example: `CLOSETSEARCH_API_BASE_URL=http://127.0.0.1:4000`
-- Beta note: point at the deployed API when running `corepack pnpm beta:smoke`
-- Safety note: not sensitive
-
-### `CLOSETSEARCH_SMOKE_TIMEOUT_MS`
-
-- Required: optional
-- Default: `5000`
-- Local example: `CLOSETSEARCH_SMOKE_TIMEOUT_MS=5000`
-- Beta note: increase if the deployment target is slow but healthy
-- Safety note: not sensitive
+- `RESTORE_DATABASE_URL`
+- `RESTORE_TARGET_DATABASE`
+- `RESTORE_CONFIRMATION`
+- `RESTORE_AGE_IDENTITY`
