@@ -1,4 +1,8 @@
-import type { Listing, SearchSortMode } from "@closetsearch/shared";
+import type {
+  Listing,
+  ListingDataOrigin,
+  SearchSortMode,
+} from "@closetsearch/shared";
 import type {
   Provider,
   ProviderCapabilities,
@@ -45,6 +49,7 @@ const defaultCredentialTtlMs = 15 * 60_000;
 export type GrailedProviderRuntimeMode = "fixture" | "authorized-live";
 
 export interface GrailedProviderOptions {
+  authorizationReference?: string;
   baseUrl?: string;
   credentialTtlMs?: number;
   fetchImpl?: GrailedFetch;
@@ -60,11 +65,27 @@ export interface GrailedProviderOptions {
 }
 
 const grailedCapabilities: ProviderCapabilities = {
+  dataOrigin: "authorized_scraping",
+  paginationModel: "page",
+  requiresAttribution: true,
+  supportsActiveListings: true,
+  supportsAttribution: true,
+  supportsBrandFilter: false,
+  supportsCategoryFilter: false,
+  supportsChangeFeed: false,
+  supportsConditionFilter: false,
   supportsPagination: true,
   supportsPagePagination: true,
   supportsCursorPagination: false,
   supportsPriceRange: false,
+  supportsSearch: true,
+  supportsSellerMetadata: true,
+  supportsShipping: false,
+  supportsSizeFilter: false,
+  supportsSoldListings: true,
+  supportsWebhooks: false,
   supportedListingTypes: ["auction", "buy_now", "unknown"],
+  supportedMarketStatuses: ["active", "sold"],
   supportedSortModes: ["relevance", "newest"],
 };
 
@@ -93,6 +114,7 @@ function createSuccess(
   listings: ProviderSearchResult["listings"],
   pagination: ProviderPagination,
   warnings?: ProviderWarning[],
+  dataOrigin: ListingDataOrigin = "authorized_scraping",
 ): ProviderSearchResult {
   return {
     providerId: GRAILED_PROVIDER_ID,
@@ -102,7 +124,9 @@ function createSuccess(
     warnings,
     metadata: {
       providerId: GRAILED_PROVIDER_ID,
+      dataOrigin,
       fetchedAt: new Date().toISOString(),
+      freshness: "fresh",
       resultCount: listings.length,
       pagination,
     },
@@ -220,19 +244,47 @@ async function searchFixtureListings(
   const matchedListings = sortFixtureListings(
     fixtureListings.filter((listing) => matchesFixtureQuery(listing, request.query)),
     request.query.sort,
-  ).map((listing) => normalizeGrailedListing(createGrailedListingInputFromFixture(listing)));
+  ).map((listing) => {
+    const normalizedListing = normalizeGrailedListing(
+      createGrailedListingInputFromFixture(listing),
+    );
+
+    return {
+      ...normalizedListing,
+      source: {
+        ...normalizedListing.source,
+        dataOrigin: "mock" as const,
+        isMock: true,
+      },
+      analyticsEligibility: {
+        eligible: false,
+        exclusionReasons: ["recorded_fixture"],
+      },
+      market: normalizedListing.market
+        ? {
+            ...normalizedListing.market,
+            isExcludedFromAnalytics: true,
+          }
+        : undefined,
+    };
+  });
   const startIndex = (page - 1) * pageSize;
   const endIndex = startIndex + pageSize;
   const listings = matchedListings.slice(startIndex, endIndex);
   const hasMore = endIndex < matchedListings.length;
 
-  return createSuccess(listings, {
-    page,
-    pageSize,
-    hasMore,
-    nextPage: hasMore ? page + 1 : undefined,
-    totalCount: matchedListings.length,
-  });
+  return createSuccess(
+    listings,
+    {
+      page,
+      pageSize,
+      hasMore,
+      nextPage: hasMore ? page + 1 : undefined,
+      totalCount: matchedListings.length,
+    },
+    undefined,
+    "mock",
+  );
 }
 
 async function resolveLiveGrailedAlgoliaCredentials(
@@ -300,6 +352,7 @@ async function searchAuthorizedLiveListings(
     Pick<
       GrailedProviderOptions,
       | "baseUrl"
+      | "authorizationReference"
       | "credentialTtlMs"
       | "fetchImpl"
       | "maxResultsPerSearch"
@@ -314,10 +367,13 @@ async function searchAuthorizedLiveListings(
     sleepImpl?: (ms: number) => Promise<void>;
   },
 ): Promise<ProviderSearchResponse> {
-  if (!options.scrapingAllowed) {
+  if (
+    !options.scrapingAllowed ||
+    !toTrimmedString(options.authorizationReference)
+  ) {
     return createFailure(
       "authorization_required",
-      "Grailed scraping is not allowed until GRAILED_SCRAPING_ALLOWED=true is set with documented written permission.",
+      "Grailed live access requires both GRAILED_SCRAPING_ALLOWED=true and a retained GRAILED_AUTHORIZATION_REFERENCE.",
     );
   }
 
@@ -422,6 +478,9 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
   return {
     id: GRAILED_PROVIDER_ID,
     name: GRAILED_PROVIDER_NAME,
+    dataOrigin:
+      runtimeMode === "fixture" ? "mock" : "authorized_scraping",
+    isMock: runtimeMode === "fixture",
     capabilities: grailedCapabilities,
     async search(request) {
       if (runtimeMode === "fixture") {
@@ -437,6 +496,8 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
 
       return searchAuthorizedLiveListings(request, {
         baseUrl,
+        authorizationReference:
+          toTrimmedString(options.authorizationReference),
         credentialTtlMs,
         credentialCache,
         fetchImpl: options.fetchImpl,

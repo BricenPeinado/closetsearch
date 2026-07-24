@@ -18,6 +18,7 @@ import {
 } from "./registry.js";
 
 export const PROVIDER_SEARCH_CACHE_TTL_MS = 15_000;
+export const PROVIDER_SEARCH_CACHE_STALE_MS = 60_000;
 const cursorVersion = 1;
 const defaultRequestedPageSize = 24;
 const maxProviderBatchAdvances = 8;
@@ -42,6 +43,7 @@ interface SearchCursorPayload {
 interface ProviderCandidatePage {
   availableListings: Array<{
     dedupeKey: string;
+    dedupeKeys: string[];
     listing: Listing;
     providerId: string;
   }>;
@@ -59,6 +61,7 @@ interface ProviderCollectionResult {
 
 interface CachedProviderBatch {
   expiresAt: number;
+  staleUntil: number;
   value: ProviderSearchResult;
 }
 
@@ -87,6 +90,12 @@ function createFailure(
 
 function createFailureSummary(failure: ProviderPreflightFailure): SearchProviderSummary {
   return {
+    degraded: true,
+    failure: {
+      code: failure.failure.code,
+      message: failure.failure.message,
+      retryable: failure.failure.retryable === true,
+    },
     providerId: failure.providerId,
     providerName: failure.providerName,
     status: "failure",
@@ -100,6 +109,46 @@ function supportsQuery(
   state: ProviderCursorState,
 ): ProviderFailure | null {
   const capabilities = provider.capabilities;
+
+  if (query.marketScope === "sold" && capabilities?.supportsSoldListings === false) {
+    return createFailure(
+      provider.id,
+      "unsupported_capability",
+      `${provider.name} does not support sold-listing history.`,
+    );
+  }
+
+  if (query.brandSlugs?.length && capabilities?.supportsBrandFilter === false) {
+    return createFailure(
+      provider.id,
+      "unsupported_capability",
+      `${provider.name} cannot safely map normalized brand filters.`,
+    );
+  }
+
+  if (query.categories?.length && capabilities?.supportsCategoryFilter === false) {
+    return createFailure(
+      provider.id,
+      "unsupported_capability",
+      `${provider.name} cannot safely map normalized category filters.`,
+    );
+  }
+
+  if (query.sizes?.length && capabilities?.supportsSizeFilter === false) {
+    return createFailure(
+      provider.id,
+      "unsupported_capability",
+      `${provider.name} cannot safely map normalized size filters.`,
+    );
+  }
+
+  if (query.conditions?.length && capabilities?.supportsConditionFilter === false) {
+    return createFailure(
+      provider.id,
+      "unsupported_capability",
+      `${provider.name} cannot safely map normalized condition filters.`,
+    );
+  }
 
   if (query.price && capabilities?.supportsPriceRange === false) {
     return createFailure(
@@ -185,15 +234,35 @@ function buildProviderSummary(
   response: ProviderSearchResponse,
 ): SearchProviderSummary {
   if (response.status === "success") {
+    const warningMessages = response.warnings?.map((warning) => warning.message);
+    const degraded =
+      response.metadata?.freshness === "stale" ||
+      Boolean(warningMessages?.length);
+
     return {
+      cacheStatus: response.metadata?.cacheStatus,
+      dataOrigin:
+        response.metadata?.dataOrigin ??
+        registration.provider.dataOrigin,
+      degraded: degraded || undefined,
+      fetchedAt: response.metadata?.fetchedAt,
+      freshness: response.metadata?.freshness,
+      latencyMs: response.metadata?.latencyMs,
       providerId: registration.provider.id,
       providerName: registration.name,
       status: "success",
       resultCount: response.listings.length,
+      warnings: warningMessages?.length ? warningMessages : undefined,
     };
   }
 
   return {
+    degraded: true,
+    failure: {
+      code: response.failure.code,
+      message: response.failure.message,
+      retryable: response.failure.retryable === true,
+    },
     providerId: registration.provider.id,
     providerName: registration.name,
     status: "failure",
@@ -203,20 +272,55 @@ function buildProviderSummary(
 
 function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
   const sorted = [...listings];
+  const stableTieBreak = (left: Listing, right: Listing) =>
+    [
+      left.providerId,
+      left.providerListingId,
+      left.id,
+    ]
+      .join(":")
+      .localeCompare(
+        [right.providerId, right.providerListingId, right.id].join(":"),
+      );
+  const getTimestamp = (listing: Listing) =>
+    new Date(
+      listing.lifecycle?.sourceUpdatedAt ??
+        listing.lifecycle?.listedAt ??
+        listing.fetchedAt,
+    ).getTime();
 
   switch (sort) {
     case "price_asc":
-      sorted.sort((left, right) => left.price.amount - right.price.amount);
+      sorted.sort((left, right) => {
+        const currencyComparison = left.price.currency.localeCompare(
+          right.price.currency,
+        );
+        return (
+          currencyComparison ||
+          left.price.amount - right.price.amount ||
+          stableTieBreak(left, right)
+        );
+      });
       break;
     case "price_desc":
-      sorted.sort((left, right) => right.price.amount - left.price.amount);
+      sorted.sort((left, right) => {
+        const currencyComparison = left.price.currency.localeCompare(
+          right.price.currency,
+        );
+        return (
+          currencyComparison ||
+          right.price.amount - left.price.amount ||
+          stableTieBreak(left, right)
+        );
+      });
       break;
     case "newest":
     case "relevance":
     default:
       sorted.sort(
         (left, right) =>
-          new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime(),
+          getTimestamp(right) - getTimestamp(left) ||
+          stableTieBreak(left, right),
       );
       break;
   }
@@ -242,29 +346,73 @@ function stableSerialize(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function createListingIdentity(listing: Listing) {
-  if (listing.providerId && listing.providerListingId) {
-    return `${listing.providerId}:${listing.providerListingId}`;
+function normalizeFingerprintText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function createCanonicalListingFingerprint(listing: Listing) {
+  const title = normalizeFingerprintText(listing.title);
+  const brand = normalizeFingerprintText(listing.brand.slug);
+  const category = normalizeFingerprintText(listing.category ?? "");
+  const size = normalizeFingerprintText(listing.size ?? "");
+  let imageIdentity: string;
+
+  try {
+    const imageUrl = new URL(listing.imageUrl);
+    imageIdentity = `${imageUrl.hostname.toLowerCase()}${imageUrl.pathname.toLowerCase()}`;
+  } catch {
+    return undefined;
   }
 
-  if (listing.source.id && listing.sourceUrl) {
-    return `${listing.source.id}:${listing.sourceUrl}`;
+  if (
+    title.length < 8 ||
+    !brand ||
+    brand === "unknown brand" ||
+    (!category && !size) ||
+    !imageIdentity
+  ) {
+    return undefined;
   }
 
   return [
-    listing.title.trim().toLowerCase(),
-    listing.brand.slug.trim().toLowerCase(),
-    String(listing.price.amount),
-    listing.price.currency.trim().toUpperCase(),
-    listing.imageUrl.trim().toLowerCase(),
+    title,
+    brand,
+    category,
+    size,
+    listing.condition ?? "",
+    listing.price.currency.toUpperCase(),
+    String(listing.price.amountMinor ?? listing.price.amount),
+    imageIdentity,
   ].join("|");
 }
 
 function createListingDedupeKey(listing: Listing) {
   return createHash("sha1")
-    .update(createListingIdentity(listing))
+    .update(
+      `source:${listing.providerId}:${listing.providerListingId}`,
+    )
     .digest("base64url")
     .slice(0, 16);
+}
+
+function createListingDedupeKeys(listing: Listing) {
+  const keys = [createListingDedupeKey(listing)];
+  const canonicalFingerprint = createCanonicalListingFingerprint(listing);
+
+  if (canonicalFingerprint) {
+    keys.push(
+      createHash("sha1")
+        .update(`canonical:${canonicalFingerprint}`)
+        .digest("base64url")
+        .slice(0, 16),
+    );
+  }
+
+  return keys;
 }
 
 function sanitizeProviderResult(result: ProviderSearchResult): ProviderSearchResult {
@@ -273,10 +421,23 @@ function sanitizeProviderResult(result: ProviderSearchResult): ProviderSearchRes
     .filter((listing): listing is Listing => listing !== null);
 
   if (sanitizedListings.length !== result.listings.length) {
+    const droppedCount = result.listings.length - sanitizedListings.length;
     logWarn("Dropped malformed provider listings", {
-      droppedCount: result.listings.length - sanitizedListings.length,
+      droppedCount,
       providerId: result.providerId,
     });
+
+    result = {
+      ...result,
+      warnings: [
+        ...(result.warnings ?? []),
+        {
+          code: "normalization_dropped",
+          message: `Dropped ${droppedCount} malformed provider listings.`,
+          severity: "warning",
+        },
+      ],
+    };
   }
 
   return {
@@ -297,7 +458,7 @@ function sanitizeProviderResult(result: ProviderSearchResult): ProviderSearchRes
 
 function cleanupExpiredCacheEntries(now = Date.now()) {
   for (const [key, entry] of providerSearchCache.entries()) {
-    if (entry.expiresAt <= now) {
+    if (entry.staleUntil <= now) {
       providerSearchCache.delete(key);
     }
   }
@@ -311,17 +472,27 @@ function getCachedProviderBatch(cacheKey: string) {
     return undefined;
   }
 
-  if (cachedEntry.expiresAt <= Date.now()) {
+  if (cachedEntry.staleUntil <= Date.now()) {
     providerSearchCache.delete(cacheKey);
     return undefined;
   }
 
-  return cachedEntry.value;
+  return {
+    status:
+      cachedEntry.expiresAt <= Date.now()
+        ? ("stale" as const)
+        : ("fresh" as const),
+    value: cachedEntry.value,
+  };
 }
 
 function setCachedProviderBatch(cacheKey: string, value: ProviderSearchResult) {
   providerSearchCache.set(cacheKey, {
     expiresAt: Date.now() + PROVIDER_SEARCH_CACHE_TTL_MS,
+    staleUntil:
+      Date.now() +
+      PROVIDER_SEARCH_CACHE_TTL_MS +
+      PROVIDER_SEARCH_CACHE_STALE_MS,
     value,
   });
 }
@@ -484,30 +655,81 @@ async function fetchProviderBatch(
   });
   const cachedResponse = getCachedProviderBatch(cacheKey);
 
-  if (cachedResponse) {
-    return cachedResponse;
-  }
+  const executeSearch = async () => {
+    const response = await withTimeout(
+      registration.provider.search({
+        query,
+        pagination: {
+          cursor: state.cursor,
+          page: state.page,
+          pageSize: requestedPageSize,
+        },
+      }),
+      runtime.config.requestTimeoutMs,
+      registration.provider,
+    );
 
-  const response = await withTimeout(
-    registration.provider.search({
-      query,
-      pagination: {
-        cursor: state.cursor,
-        page: state.page,
-        pageSize: requestedPageSize,
+    if (response.status === "success") {
+      const sanitizedResponse = sanitizeProviderResult(response);
+      setCachedProviderBatch(cacheKey, sanitizedResponse);
+      return sanitizedResponse;
+    }
+
+    return response;
+  };
+
+  if (cachedResponse?.status === "fresh") {
+    return {
+      ...cachedResponse.value,
+      metadata: {
+        ...cachedResponse.value.metadata,
+        providerId: cachedResponse.value.providerId,
+        fetchedAt:
+          cachedResponse.value.metadata?.fetchedAt ??
+          new Date().toISOString(),
+        cacheStatus: "fresh",
       },
-    }),
-    runtime.config.requestTimeoutMs,
-    registration.provider,
-  );
-
-  if (response.status === "success") {
-    const sanitizedResponse = sanitizeProviderResult(response);
-    setCachedProviderBatch(cacheKey, sanitizedResponse);
-    return sanitizedResponse;
+    };
   }
 
-  return response;
+  if (cachedResponse?.status === "stale") {
+    void executeSearch().catch((error: unknown) => {
+      logWarn("Provider stale-cache refresh failed", {
+        providerId: registration.provider.id,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Provider refresh failed.",
+      });
+    });
+
+    return {
+      ...cachedResponse.value,
+      metadata: {
+        ...cachedResponse.value.metadata,
+        providerId: cachedResponse.value.providerId,
+        fetchedAt:
+          cachedResponse.value.metadata?.fetchedAt ??
+          new Date().toISOString(),
+        cacheStatus: "stale",
+        freshness: "stale",
+      },
+    };
+  }
+
+  const response = await executeSearch();
+  return response.status === "success"
+    ? {
+        ...response,
+        metadata: {
+          ...response.metadata,
+          providerId: response.providerId,
+          fetchedAt:
+            response.metadata?.fetchedAt ?? new Date().toISOString(),
+          cacheStatus: "miss",
+        },
+      }
+    : response;
 }
 
 async function collectProviderCandidates(
@@ -575,12 +797,19 @@ async function collectProviderCandidates(
         totalCount: response.pagination?.totalCount ?? state.totalCount,
       };
       const availableListings = response.listings
-        .map((listing) => ({
-          dedupeKey: createListingDedupeKey(listing),
-          listing,
-          providerId: registration.provider.id,
-        }))
-        .filter((candidate) => !seenKeys.has(candidate.dedupeKey));
+        .map((listing) => {
+          const dedupeKeys = createListingDedupeKeys(listing);
+          return {
+            dedupeKey: dedupeKeys[0] ?? createListingDedupeKey(listing),
+            dedupeKeys,
+            listing,
+            providerId: registration.provider.id,
+          };
+        })
+        .filter(
+          (candidate) =>
+            !candidate.dedupeKeys.some((key) => seenKeys.has(key)),
+        );
 
       if (availableListings.length > 0) {
         return {
@@ -619,6 +848,12 @@ async function collectProviderCandidates(
         failure,
         nextState: state,
         summary: {
+          degraded: true,
+          failure: {
+            code: failure.code,
+            message: failure.message,
+            retryable: failure.retryable === true,
+          },
           providerId: registration.provider.id,
           providerName: registration.name,
           status: "failure",
@@ -683,10 +918,12 @@ export async function runProviderSearch(
     string,
     {
       dedupeKey: string;
+      dedupeKeys: string[];
       listing: Listing;
       providerId: string;
     }
   >();
+  const claimedDedupeKeys = new Set<string>();
 
   for (const { providerId, result } of collectionResults) {
     if (result.summary) {
@@ -709,9 +946,12 @@ export async function runProviderSearch(
       candidateByProviderId.set(providerId, result.candidatePage);
 
       for (const candidate of result.candidatePage.availableListings) {
-        if (!uniqueCandidates.has(candidate.dedupeKey)) {
-          uniqueCandidates.set(candidate.dedupeKey, candidate);
+        if (candidate.dedupeKeys.some((key) => claimedDedupeKeys.has(key))) {
+          continue;
         }
+
+        uniqueCandidates.set(candidate.dedupeKey, candidate);
+        candidate.dedupeKeys.forEach((key) => claimedDedupeKeys.add(key));
       }
     }
   }
@@ -727,13 +967,16 @@ export async function runProviderSearch(
 
       return {
         dedupeKey,
+        dedupeKeys:
+          candidate?.dedupeKeys ??
+          createListingDedupeKeys(listing),
         listing,
         providerId: candidate?.providerId ?? listing.providerId,
       };
     });
 
   for (const candidate of selectedCandidates) {
-    seenKeys.add(candidate.dedupeKey);
+    candidate.dedupeKeys.forEach((key) => seenKeys.add(key));
   }
 
   for (const { providerId } of collectionResults) {
@@ -744,7 +987,8 @@ export async function runProviderSearch(
     }
 
     const hasRemainingUnseenListings = candidatePage.availableListings.some(
-      (candidate) => !seenKeys.has(candidate.dedupeKey),
+      (candidate) =>
+        !candidate.dedupeKeys.some((key) => seenKeys.has(key)),
     );
 
     if (hasRemainingUnseenListings) {

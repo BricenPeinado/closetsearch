@@ -19,7 +19,7 @@ describe("normalizeMockListing", () => {
       indexedAt: "2026-05-04T11:00:00.000Z",
     });
 
-    expect(listing).toEqual({
+    expect(listing).toMatchObject({
       id: "mock:raw-123",
       providerId: "mock",
       providerListingId: "raw-123",

@@ -5,6 +5,7 @@ import type {
   ListingType,
   SearchSortMode,
 } from "@closetsearch/shared";
+import { createMoneyFromMajor } from "../money.js";
 import type { Provider, ProviderSearchQuery, ProviderSearchRequest } from "../types.js";
 
 const MOCK_PROVIDER_ID = "mock";
@@ -135,6 +136,12 @@ function normalizeBrand(raw: RawMockListing): Brand {
 }
 
 export function normalizeMockListing(raw: RawMockListing): Listing {
+  const price = createMoneyFromMajor(raw.amount, raw.currencyCode);
+
+  if (!price) {
+    throw new Error("Mock fixture contains invalid money.");
+  }
+
   return {
     id: `${MOCK_PROVIDER_ID}:${raw.id}`,
     providerId: MOCK_PROVIDER_ID,
@@ -142,20 +149,56 @@ export function normalizeMockListing(raw: RawMockListing): Listing {
     source: {
       id: MOCK_PROVIDER_ID,
       name: MOCK_PROVIDER_NAME,
+      dataOrigin: "mock",
+      isMock: true,
     },
     sourceUrl: raw.listingHref,
     title: raw.headline,
     brand: normalizeBrand(raw),
     imageUrl: raw.imageHref,
-    price: {
-      amount: raw.amount,
-      currency: raw.currencyCode,
+    images: [
+      {
+        url: raw.imageHref,
+        role: "primary",
+        alt: raw.headline,
+      },
+    ],
+    price,
+    pricing: {
+      original: price,
     },
     category: raw.department,
     size: raw.taggedSize,
     condition: raw.wear,
     listingType: raw.purchaseFormat,
     fetchedAt: raw.indexedAt,
+    analyticsEligibility: {
+      eligible: false,
+      exclusionReasons: ["mock_fixture"],
+    },
+    attribution: {
+      destinationUrl: raw.listingHref,
+      displayText: "View mock listing",
+      marketplaceName: MOCK_PROVIDER_NAME,
+      required: false,
+    },
+    freshness: {
+      observedAt: raw.indexedAt,
+      sourceUpdatedAt: raw.indexedAt,
+      status: "fresh",
+    },
+    lifecycle: {
+      lastSeenAt: raw.indexedAt,
+      listedAt: raw.indexedAt,
+      observedAt: raw.indexedAt,
+      sourceUpdatedAt: raw.indexedAt,
+      status: "active",
+    },
+    market: {
+      status: "active",
+      askingPrice: price,
+      isExcludedFromAnalytics: true,
+    },
   };
 }
 
@@ -301,12 +344,30 @@ function normalizePageSize(value: number | undefined) {
 export const mockProvider: Provider = {
   id: MOCK_PROVIDER_ID,
   name: MOCK_PROVIDER_NAME,
+  dataOrigin: "mock",
+  isMock: true,
   capabilities: {
+    dataOrigin: "mock",
+    paginationModel: "page",
+    requiresAttribution: false,
+    supportsActiveListings: true,
+    supportsAttribution: true,
+    supportsBrandFilter: true,
+    supportsCategoryFilter: true,
+    supportsChangeFeed: false,
+    supportsConditionFilter: true,
     supportsPagination: true,
     supportsPagePagination: true,
     supportsCursorPagination: false,
     supportsPriceRange: true,
+    supportsSearch: true,
+    supportsSellerMetadata: false,
+    supportsShipping: false,
+    supportsSizeFilter: true,
+    supportsSoldListings: false,
+    supportsWebhooks: false,
     supportedListingTypes: ["auction", "buy_now", "unknown"],
+    supportedMarketStatuses: ["active"],
     supportedSortModes: ["relevance", "price_asc", "price_desc", "newest"],
   },
   async search(request: ProviderSearchRequest) {
@@ -336,7 +397,9 @@ export const mockProvider: Provider = {
       pagination,
       metadata: {
         providerId: MOCK_PROVIDER_ID,
+        dataOrigin: "mock",
         fetchedAt: new Date().toISOString(),
+        freshness: "fresh",
         resultCount: listings.length,
         pagination,
       },

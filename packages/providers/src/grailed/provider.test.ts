@@ -70,10 +70,30 @@ describe("createGrailedProvider", () => {
         providerId: "grailed",
         code: "authorization_required",
         message:
-          "Grailed scraping is not allowed until GRAILED_SCRAPING_ALLOWED=true is set with documented written permission.",
+          "Grailed live access requires both GRAILED_SCRAPING_ALLOWED=true and a retained GRAILED_AUTHORIZATION_REFERENCE.",
         retryable: false,
       },
     });
+  });
+
+  it("does not treat a boolean authorization flag as retained written permission", async () => {
+    const fetchImpl = vi.fn();
+    const provider = createGrailedProvider({
+      runtimeMode: "authorized-live",
+      fetchImpl,
+      scrapingAllowed: true,
+    });
+
+    await expect(
+      provider.search({ query: { text: "kapital" } }),
+    ).resolves.toMatchObject({
+      status: "failure",
+      failure: {
+        code: "authorization_required",
+        retryable: false,
+      },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("extracts live credentials, validates them, and queries the active Algolia marketplace index", async () => {
@@ -94,6 +114,7 @@ describe("createGrailedProvider", () => {
       );
     const provider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       fetchImpl,
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
@@ -196,6 +217,7 @@ describe("createGrailedProvider", () => {
       );
     const provider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       fetchImpl,
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
@@ -265,6 +287,7 @@ describe("createGrailedProvider", () => {
       );
     const provider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       fetchImpl,
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
@@ -290,6 +313,7 @@ describe("createGrailedProvider", () => {
   it("returns an empty success response when the Algolia index has no results", async () => {
     const provider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
       fetchImpl: vi
@@ -364,6 +388,7 @@ describe("createGrailedProvider", () => {
     });
     const provider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       fetchImpl,
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
@@ -410,6 +435,7 @@ describe("createGrailedProvider", () => {
     });
     const provider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       fetchImpl,
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
@@ -435,6 +461,7 @@ describe("createGrailedProvider", () => {
   it("returns recoverable failures for rate limits and timeouts", async () => {
     const rateLimitedProvider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
       fetchImpl: vi
@@ -455,6 +482,7 @@ describe("createGrailedProvider", () => {
     timeoutError.name = "AbortError";
     const timeoutProvider = createGrailedProvider({
       runtimeMode: "authorized-live",
+      authorizationReference: "fixture-written-authorization",
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
       fetchImpl: vi

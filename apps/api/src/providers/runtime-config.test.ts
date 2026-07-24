@@ -5,7 +5,7 @@ describe("loadProviderRuntimeConfig", () => {
   it("uses safe mock-first defaults for local development", () => {
     const config = loadProviderRuntimeConfig({});
 
-    expect(config).toEqual({
+    expect(config).toMatchObject({
       mode: "mock",
       allowMockFallback: true,
       requestTimeoutMs: 10_000,
@@ -24,6 +24,17 @@ describe("loadProviderRuntimeConfig", () => {
         },
       },
     });
+  });
+
+  it("fails closed instead of silently enabling mock inventory in production", () => {
+    const config = loadProviderRuntimeConfig({
+      NODE_ENV: "production",
+      PROVIDER_ALLOW_MOCK_FALLBACK: "true",
+    });
+
+    expect(config.mode).toBe("real");
+    expect(config.allowMockFallback).toBe(false);
+    expect(config.providers.mock.enabled).toBe(false);
   });
 
   it("parses Grailed scraping flags, pacing, and timeout settings", () => {

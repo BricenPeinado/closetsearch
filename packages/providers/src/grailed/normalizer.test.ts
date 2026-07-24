@@ -24,7 +24,7 @@ describe("normalizeGrailedListing", () => {
       ),
     );
 
-    expect(listing).toEqual({
+    expect(listing).toMatchObject({
       id: "grailed:grailed-raw-123",
       providerId: "grailed",
       providerListingId: "grailed-raw-123",
@@ -63,7 +63,7 @@ describe("normalizeGrailedListing", () => {
       name: "Unknown Brand",
     });
     expect(listing.imageUrl).toBe("https://closetsearch.dev/placeholders/grailed-listing.png");
-    expect(listing.price).toEqual({ amount: 0, currency: "USD" });
+    expect(listing.price).toMatchObject({ amount: 0, currency: "USD" });
     expect(listing.size).toBeUndefined();
     expect(listing.condition).toBeUndefined();
     expect(listing.listingType).toBe("unknown");

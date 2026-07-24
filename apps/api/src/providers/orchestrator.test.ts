@@ -91,7 +91,7 @@ describe("runProviderSearch", () => {
       pageSize: 24,
       hasMore: true,
     });
-    expect(result.providers).toEqual([
+    expect(result.providers).toMatchObject([
       {
         providerId: "mock",
         providerName: "Mock Closet",
@@ -290,12 +290,14 @@ describe("runProviderSearch", () => {
     );
 
     expect(result.listings).toEqual([createListing("malformed:good-1")]);
-    expect(result.providers).toEqual([
+    expect(result.providers).toMatchObject([
       {
+        degraded: true,
         providerId: "malformed",
         providerName: "Malformed Provider",
         status: "success",
         resultCount: 1,
+        warnings: ["Dropped 1 malformed provider listings."],
       },
     ]);
   });

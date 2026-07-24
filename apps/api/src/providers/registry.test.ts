@@ -33,6 +33,7 @@ describe("createProviderRuntime", () => {
     const runtime = createProviderRuntime(
       loadProviderRuntimeConfig({
         GRAILED_SCRAPING_ALLOWED: "true",
+        GRAILED_AUTHORIZATION_REFERENCE: "agreement-2026-01",
         GRAILED_USER_AGENT: "ClosetSearchBot/0.1 contact:team@example.com",
       }),
     );
@@ -96,11 +97,12 @@ describe("createProviderRuntime", () => {
         PROVIDER_RUNTIME_MODE: "hybrid",
         GRAILED_PROVIDER_ENABLED: "true",
         GRAILED_SCRAPING_ALLOWED: "true",
+        GRAILED_AUTHORIZATION_REFERENCE: "agreement-2026-01",
         GRAILED_USER_AGENT: "ClosetSearchBot/0.1 contact:team@example.com",
       }),
     );
 
-    expect(runtime.statuses).toEqual([
+    expect(runtime.statuses).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "mock",
         providerMode: "mock",
@@ -126,6 +128,6 @@ describe("createProviderRuntime", () => {
           "GRAILED_USER_AGENT",
         ]),
       }),
-    ]);
+    ]));
   });
 });

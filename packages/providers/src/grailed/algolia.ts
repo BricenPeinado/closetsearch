@@ -8,6 +8,7 @@ import type {
 import type { ProviderSearchQuery } from "../types.js";
 import type { GrailedAlgoliaCredentials } from "./credentials.js";
 import type { GrailedJsonClientResponse } from "./http-client.js";
+import { createMoneyFromMinor } from "../money.js";
 
 const activeListingsIndex = "Listing_production";
 const soldListingsIndex = "Listing_sold_production";
@@ -338,6 +339,24 @@ export function normalizeGrailedAlgoliaHit(
     hit.priceDropsCount,
   );
   const marketStatus = options.marketScope ?? "active";
+  const price =
+    createMoneyFromMinor(Math.max(0, Math.trunc(priceInCents)), currency) ??
+    createMoneyFromMinor(0, "USD");
+  const sourceUpdatedAt =
+    firstString(hit.updated_at, hit.created_at) ?? options.fetchedAt;
+  const listedAt = firstString(hit.created_at);
+  const imageUrl =
+    firstString(
+      hit.image_url,
+      hit.photo_url,
+      asRecord(hit.cover_photo)?.url,
+      asRecord(hit.photo)?.url,
+    ) ?? "https://closetsearch.dev/placeholders/grailed-listing.png";
+  const sourceUrl = normalizePath(
+    firstString(hit.url, hit.path, hit.canonical_path),
+    providerListingId,
+    options.baseUrl,
+  );
 
   return {
     id: `grailed:${providerListingId}`,
@@ -346,39 +365,74 @@ export function normalizeGrailedAlgoliaHit(
     source: {
       id: "grailed",
       name: "Grailed",
+      dataOrigin: "authorized_scraping",
+      isMock: false,
     },
-    sourceUrl: normalizePath(
-      firstString(hit.url, hit.path, hit.canonical_path),
-      providerListingId,
-      options.baseUrl,
-    ),
+    sourceUrl,
     title: firstString(hit.title, hit.full_title, hit.name) ?? "Grailed listing",
     brand: {
       id: `brand:${brandSlug}`,
       slug: brandSlug,
       name: brandName,
     },
-    imageUrl:
-      firstString(
-        hit.image_url,
-        hit.photo_url,
-        asRecord(hit.cover_photo)?.url,
-        asRecord(hit.photo)?.url,
-      ) ?? "https://closetsearch.dev/placeholders/grailed-listing.png",
-    price: {
-      amount: Math.max(0, priceInCents / 100),
-      currency,
+    imageUrl,
+    images: [
+      {
+        url: imageUrl,
+        role: "primary",
+        alt: firstString(hit.title, hit.full_title, hit.name) ?? "Grailed listing",
+      },
+    ],
+    price: price ?? {
+      amount: 0,
+      amountMinor: 0,
+      currency: "USD",
+      fractionDigits: 2,
+    },
+    pricing: {
+      original: price ?? {
+        amount: 0,
+        amountMinor: 0,
+        currency: "USD",
+        fractionDigits: 2,
+      },
     },
     category: firstString(hit.category, hit.category_name),
     size: firstString(hit.size, hit.size_label, hit.size_name),
     condition: normalizeCondition(hit.condition),
     listingType: normalizeListingType(hit.listing_type ?? hit.sale_type),
-    fetchedAt:
-      firstString(hit.updated_at, hit.created_at, options.fetchedAt) ??
-      options.fetchedAt,
+    fetchedAt: options.fetchedAt,
+    analyticsEligibility: {
+      eligible: trustTier !== "unverified",
+      exclusionReasons:
+        trustTier === "unverified"
+          ? ["seller_metadata_below_provider_confidence_gate"]
+          : undefined,
+    },
+    attribution: {
+      destinationUrl: sourceUrl,
+      displayText: "View on Grailed",
+      marketplaceName: "Grailed",
+      required: true,
+    },
+    freshness: {
+      observedAt: options.fetchedAt,
+      sourceUpdatedAt,
+      status: "fresh",
+    },
+    lifecycle: {
+      lastSeenAt: options.fetchedAt,
+      listedAt,
+      observedAt: options.fetchedAt,
+      soldAt: marketStatus === "sold" ? sourceUpdatedAt : undefined,
+      sourceUpdatedAt,
+      status: marketStatus,
+    },
     seller,
     market: {
       status: marketStatus,
+      askingPrice: marketStatus === "active" ? price : undefined,
+      soldPrice: marketStatus === "sold" ? price : undefined,
       tags,
       priceDropsCount,
       isExcludedFromAnalytics: trustTier === "unverified",

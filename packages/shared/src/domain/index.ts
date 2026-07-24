@@ -21,11 +21,22 @@ export type {
 export type { Brand } from "./brand.js";
 export type { FeedQuery, FeedResponse } from "./feed.js";
 export type {
+  ConvertedMoney,
   Listing,
+  ListingAnalyticsEligibility,
+  ListingAttribution,
+  ListingAvailabilityStatus,
   ListingCondition,
+  ListingDataOrigin,
+  ListingFreshness,
+  ListingFreshnessStatus,
+  ListingImage,
+  ListingLifecycle,
   ListingMarketMetrics,
   ListingMarketStatus,
+  ListingPricing,
   ListingSeller,
+  ListingShipping,
   ListingSource,
   ListingType,
   Money,

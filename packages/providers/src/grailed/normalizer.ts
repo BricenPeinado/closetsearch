@@ -1,4 +1,5 @@
 import type { Brand, Listing, ListingCondition, ListingType } from "@closetsearch/shared";
+import { createMoneyFromMajor } from "../money.js";
 import type { RawGrailedFixtureListing } from "./fixtures.js";
 import type { ParsedGrailedListingCard } from "./parser.js";
 
@@ -124,11 +125,11 @@ function normalizeMoney(value: string | null | undefined) {
       : text.toUpperCase().includes("USD") || text.includes("$")
         ? "USD"
         : "USD";
-  const amount = amountMatch ? Number(amountMatch[1]) : 0;
-
-  return {
-    amount: Number.isFinite(amount) ? amount : 0,
-    currency,
+  return createMoneyFromMajor(amountMatch?.[1] ?? "0", currency) ?? {
+    amount: 0,
+    amountMinor: 0,
+    currency: "USD",
+    fractionDigits: 2,
   };
 }
 
@@ -184,6 +185,10 @@ export function createGrailedListingInputFromParsedCard(
 
 export function normalizeGrailedListing(raw: GrailedListingInput): Listing {
   const providerListingId = normalizeSourceListingId(raw);
+  const fetchedAt = normalizeFetchedAt(raw.fetchedAt);
+  const imageUrl =
+    toTrimmedString(raw.imageUrl) || fallbackGrailedImageUrl;
+  const price = normalizeMoney(raw.priceText);
 
   return {
     id: GRAILED_PROVIDER_ID + ":" + providerListingId,
@@ -192,16 +197,54 @@ export function normalizeGrailedListing(raw: GrailedListingInput): Listing {
     source: {
       id: GRAILED_PROVIDER_ID,
       name: GRAILED_PROVIDER_NAME,
+      dataOrigin: "authorized_scraping",
+      isMock: false,
     },
     sourceUrl: normalizeSourceUrl(raw.sourceUrl, providerListingId),
     title: toTrimmedString(raw.title) || "Grailed listing",
     brand: normalizeBrand(raw),
-    imageUrl: toTrimmedString(raw.imageUrl) || fallbackGrailedImageUrl,
-    price: normalizeMoney(raw.priceText),
+    imageUrl,
+    images: [
+      {
+        url: imageUrl,
+        role: "primary",
+        alt: toTrimmedString(raw.title) || "Grailed listing",
+      },
+    ],
+    price,
+    pricing: {
+      original: price,
+    },
     category: toTrimmedString(raw.category) || undefined,
     size: toTrimmedString(raw.size) || undefined,
     condition: normalizeCondition(raw.condition),
     listingType: normalizeListingType(raw.listingType),
-    fetchedAt: normalizeFetchedAt(raw.fetchedAt),
+    fetchedAt,
+    analyticsEligibility: {
+      eligible: true,
+    },
+    attribution: {
+      destinationUrl: normalizeSourceUrl(raw.sourceUrl, providerListingId),
+      displayText: "View on Grailed",
+      marketplaceName: GRAILED_PROVIDER_NAME,
+      required: true,
+    },
+    freshness: {
+      observedAt: fetchedAt,
+      sourceUpdatedAt: fetchedAt,
+      status: "fresh",
+    },
+    lifecycle: {
+      lastSeenAt: fetchedAt,
+      listedAt: fetchedAt,
+      observedAt: fetchedAt,
+      sourceUpdatedAt: fetchedAt,
+      status: "active",
+    },
+    market: {
+      status: "active",
+      askingPrice: price,
+      isExcludedFromAnalytics: false,
+    },
   };
 }

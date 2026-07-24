@@ -1,5 +1,8 @@
 import type {
   Listing,
+  ListingCondition,
+  ListingDataOrigin,
+  ListingMarketStatus,
   ListingType,
   SearchQuery,
   SearchSortMode,
@@ -14,18 +17,24 @@ export type ProviderFailureCode =
   | "authorization_required"
   | "unsupported_capability"
   | "normalization_failed"
+  | "circuit_open"
+  | "invalid_response"
   | "unknown";
 
 export interface ProviderFailure {
   providerId: string;
   code: ProviderFailureCode;
+  classification?: "retryable" | "terminal";
   message: string;
+  retryAfterMs?: number;
   retryable?: boolean;
+  statusCode?: number;
 }
 
 export interface ProviderWarning {
   code: string;
   message: string;
+  severity?: "info" | "warning";
 }
 
 export interface ProviderPagination {
@@ -39,8 +48,12 @@ export interface ProviderPagination {
 }
 
 export interface ProviderSearchMetadata {
+  cacheStatus?: "miss" | "fresh" | "stale";
+  dataOrigin?: ListingDataOrigin;
   providerId: string;
   fetchedAt: string;
+  freshness?: "fresh" | "stale" | "unknown";
+  latencyMs?: number;
   pagination?: ProviderPagination;
   resultCount?: number;
 }
@@ -76,16 +89,35 @@ export type ProviderSearchResponse =
   | ProviderSearchFailure;
 
 export interface ProviderCapabilities {
+  dataOrigin?: ListingDataOrigin;
+  paginationModel?: "none" | "page" | "cursor" | "offset";
+  requiresAttribution?: boolean;
+  supportsActiveListings?: boolean;
+  supportsAttribution?: boolean;
+  supportsBrandFilter?: boolean;
+  supportsCategoryFilter?: boolean;
+  supportsChangeFeed?: boolean;
+  supportsConditionFilter?: boolean;
   supportsPagination?: boolean;
   supportsCursorPagination?: boolean;
   supportsPagePagination?: boolean;
   supportsPriceRange?: boolean;
+  supportsSearch?: boolean;
+  supportsSellerMetadata?: boolean;
+  supportsShipping?: boolean;
+  supportsSizeFilter?: boolean;
+  supportsSoldListings?: boolean;
+  supportsWebhooks?: boolean;
+  supportedConditions?: ListingCondition[];
   supportedListingTypes?: ListingType[];
+  supportedMarketStatuses?: ListingMarketStatus[];
   supportedSortModes?: SearchSortMode[];
 }
 
 export interface Provider {
+  dataOrigin?: ListingDataOrigin;
   id: string;
+  isMock?: boolean;
   name: string;
   capabilities?: ProviderCapabilities;
   search(request: ProviderSearchRequest): Promise<ProviderSearchResponse>;
