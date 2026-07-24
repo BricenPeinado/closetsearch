@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { sendJson } from "../api-client";
 import { getAuthErrorMessage } from "../user-session";
 
@@ -16,6 +16,41 @@ interface AccountExportResponse {
 
 export function normalizeAccountActionToken(value: string | null) {
   return value?.trim() ?? "";
+}
+
+export function readAccountActionToken(hash: string) {
+  const fragment = hash.startsWith("#") ? hash.slice(1) : hash;
+  return normalizeAccountActionToken(new URLSearchParams(fragment).get("token"));
+}
+
+function useAccountActionToken() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [token] = useState(() => readAccountActionToken(location.hash));
+
+  useEffect(() => {
+    const fragment = new URLSearchParams(
+      location.hash.startsWith("#") ? location.hash.slice(1) : location.hash,
+    );
+
+    if (!fragment.has("token")) {
+      return;
+    }
+
+    fragment.delete("token");
+    const remainingFragment = fragment.toString();
+
+    navigate(
+      {
+        hash: remainingFragment ? `#${remainingFragment}` : "",
+        pathname: location.pathname,
+        search: location.search,
+      },
+      { replace: true },
+    );
+  }, [location.hash, location.pathname, location.search, navigate]);
+
+  return token;
 }
 
 function AccountActionShell({ children, description, title }: AccountActionShellProps) {
@@ -110,8 +145,7 @@ export function PasswordResetRequestPage() {
 }
 
 export function PasswordResetCompletePage({ onPasswordReset }: { onPasswordReset: () => void }) {
-  const [searchParams] = useSearchParams();
-  const token = normalizeAccountActionToken(searchParams.get("token"));
+  const token = useAccountActionToken();
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [errorMessage, setErrorMessage] = useState<string>();
@@ -209,8 +243,7 @@ export function PasswordResetCompletePage({ onPasswordReset }: { onPasswordReset
 }
 
 export function EmailVerificationPage() {
-  const [searchParams] = useSearchParams();
-  const token = normalizeAccountActionToken(searchParams.get("token"));
+  const token = useAccountActionToken();
   const [errorMessage, setErrorMessage] = useState<string>();
   const [feedback, setFeedback] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -267,8 +300,7 @@ export function EmailVerificationPage() {
 }
 
 export function AccountExportPage() {
-  const [searchParams] = useSearchParams();
-  const token = normalizeAccountActionToken(searchParams.get("token"));
+  const token = useAccountActionToken();
   const [exportData, setExportData] = useState<Record<string, unknown>>();
   const [errorMessage, setErrorMessage] = useState<string>();
   const [isSubmitting, setIsSubmitting] = useState(false);

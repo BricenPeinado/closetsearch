@@ -35,6 +35,32 @@ test.beforeEach(async ({ context }) => {
   await context.route("https://**", (route) => route.abort("blockedbyclient"));
 });
 
+test("account action tokens stay in the URL fragment and are scrubbed after capture", async ({
+  page,
+}) => {
+  let submittedToken: string | undefined;
+
+  await page.route(`${apiUrl}/auth/verify-email`, async (route) => {
+    submittedToken = (route.request().postDataJSON() as { token?: string }).token;
+    await route.fulfill({
+      contentType: "application/json",
+      json: { status: "verified" },
+      status: 200,
+    });
+  });
+
+  await page.goto("/verify-email#token=fragment-only-token");
+
+  await expect(page.getByRole("heading", { level: 1, name: "Verify your email" })).toBeVisible();
+  await expect(page).toHaveURL(`${webUrl}/verify-email`);
+  await page.getByRole("button", { name: "Verify email" }).click();
+
+  await expect(
+    page.getByText("Email verified. The one-time link has now been consumed."),
+  ).toBeVisible();
+  expect(submittedToken).toBe("fragment-only-token");
+});
+
 test("signed-out discovery stays useful and keeps account data protected", async ({
   page,
   request,

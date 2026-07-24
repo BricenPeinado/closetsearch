@@ -3796,8 +3796,9 @@ function ProfileRoutePage({
             <div>
               <h2>Settings</h2>
               <p>
-                Currency is a display preference scaffold for now; listing prices stay
-                marketplace-native until conversion ships.
+                Your preferred currency is used when a sourced, non-stale exchange rate is
+                available. Otherwise, ClosetSearch keeps the marketplace&apos;s original currency
+                and never relabels an unconverted price.
               </p>
             </div>
           </div>

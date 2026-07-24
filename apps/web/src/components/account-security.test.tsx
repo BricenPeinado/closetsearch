@@ -7,6 +7,7 @@ import {
   normalizeAccountActionToken,
   PasswordResetCompletePage,
   PasswordResetRequestPage,
+  readAccountActionToken,
 } from "./account-action-pages";
 import { AccountSecurityPanel, getAccountDeliveryMessage } from "./account-security";
 
@@ -14,6 +15,9 @@ describe("account action helpers", () => {
   it("normalizes missing and whitespace-padded one-time tokens", () => {
     expect(normalizeAccountActionToken(null)).toBe("");
     expect(normalizeAccountActionToken("  one-time-token  ")).toBe("one-time-token");
+    expect(readAccountActionToken("#token=fragment-token")).toBe("fragment-token");
+    expect(readAccountActionToken("token=encoded%20token")).toBe("encoded token");
+    expect(readAccountActionToken("#other=value")).toBe("");
   });
 
   it("distinguishes configured delivery from disabled outbound email", () => {
@@ -60,17 +64,17 @@ describe("account security surfaces", () => {
 
   it("requires explicit user actions before consuming one-time tokens", () => {
     const resetHtml = renderToString(
-      <MemoryRouter initialEntries={["/reset-password?token=reset-token"]}>
+      <MemoryRouter initialEntries={["/reset-password#token=reset-token"]}>
         <PasswordResetCompletePage onPasswordReset={vi.fn()} />
       </MemoryRouter>,
     );
     const verifyHtml = renderToString(
-      <MemoryRouter initialEntries={["/verify-email?token=verify-token"]}>
+      <MemoryRouter initialEntries={["/verify-email#token=verify-token"]}>
         <EmailVerificationPage />
       </MemoryRouter>,
     );
     const exportHtml = renderToString(
-      <MemoryRouter initialEntries={["/account/export?token=export-token"]}>
+      <MemoryRouter initialEntries={["/account/export#token=export-token"]}>
         <AccountExportPage />
       </MemoryRouter>,
     );
