@@ -6,6 +6,8 @@ const validProductionEnvironment = {
   AUTH_COOKIE_SECURE: "true",
   AUTH_SESSION_PEPPER: "a".repeat(32),
   NODE_ENV: "production",
+  DATABASE_URL: "postgresql://closetsearch:test@database:5432/closetsearch",
+  PERSISTENCE_DRIVER: "postgres",
   PROVIDER_ALLOW_MOCK_FALLBACK: "false",
   PROVIDER_MOCK_ENABLED: "false",
   PROVIDER_RUNTIME_MODE: "real",
@@ -16,6 +18,7 @@ describe("startup environment validation", () => {
     expect(validateStartupEnvironment(validProductionEnvironment)).toMatchObject({
       host: "127.0.0.1",
       port: 4_000,
+      persistenceDriver: "postgres",
     });
   });
 
@@ -41,5 +44,36 @@ describe("startup environment validation", () => {
         AUTH_ALLOWED_ORIGINS: "http://localhost:5173",
       }),
     ).toThrowError("HTTPS origins");
+  });
+
+  it("requires PostgreSQL and a database URL in production", () => {
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        PERSISTENCE_DRIVER: "sqlite",
+      }),
+    ).toThrowError("forbidden in production");
+    expect(() =>
+      validateStartupEnvironment({
+        ...validProductionEnvironment,
+        DATABASE_URL: undefined,
+      }),
+    ).toThrowError("DATABASE_URL");
+  });
+
+  it("allows SQLite only when explicitly selected outside production", () => {
+    expect(
+      validateStartupEnvironment({
+        NODE_ENV: "development",
+        PERSISTENCE_DRIVER: "sqlite",
+      }),
+    ).toMatchObject({
+      persistenceDriver: "sqlite",
+    });
+    expect(() =>
+      validateStartupEnvironment({
+        NODE_ENV: "development",
+      }),
+    ).toThrowError("PERSISTENCE_DRIVER");
   });
 });

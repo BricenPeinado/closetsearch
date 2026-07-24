@@ -12,6 +12,10 @@ interface ExistingListingRow extends QueryResultRow {
   fetched_at: Date;
 }
 
+interface ListingIdentityRow extends QueryResultRow {
+  id: string;
+}
+
 interface CurrentStateRow extends QueryResultRow {
   availability: ListingObservationInput["availability"];
   lifecycle_version: string | number | bigint;
@@ -408,6 +412,21 @@ async function recordPriceObservation(
 
 export class ListingRepository {
   constructor(private readonly database: PostgresDatabase) {}
+
+  async resolveInternalId(
+    providerId: string,
+    sourceListingId: string,
+  ): Promise<string | undefined> {
+    const result = await this.database.query<ListingIdentityRow>(
+      `SELECT id
+       FROM listings
+       WHERE provider_id = $1
+         AND source_listing_id = $2`,
+      [providerId, sourceListingId],
+    );
+
+    return result.rows[0]?.id;
+  }
 
   async upsertObservation(
     input: ListingObservationInput,

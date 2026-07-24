@@ -1,7 +1,13 @@
 import { getAuthConfig } from "./auth/config.js";
+import {
+  resolvePersistenceDriver,
+  type PersistenceDriver,
+} from "./db/persistence-driver.js";
+import { loadPostgresRuntimeConfig } from "./db/postgres/config.js";
 
 export interface StartupConfig {
   host: string;
+  persistenceDriver: PersistenceDriver;
   port: number;
   shutdownTimeoutMs: number;
 }
@@ -39,8 +45,17 @@ export function validateStartupEnvironment(
   env: Record<string, string | undefined> = process.env,
 ): StartupConfig {
   const authConfig = getAuthConfig(env);
+  const persistenceDriver = resolvePersistenceDriver(env);
+
+  if (persistenceDriver === "postgres") {
+    loadPostgresRuntimeConfig(env);
+  }
 
   if (env.NODE_ENV === "production") {
+    if (persistenceDriver !== "postgres") {
+      throw new Error("PostgreSQL persistence is required in production.");
+    }
+
     if (authConfig.tokenPepper.length < 32) {
       throw new Error(
         "AUTH_SESSION_PEPPER must contain at least 32 characters in production.",
@@ -79,6 +94,7 @@ export function validateStartupEnvironment(
 
   return {
     host: env.HOST?.trim() || "127.0.0.1",
+    persistenceDriver,
     port: parsePositiveInteger(env.PORT, 4_000, 65_535),
     shutdownTimeoutMs: parsePositiveInteger(
       env.SHUTDOWN_TIMEOUT_MS,

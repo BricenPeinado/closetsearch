@@ -154,6 +154,63 @@ export interface RunPostgresMigrationsOptions {
   useAdvisoryLock?: boolean;
 }
 
+export async function inspectPostgresMigrationState(
+  pool: PgPoolLike,
+  migrations = loadPostgresMigrations(),
+) {
+  const client = await pool.connect();
+
+  try {
+    const ledgerResult = await client.query(
+      `SELECT 1
+       FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_name = 'postgres_schema_migrations'
+       LIMIT 1`,
+    );
+    const expectedVersion = migrations.at(-1)?.version ?? 0;
+
+    if (!ledgerResult.rowCount) {
+      return {
+        appliedVersions: [] as number[],
+        expectedVersion,
+        pendingVersions: migrations.map((migration) => migration.version),
+        ready: false as const,
+        reason: "migration_ledger_missing" as const,
+      };
+    }
+
+    const appliedResult = await client.query<AppliedMigrationRow>(
+      `SELECT version, name, checksum
+       FROM postgres_schema_migrations
+       WHERE namespace = $1
+       ORDER BY version`,
+      [migrationNamespace],
+    );
+    verifyMigrationHistory(migrations, appliedResult.rows);
+    const appliedVersions = appliedResult.rows.map((row) =>
+      Number(row.version),
+    );
+    const appliedSet = new Set(appliedVersions);
+    const pendingVersions = migrations
+      .filter((migration) => !appliedSet.has(migration.version))
+      .map((migration) => migration.version);
+
+    return {
+      appliedVersions,
+      expectedVersion,
+      pendingVersions,
+      ready: pendingVersions.length === 0,
+      reason:
+        pendingVersions.length === 0
+          ? undefined
+          : ("pending_migrations" as const),
+    };
+  } finally {
+    client.release();
+  }
+}
+
 export async function runPostgresMigrations(
   pool: PgPoolLike,
   options: RunPostgresMigrationsOptions = {},

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
 import type { PostgresDatabase } from "../database.js";
+import type { PgQueryable } from "../types.js";
 
 export type EntitlementProvider =
   | "admin"
@@ -44,17 +45,20 @@ function mapEntitlement(row: EntitlementRow) {
 export class EntitlementRepository {
   constructor(private readonly database: PostgresDatabase) {}
 
-  async grant(input: {
-    endsAt?: Date;
-    externalReference?: string;
-    featureKey: string;
-    id?: string;
-    metadata?: Record<string, unknown>;
-    provider: EntitlementProvider;
-    startsAt: Date;
-    userId: string;
-  }) {
-    const result = await this.database.query<EntitlementRow>(
+  async grant(
+    input: {
+      endsAt?: Date;
+      externalReference?: string;
+      featureKey: string;
+      id?: string;
+      metadata?: Record<string, unknown>;
+      provider: EntitlementProvider;
+      startsAt: Date;
+      userId: string;
+    },
+    queryable: PgQueryable = this.database,
+  ) {
+    const result = await queryable.query<EntitlementRow>(
       `INSERT INTO premium_entitlements (
          id,
          user_id,
