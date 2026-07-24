@@ -1,0 +1,291 @@
+import { readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+
+type JsonObject = Record<string, unknown>;
+
+const httpMethods = ["delete", "get", "patch", "post", "put"] as const;
+const implementedOperations = [
+  "DELETE /likes",
+  "DELETE /me",
+  "DELETE /me/likes",
+  "DELETE /me/saved-filters",
+  "DELETE /me/saved-searches",
+  "DELETE /me/watchlists",
+  "DELETE /me/watchlists/{watchlistId}",
+  "DELETE /recent-searches",
+  "DELETE /saved-searches",
+  "GET /analytics/market-insights",
+  "GET /analytics/overview",
+  "GET /analytics/underpriced",
+  "GET /auth/me",
+  "GET /brands",
+  "GET /brands/{slug}",
+  "GET /feed",
+  "GET /health",
+  "GET /health/live",
+  "GET /health/ready",
+  "GET /likes",
+  "GET /me/alert-matches",
+  "GET /me/alerts",
+  "GET /me/likes",
+  "GET /me/notification-preferences",
+  "GET /me/saved-filters",
+  "GET /me/saved-searches",
+  "GET /me/settings",
+  "GET /me/watchlists",
+  "GET /metrics",
+  "GET /providers/health",
+  "GET /recent-searches",
+  "GET /saved-searches",
+  "GET /search",
+  "PATCH /me/notification-preferences",
+  "PATCH /me/settings",
+  "PATCH /me/watchlists/{watchlistId}",
+  "POST /account/export",
+  "POST /admin/development-entitlements",
+  "POST /auth/login",
+  "POST /auth/logout",
+  "POST /auth/logout-all",
+  "POST /auth/password-reset/complete",
+  "POST /auth/password-reset/request",
+  "POST /auth/signup",
+  "POST /auth/verify-email",
+  "POST /events",
+  "POST /likes",
+  "POST /me/account-export",
+  "POST /me/alerts/dismiss",
+  "POST /me/alerts/seen",
+  "POST /me/email/verification",
+  "POST /me/likes",
+  "POST /me/saved-filters",
+  "POST /me/saved-searches",
+  "POST /me/watchlists",
+  "POST /recent-searches",
+  "POST /saved-searches",
+  "POST /users/onboarding",
+  "PUT /me/email",
+].sort();
+const routeSourceFiles = [
+  "./app.ts",
+  "./routes/analytics-routes.ts",
+  "./routes/brand-routes.ts",
+  "./routes/engagement-routes.ts",
+  "./routes/entitlement-routes.ts",
+  "./routes/operations-routes.ts",
+  "./routes/postgres-account-routes.ts",
+  "./routes/postgres-auth-routes.ts",
+  "./routes/postgres-saved-routes.ts",
+];
+
+async function readContract() {
+  const rawContract = await readFile(new URL("../openapi.json", import.meta.url), "utf8");
+
+  return JSON.parse(rawContract) as JsonObject;
+}
+
+function asObject(value: unknown, label: string): JsonObject {
+  expect(value, `${label} must be an object`).toBeTypeOf("object");
+  expect(value, `${label} must not be null`).not.toBeNull();
+  expect(Array.isArray(value), `${label} must not be an array`).toBe(false);
+  return value as JsonObject;
+}
+
+function resolveLocalReference(contract: JsonObject, reference: string) {
+  expect(reference.startsWith("#/"), `${reference} must be local`).toBe(true);
+
+  let current: unknown = contract;
+
+  for (const encodedSegment of reference.slice(2).split("/")) {
+    const segment = encodedSegment.replaceAll("~1", "/").replaceAll("~0", "~");
+    current = asObject(current, reference)[segment];
+    expect(current, `${reference} has an unresolved segment: ${segment}`).toBeDefined();
+  }
+
+  return current;
+}
+
+function resolveObject(contract: JsonObject, value: unknown): JsonObject {
+  const object = asObject(value, "OpenAPI object");
+  const reference = object.$ref;
+
+  if (typeof reference !== "string") {
+    return object;
+  }
+
+  return resolveObject(contract, resolveLocalReference(contract, reference));
+}
+
+function collectReferences(value: unknown, references: string[] = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectReferences(item, references);
+    }
+
+    return references;
+  }
+
+  if (!value || typeof value !== "object") {
+    return references;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "$ref" && typeof child === "string") {
+      references.push(child);
+    } else {
+      collectReferences(child, references);
+    }
+  }
+
+  return references;
+}
+
+function listOperations(contract: JsonObject) {
+  const paths = asObject(contract.paths, "paths");
+  const operations: Array<{
+    key: string;
+    operation: JsonObject;
+  }> = [];
+
+  for (const [path, rawPathItem] of Object.entries(paths)) {
+    const pathItem = asObject(rawPathItem, `paths.${path}`);
+
+    for (const method of httpMethods) {
+      if (pathItem[method]) {
+        operations.push({
+          key: `${method.toUpperCase()} ${path}`,
+          operation: asObject(pathItem[method], `${method.toUpperCase()} ${path}`),
+        });
+      }
+    }
+  }
+
+  return operations;
+}
+
+function responseHasRequestId(contract: JsonObject, rawResponse: unknown) {
+  const response = resolveObject(contract, rawResponse);
+  const headers = asObject(response.headers, "response headers");
+  const requestId = resolveObject(contract, headers["X-Request-ID"]);
+
+  return requestId.description === "Opaque request correlation identifier generated by the API.";
+}
+
+async function listSourceRouteLiterals() {
+  const routeLiteralPattern = /["'`](\/[a-z][a-z0-9_\-/.]*)["'`]/gi;
+  const routeLiterals = new Set<string>();
+
+  for (const sourceFile of routeSourceFiles) {
+    const source = await readFile(new URL(sourceFile, import.meta.url), "utf8");
+
+    for (const match of source.matchAll(routeLiteralPattern)) {
+      routeLiterals.add(match[1]);
+    }
+  }
+
+  return [...routeLiterals].sort();
+}
+
+describe("OpenAPI contract", () => {
+  it("is valid JSON with resolvable local references", async () => {
+    const contract = await readContract();
+
+    expect(contract.openapi).toBe("3.0.3");
+    expect(asObject(contract.info, "info").title).toBe("ClosetSearch HTTP API");
+    expect(asObject(contract.components, "components").securitySchemes).toBeDefined();
+
+    for (const reference of collectReferences(contract)) {
+      expect(resolveLocalReference(contract, reference)).toBeDefined();
+    }
+  });
+
+  it("enumerates exactly the supported canonical and explicit legacy operations", async () => {
+    const contract = await readContract();
+    const operations = listOperations(contract);
+
+    expect(operations.map(({ key }) => key).sort()).toEqual(implementedOperations);
+    expect(new Set(operations.map(({ operation }) => operation.operationId)).size).toBe(
+      operations.length,
+    );
+    expect(
+      operations.every(
+        ({ operation }) =>
+          typeof operation.operationId === "string" &&
+          Array.isArray(operation.tags) &&
+          operation.tags.length > 0 &&
+          Array.isArray(operation.security) &&
+          Object.keys(asObject(operation.responses, "responses")).length > 0,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps source route literals represented without documenting planned routes", async () => {
+    const contract = await readContract();
+    const documentedPaths = Object.keys(asObject(contract.paths, "paths"));
+    const documentedBases = new Set(
+      documentedPaths.map((path) => path.replace(/\/\{[^}]+\}$/, "")),
+    );
+
+    for (const sourceRoute of await listSourceRouteLiterals()) {
+      expect(
+        documentedBases.has(sourceRoute.replace(/\/$/, "")),
+        `source route ${sourceRoute} is missing from the contract`,
+      ).toBe(true);
+    }
+
+    const description = String(asObject(contract.info, "info").description);
+    expect(description).toContain(
+      "Billing webhooks and delivery-attempt APIs are intentionally absent",
+    );
+    expect(documentedPaths).not.toContain("/billing/webhooks");
+    expect(documentedPaths).not.toContain("/me/alert-deliveries");
+    expect(documentedPaths).not.toContain("/me/account");
+  });
+
+  it("documents request IDs, cookie auth, stable errors, and privacy identity boundaries", async () => {
+    const contract = await readContract();
+    const components = asObject(contract.components, "components");
+    const securitySchemes = asObject(components.securitySchemes, "securitySchemes");
+    const cookieAuth = asObject(securitySchemes.cookieAuth, "cookieAuth");
+    const errorSchema = asObject(asObject(components.schemas, "schemas").Error, "Error");
+
+    expect(cookieAuth).toMatchObject({
+      in: "cookie",
+      name: "closetsearch_session",
+      type: "apiKey",
+    });
+    expect(errorSchema.required).toEqual(["error", "message"]);
+
+    for (const { key, operation } of listOperations(contract)) {
+      for (const [status, response] of Object.entries(
+        asObject(operation.responses, `${key} responses`),
+      )) {
+        expect(
+          responseHasRequestId(contract, response),
+          `${key} response ${status} must document X-Request-ID`,
+        ).toBe(true);
+      }
+    }
+
+    const paths = asObject(contract.paths, "paths");
+    const eventOperation = asObject(asObject(paths["/events"], "/events").post, "POST /events");
+    const eventParameters = eventOperation.parameters as JsonObject[];
+    expect(eventParameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          in: "header",
+          name: "X-Privacy-Session-ID",
+          required: true,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(asObject(components.schemas, "schemas").EngagementEvent)).not.toContain(
+      "userId",
+    );
+    expect(
+      JSON.stringify(asObject(components.schemas, "schemas").DevelopmentEntitlementGrant),
+    ).not.toContain('"userId"');
+    expect(JSON.stringify(asObject(components.schemas, "schemas").AccountDelete)).not.toContain(
+      '"userId"',
+    );
+  });
+});
