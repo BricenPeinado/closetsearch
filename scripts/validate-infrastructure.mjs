@@ -1,5 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const requiredFiles = [
   ".dockerignore",
@@ -30,6 +32,96 @@ async function text(path) {
 function assertContains(source, values, subject) {
   for (const value of values) {
     assert(source.includes(value), `${subject} is missing ${value}.`);
+  }
+}
+
+async function writeExecutable(path, source) {
+  await writeFile(path, source, { mode: 0o700 });
+  await chmod(path, 0o700);
+}
+
+async function verifyRestoreTargetGuard() {
+  const harnessDirectory = await mkdtemp(join(tmpdir(), "closetsearch-restore-guard-"));
+  const binaryDirectory = join(harnessDirectory, "bin");
+  const backupPath = join(harnessDirectory, "fixture.dump");
+  const restoreMarker = join(harnessDirectory, "pg-restore-calls.log");
+  const targetDatabase = "closetsearch_restore_guard";
+
+  try {
+    await mkdir(binaryDirectory);
+    await writeFile(backupPath, "not-a-real-dump");
+    await writeFile(`${backupPath}.sha256`, "fixture checksum");
+    await writeExecutable(
+      join(binaryDirectory, "psql"),
+      `#!/bin/sh
+case "$*" in
+  *current_database*) printf '%s\\n' "\${FAKE_CURRENT_DATABASE}" ;;
+  *) printf '6\\n' ;;
+esac
+`,
+    );
+    await writeExecutable(join(binaryDirectory, "sha256sum"), "#!/bin/sh\nexit 0\n");
+    await writeExecutable(
+      join(binaryDirectory, "pg_restore"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "\${RESTORE_MARKER}"
+exit 0
+`,
+    );
+
+    const baseEnvironment = {
+      ...process.env,
+      PATH: `${binaryDirectory}:${process.env.PATH ?? ""}`,
+      RESTORE_CONFIRMATION: `restore:${targetDatabase}`,
+      RESTORE_DATABASE_URL: "postgresql://restore-user:secret@example.invalid/ambiguous",
+      RESTORE_MARKER: restoreMarker,
+      RESTORE_TARGET_DATABASE: targetDatabase,
+    };
+    const mismatch = spawnSync("sh", ["scripts/postgres-restore.sh", backupPath], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...baseEnvironment,
+        FAKE_CURRENT_DATABASE: "unexpected_database",
+      },
+    });
+
+    assert(
+      mismatch.status !== 0 &&
+        mismatch.stderr.includes("RESTORE_DATABASE_URL resolves to unexpected_database"),
+      "Restore must reject a URL that resolves to a different database.",
+    );
+    await readFile(restoreMarker).then(
+      () => {
+        throw new Error("Restore invoked pg_restore before validating the actual database.");
+      },
+      () => undefined,
+    );
+
+    const matching = spawnSync("sh", ["scripts/postgres-restore.sh", backupPath], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...baseEnvironment,
+        FAKE_CURRENT_DATABASE: targetDatabase,
+      },
+    });
+
+    assert(
+      matching.status === 0,
+      `Restore target harness failed for a matching database: ${matching.stderr}`,
+    );
+    assert(
+      matching.stdout.includes(`"database":"${targetDatabase}"`),
+      "Restore completion did not identify the verified target database.",
+    );
+    const restoreCalls = (await readFile(restoreMarker, "utf8")).trim().split("\n");
+    assert(
+      restoreCalls.length === 2,
+      "Restore target harness did not exercise archive validation and restore.",
+    );
+  } finally {
+    await rm(harnessDirectory, { force: true, recursive: true });
   }
 }
 
@@ -159,6 +251,8 @@ async function main() {
     });
     assert(result.status === 0, `${script} failed Node syntax validation: ${result.stderr}`);
   }
+
+  await verifyRestoreTargetGuard();
 
   process.stdout.write(
     `${JSON.stringify({

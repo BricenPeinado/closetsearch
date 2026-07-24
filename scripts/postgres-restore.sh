@@ -36,6 +36,19 @@ esac
 [ "$confirmation" = "restore:${target_database}" ] ||
   fail "set RESTORE_CONFIRMATION=restore:${target_database}"
 
+if ! actual_database=$(psql "$database_url" \
+  --no-psqlrc \
+  --quiet \
+  --set=ON_ERROR_STOP=1 \
+  --tuples-only \
+  --no-align \
+  --command='SELECT current_database()'); then
+  fail "could not verify the restore target database"
+fi
+
+[ "$actual_database" = "$target_database" ] ||
+  fail "RESTORE_DATABASE_URL resolves to ${actual_database}, not ${target_database}"
+
 backup_directory=$(dirname "$backup_path")
 backup_filename=$(basename "$backup_path")
 checksum_path="${backup_path}.sha256"
