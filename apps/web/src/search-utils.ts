@@ -9,6 +9,7 @@ import type {
 export type SearchListingTypeFilter = "" | Exclude<ListingType, "unknown">;
 export type SearchConditionFilter = "" | ListingCondition;
 export type SearchMarketStatusFilter = "" | ListingMarketStatus;
+export type WebSearchSortMode = SearchSortMode | "ending_soon" | "popularity" | "recommended";
 
 export interface SearchFormValues {
   brand?: string;
@@ -16,7 +17,7 @@ export interface SearchFormValues {
   condition?: SearchConditionFilter;
   currency?: string;
   query: string;
-  sort: SearchSortMode;
+  sort: WebSearchSortMode;
   source: string;
   listingType: SearchListingTypeFilter;
   marketStatus?: SearchMarketStatusFilter;
@@ -53,8 +54,11 @@ export function createDefaultSearchFormValues(): SearchFormValues {
   };
 }
 
-function normalizeSearchSortMode(value: string | null): SearchSortMode {
+function normalizeSearchSortMode(value: string | null): WebSearchSortMode {
   switch (value) {
+    case "ending_soon":
+    case "popularity":
+    case "recommended":
     case "price_asc":
     case "price_desc":
     case "newest":
@@ -212,8 +216,14 @@ function formatListingTypeLabel(listingType: SearchListingTypeFilter): string | 
   return null;
 }
 
-function formatSortLabel(sort: SearchSortMode): string | null {
+function formatSortLabel(sort: WebSearchSortMode): string | null {
   switch (sort) {
+    case "ending_soon":
+      return "Ending soon";
+    case "popularity":
+      return "Most popular";
+    case "recommended":
+      return "Recommended";
     case "price_asc":
       return "Price low to high";
     case "price_desc":

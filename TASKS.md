@@ -43,6 +43,13 @@ Status categories are intentionally separate:
 - [x] Grailed adapter fixtures/normalization and an authorization gate requiring
       both `GRAILED_SCRAPING_ALLOWED=true` and a retained
       `GRAILED_AUTHORIZATION_REFERENCE`
+- [x] Depop, Yahoo! Auctions Japan, and Mercari Japan adapters with recorded
+      fixtures, bounded pagination, strict reviewed-origin allowlists,
+      provider-specific authorization-reference gates, and explicit no-bypass
+      operation
+- [x] Japanese marketplace normalization preserves original Japanese titles and
+      descriptions alongside optional translations, auction/current-bid versus
+      completed evidence, and marketplace/region/shipping limitations
 - [x] classified terminal/retryable failures, timeouts, `Retry-After`, bounded
       exponential retry, pacing, concurrency limits, and circuit behavior
 - [x] deterministic per-provider continuation state and merge tie-breaks
@@ -51,7 +58,7 @@ Status categories are intentionally separate:
 - [x] 15-second fresh cache plus 60-second stale-while-revalidate window
 - [x] one provider runtime per API process so pacing, concurrency, circuit,
       credential, health, and cache state persists across requests
-- [x] credential-bearing eBay/Grailed requests are restricted to reviewed HTTPS
+- [x] credential-bearing provider requests are restricted to reviewed HTTPS
       origins, redirects are manual, Grailed bundles are same-origin, and
       Algolia application IDs cannot inject a host/path
 - [x] malformed live/provider rows are dropped with degraded metadata while
@@ -76,7 +83,17 @@ Status categories are intentionally separate:
 - [x] URL-persisted filters, duplicate prevention, IntersectionObserver paging,
       accessible Load More fallback, scroll restoration, retry/partial/stale/session
       states, keyboard focus, and responsive layouts
+- [x] normalized, shareable listing detail route/UI with marketplace attribution,
+      original-language content, material/color/model metadata, shipping/seller
+      caveats, and explicit external-marketplace CTA
+- [x] exact-currency price-history/trend route/UI with typed asking, current-bid,
+      completed-auction, and confirmed-sold evidence; 7/30/90/365-day changes,
+      quartiles/outlier counts, freshness, sample size, confidence, filters, and
+      cautious non-predictive language
 - [x] placeholder authenticity risk hidden/kept out of production claims
+- [x] generated 1200×630 ClosetSearch social-preview card wired to Open Graph
+      and Twitter metadata; deployed crawler/preview verification remains release
+      evidence, not an implementation checkbox
 
 ### PostgreSQL and worker
 
@@ -84,7 +101,7 @@ Status categories are intentionally separate:
       local/test compatibility only
 - [x] pooled PostgreSQL access, bounded connection/query/statement timeouts,
       transient transaction retry, and database metrics
-- [x] forward migrations `001` through `006` with checksums, advisory locking,
+- [x] forward migrations `001` through `007` with checksums, advisory locking,
       pending-state readiness, rename/checksum/out-of-order drift detection
 - [x] production schema for identities/sessions/settings, catalog/history,
       currency, ingestion/jobs, engagement, saved features/watchlists, alerts,
@@ -123,6 +140,14 @@ Status categories are intentionally separate:
 - [x] unseen/seen/dismissed alert lifecycle plus outbound-repository
       frequency/quiet-hour scheduling, durable attempts, and
       retry-wait/suppression/dead-letter states
+- [x] explicit opt-in global and per-watchlist email/SMS settings, verified
+      destination readiness, hashed destination/consent/suppression records,
+      rate-limited SMS phone verification, one-click email unsubscribe, and
+      STOP/START/HELP handling
+- [x] fail-closed Resend email and Twilio SMS transports, a worker delivery job
+      with delivery-time consent/suppression checks and idempotency keys, signed
+      raw-body webhooks with replay dedupe, and bounce/complaint/failure
+      suppression
 - [x] scrypt password hashing, central 12–128 character password policy,
       session-token hashing, origin/CSRF controls, body limits, secure production
       cookies, and auth/account endpoint rate limits
@@ -166,6 +191,8 @@ Status categories are intentionally separate:
 - [x] redacted PostgreSQL-backed operations status plus bounded-cardinality
       request/provider latency, rate-limit/cache, worker-job, ingestion-lag, and
       provider-health metrics
+- [x] `/metrics`, `/operations/status`, and `/providers/health` require the
+      operations bearer token in production and whenever one is configured
 - [x] published OpenAPI JSON with automated route/schema/security contract tests
 - [x] provider, pagination/dedupe/cache/resilience, currency, deterministic
       price, PostgreSQL repository, worker lease/resume, ML leakage/training/
@@ -184,16 +211,37 @@ Status categories are intentionally separate:
 
 - [ ] **eBay live activation:** obtain production Buy API client credentials,
       partner eligibility/agreements, approved use/retention scope, and any required
-      affiliate campaign attribution; then run a non-mock staging smoke.
-- [ ] **Grailed live activation:** retain exact written permission covering the
-      access method, hosts, identities, rate/concurrency, fields, retention,
-      attribution, price history, analytics/ML, and revocation; set the repository
-      reference and run a separately authorized staging smoke.
-- [ ] **Two independently live real providers:** neither adapter is authorized in
-      this checkout; fixtures do not satisfy this target.
-- [ ] **Transactional account email:** select/configure an approved provider and
-      sender domain, then test verified-address delivery, suppression, retries, and
+      affiliate campaign attribution; retain `EBAY_AUTHORIZATION_REFERENCE`;
+      then run a non-mock staging smoke.
+- [ ] **Grailed live activation:** turn the operator-attested permission into a
+      durable non-secret reference covering the access method, hosts,
+      identities, rate/concurrency, fields, retention, attribution, price
+      history, analytics/ML, and revocation; then run a gated staging smoke.
+- [ ] **Depop live activation:** configure a durable provider-specific reference
+      for the operator-established authorization and run a gated staging smoke
+      within its recorded scope.
+- [ ] **Yahoo! Auctions Japan live activation:** configure a durable
+      provider-specific reference for the operator-established authorization
+      and run a gated staging smoke within its recorded identity, rate, and
+      retention scope.
+- [ ] **Mercari Japan live activation:** configure a durable provider-specific
+      reference for the operator-established authorization and run a gated
+      staging smoke within its recorded identity, rate, and retention scope.
+- [ ] **Five-marketplace live scope:** all five adapters exist, but none is
+      activation-ready/configured in this checkout; fixtures never count as
+      live.
+- [ ] **Transactional email:** configure an approved Resend account, verified
+      sender/domain, API key, webhook secret, and public HTTPS callback/action
+      origins; then test verified-address opt-in, unsubscribe, suppression,
+      retries, and privacy behavior.
+- [ ] **Transactional SMS:** configure an approved Twilio account, sender,
+      credentials (including the Auth Token used for signature verification),
+      and public HTTPS callback origin; then test explicit opt-in, phone
+      verification, STOP/START/HELP, status callbacks, suppression, retries, and
       privacy behavior.
+- [ ] **Public API/Sites wiring:** configure the deployed Sites
+      `CLOSETSEARCH_API_ORIGIN`; an absent or invalid origin intentionally
+      returns `503` and does not substitute mock inventory.
 - [ ] **Production billing:** select/configure a subscription provider, verify
       signed webhooks and idempotency end to end, and document refund/cancellation
       behavior.
@@ -207,9 +255,10 @@ Status categories are intentionally separate:
 
 ## Intentionally deferred
 
-- [ ] push notifications and SMS
-- [ ] outbound email alerts until verified email plus a delivery provider are
-      configured
+- [ ] push notifications
+- [ ] enable outbound email/SMS in production until approved transports,
+      verified destinations, explicit consent, signed webhooks, privacy review,
+      and staging evidence are all configured
 - [ ] active recommendation ML until every sample/relevance/diversity/
       concentration/latency gate passes and promotion is approved
 - [ ] fair-value model output until accuracy and interval-coverage gates pass
@@ -232,26 +281,33 @@ Status categories are intentionally separate:
 These are open even where the implementation exists:
 
 - [ ] obtain a current clean pass for every required root command
-- [x] record five consecutive clean full test runs on final code commit
-      `3072b33` with the real-PostgreSQL gate enabled
+- [ ] record five consecutive clean full test runs on the final code commit;
+      historical results on `3072b33` predate the five-provider,
+      price-intelligence, and outbound-notification changes
 - [ ] retain a successful CI run of the gated real-PostgreSQL migration,
       concurrent-write, lease-contention, rollback, and session-revocation suite
-- [x] retain local PostgreSQL stop/start persistence evidence and repeat the
-      ten-flow PostgreSQL browser suite after restart
+- [ ] repeat PostgreSQL stop/start persistence and browser evidence on the final
+      tree with migration `007`; the retained `3072b33` result is historical
 - [ ] create an encrypted production-style backup and complete a timed isolated
       restore drill with retained row-count/schema evidence
 - [ ] build and boot the current Compose topology and validate every healthcheck
 - [ ] run critical signed-out, signed-in, degraded-provider, database-restart,
       analytics, watchlist/inbox, account recovery, and session-expiry flows end to
       end
+- [ ] run the expanded saved-search/recommendation/like, login/logout/reset,
+      email/SMS-settings-to-alert, export/deletion, responsive-filter, and
+      Japanese-auction/detail/price-trend Playwright journeys on the final tree
+- [ ] verify the generated Open Graph card resolves at the deployed HTTPS URL,
+      renders at 1200×630 with correct alt/copy, and previews correctly in target
+      social/link unfurlers
 - [ ] run a provider-authorized staging smoke proving no fixture inventory
 - [ ] review dependency/image scans and operational dashboards
 
 This workstation has no Docker executable. An ephemeral local PostgreSQL 17.10
-run verified migrations, real-engine repository behavior, PostgreSQL-backed
-Playwright, five consecutive full suites, an actual database-process restart,
-and a checksummed isolated logical restore. All locally executable required
-commands pass except the production smoke, which correctly fails closed because
-no authorized HTTPS deployment URL exists. This is valid local engine evidence;
-it is not a Compose boot, managed-HA/PITR, encrypted off-host backup, or
-live-provider claim.
+run on the earlier `3072b33` baseline verified migrations through `006`,
+real-engine repository behavior, PostgreSQL-backed Playwright, an actual
+database-process restart, and a checksummed isolated logical restore. Those are
+historical baseline results, not final evidence for migration `007` or the
+current working tree. The current managed environment also blocks
+`pnpm deps:check` because the audit would send dependency metadata outbound;
+that gate must run in approved CI. No live-provider smoke has run.

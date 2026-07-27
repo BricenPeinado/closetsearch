@@ -1,27 +1,34 @@
 # Production-Hardening Implementation Report
 
-Prepared after implementation commits through `3072b33` on 2026-07-24. This
-report records repository capability, not provider permission, deployment
-approval, or an unrecorded test result.
+Reconciled with the working tree on 2026-07-26. The historical baseline was
+implemented through `3072b33` on 2026-07-24; current five-provider,
+price-intelligence, listing-detail, and outbound-notification changes are newer
+and do not inherit that commit's release evidence. This report records
+repository capability, not provider permission, configured credentials,
+deployment approval, or an unrecorded test result.
 
 ## Implemented phases
 
-| Phase                          | Result                                                                                                                                                                                               | Representative commits                                                      |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Baseline/compliance            | immutable gap matrix and provider acquisition record                                                                                                                                                 | `0dc360c`                                                                   |
-| Deterministic history/security | monotonic SQLite price observations; request/process hardening                                                                                                                                       | `f5e9019`, `5b975f3`                                                        |
-| Providers/discovery            | fail-closed production provider config, eBay adapter, Grailed authorization reference gate, resilience, deterministic pagination/dedupe/SWR, exact money/card UX                                     | `60c4e64`, `612c6ee`, `b3d2a8a`                                             |
-| PostgreSQL/worker              | schema/data plane, leases/checkpoints, authorized provider ingestion, request store, production request-path cutover, real-engine reliability gate, and serialized concurrent upserts                | `7e905ad`, `980fe77`, `8e20f79`, `1231945`, `4cbb56f`, `6d57f80`, `e732b53` |
-| Accounts/product state         | durable engagement, persisted entitlements, account-token services/routes and web action flows, fragment-safe account links, in-app alert inbox/lifecycle                                            | `d3d2bcf`, `65f201f`, `9c5b45c`, `ef3b1eb`, `abad831`, `4c6ef4b`            |
-| Intelligence                   | reproducible offline recommendation/fair-value pipeline and guarded recommendation runtime                                                                                                           | `0c4e3f3`, `24fa725`                                                        |
-| Contracts/quality              | containers, PostgreSQL-backed CI/Playwright gates, portable backup and exact-target restore verification, production smoke, dependency/infrastructure checks, deployment runbooks, validated OpenAPI | `5c7a680`, `d7c35a7`, `9feaaf4`, `747789a`, `d73fd52`                       |
-| Observability/critical flows   | redacted durable operations state, Prometheus metric families, and expanded browser critical-path coverage                                                                                           | `7d28837`, `1e2ec90`                                                        |
-| Accessibility                  | axe-core WCAG A/AA browser scans and measured muted-text contrast correction                                                                                                                         | `99bb972`                                                                   |
-| Final resilience/redaction     | persistent Grailed resilient client state and removal of raw exception/upstream messages from operational logs                                                                                       | `d4c22f7`, `ecbb66e`                                                        |
-| Durable discovery/replay       | application-scoped provider runtime, server-owned discovered catalog, durable engagement rate/privacy boundary, freshness refresh, and crash-safe idempotent alert replay                            | `dd8eb33`                                                                   |
-| Provider security              | canonical eBay/Grailed endpoint policy, manual redirect handling, same-origin Grailed bundle discovery, strict Algolia host construction, and malformed-row isolation                                | `c685d39`                                                                   |
-| Currency/market correctness    | currency-scoped rules/ML preference signals plus current-state, per-segment sold-first, currency-partitioned observed analytics                                                                      | `8b5ae6b`, `1ddc0cc`                                                        |
-| Release truth/toolchain        | truthful readiness docs, workspace formatting, and patched Babel/esbuild transitive build tooling                                                                                                    | `b572008`, `3072b33`                                                        |
+| Phase                          | Result                                                                                                                                                                                                 | Representative commits                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Baseline/compliance            | immutable gap matrix and provider acquisition record                                                                                                                                                   | `0dc360c`                                                                    |
+| Deterministic history/security | monotonic SQLite price observations; request/process hardening                                                                                                                                         | `f5e9019`, `5b975f3`                                                         |
+| Providers/discovery            | fail-closed production provider config, eBay adapter, Grailed authorization reference gate, resilience, deterministic pagination/dedupe/SWR, exact money/card UX                                       | `60c4e64`, `612c6ee`, `b3d2a8a`                                              |
+| PostgreSQL/worker              | schema/data plane, leases/checkpoints, authorized provider ingestion, request store, production request-path cutover, real-engine reliability gate, and serialized concurrent upserts                  | `7e905ad`, `980fe77`, `8e20f79`, `1231945`, `4cbb56f`, `6d57f80`, `e732b53`  |
+| Accounts/product state         | durable engagement, persisted entitlements, account-token services/routes and web action flows, fragment-safe account links, in-app alert inbox/lifecycle                                              | `d3d2bcf`, `65f201f`, `9c5b45c`, `ef3b1eb`, `abad831`, `4c6ef4b`             |
+| Intelligence                   | reproducible offline recommendation/fair-value pipeline and guarded recommendation runtime                                                                                                             | `0c4e3f3`, `24fa725`                                                         |
+| Contracts/quality              | containers, PostgreSQL-backed CI/Playwright gates, portable backup and exact-target restore verification, production smoke, dependency/infrastructure checks, deployment runbooks, validated OpenAPI   | `5c7a680`, `d7c35a7`, `9feaaf4`, `747789a`, `d73fd52`                        |
+| Observability/critical flows   | redacted durable operations state, Prometheus metric families, and expanded browser critical-path coverage                                                                                             | `7d28837`, `1e2ec90`                                                         |
+| Accessibility                  | axe-core WCAG A/AA browser scans and measured muted-text contrast correction                                                                                                                           | `99bb972`                                                                    |
+| Final resilience/redaction     | persistent Grailed resilient client state and removal of raw exception/upstream messages from operational logs                                                                                         | `d4c22f7`, `ecbb66e`                                                         |
+| Durable discovery/replay       | application-scoped provider runtime, server-owned discovered catalog, durable engagement rate/privacy boundary, freshness refresh, and crash-safe idempotent alert replay                              | `dd8eb33`                                                                    |
+| Provider security              | canonical eBay/Grailed endpoint policy, manual redirect handling, same-origin Grailed bundle discovery, strict Algolia host construction, and malformed-row isolation                                  | `c685d39`                                                                    |
+| Currency/market correctness    | currency-scoped rules/ML preference signals plus current-state, per-segment sold-first, currency-partitioned observed analytics                                                                        | `8b5ae6b`, `1ddc0cc`                                                         |
+| Release truth/toolchain        | truthful readiness docs, workspace formatting, and patched Babel/esbuild transitive build tooling                                                                                                      | `b572008`, `3072b33`                                                         |
+| Five-marketplace adapters      | Depop, Yahoo! Auctions Japan, and Mercari Japan join eBay and Grailed with fixtures, strict origins, authorization gates, pagination, typed marketplace semantics, and fail-closed runtime wiring      | current working tree; final commit pending                                   |
+| Product intelligence           | durable listing detail, original-language marketplace content, typed exact-currency price evidence, trend statistics, accessible chart UI, and PostgreSQL migration `007`                              | current working tree; final commit pending                                   |
+| Notification delivery          | explicit email/SMS consent/readiness, Resend/Twilio transports, worker delivery, unsubscribe/STOP handling, signed deduplicated webhooks, and suppression                                              | current working tree; final commit pending                                   |
+| Product presentation           | high-contrast resale-market “signal desk” system across product/search/detail surfaces, responsive two-to-five-column discovery, accessible touch/focus behavior, and a generated 1200×630 social card | current working tree; final commit and deployed preview verification pending |
 
 ## Important architectural decisions
 
@@ -43,12 +50,17 @@ approval, or an unrecorded test result.
   separately approved recovery action.
 - Operational endpoints expose bounded-cardinality aggregate state, never job
   payloads, cursors, provider metadata, credentials, or raw error messages.
+- Operational status, provider health, and metrics are bearer-protected in
+  production and whenever a token is configured.
+- Email and SMS are opt-in channels. Transport configuration cannot override a
+  missing verified destination, current consent, per-watchlist enablement, or
+  suppression.
 
 See [DECISIONS.md](../DECISIONS.md).
 
 ## Schema and migration summary
 
-PostgreSQL migrations `001` through `006` cover:
+PostgreSQL migrations `001` through `007` cover:
 
 - users, verified identities, account tokens, sessions, settings
 - canonical brands/aliases, listings/images/current state/transitions
@@ -60,6 +72,13 @@ PostgreSQL migrations `001` through `006` cover:
 - subscriptions, entitlements, billing webhook idempotency
 - ML datasets/features/models/predictions and operational/audit records
 - request-store hardening and per-user feature aggregates
+- durable listing descriptions/original-language and translated fields,
+  marketplace limitations, material/color/model/item-family/region dimensions,
+  typed asking/current-bid/completed-auction/confirmed-sold observations, and
+  trend indexes
+- per-watchlist event/channel settings, explicit email/SMS consent history,
+  phone verification, destination suppression, webhook-event dedupe, and richer
+  delivery-attempt metadata
 
 The migration runner stores SHA-256 checksums in
 `postgres_schema_migrations`, rejects drift, and uses a transaction per forward
@@ -72,15 +91,18 @@ SQLite compatibility migrations run through `007_account_security`.
 The full field-by-field record is the
 [provider acquisition matrix](provider-acquisition-matrix.md).
 
-| Source                                                    | Implementation                                        | Authorization                                                                               |
-| --------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| mock                                                      | deterministic fixtures                                | local/test only; prohibited in production                                                   |
-| eBay                                                      | official Browse adapter complete for active inventory | blocked: production credentials, partner approval/agreements, and attribution config absent |
-| Grailed                                                   | adapter, fixtures, active/sold normalization complete | blocked: exact written authorization and retained reference absent                          |
-| Etsy, Depop, StockX, Vinted, Poshmark, Mercari, Vestiaire | researched; unsupported adapters not enabled          | blocked/unsupported as recorded in matrix                                                   |
+| Source                   | Implementation                                                     | Authorization                                                                                   |
+| ------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| mock                     | deterministic fixtures                                             | local/test only; prohibited in production                                                       |
+| eBay                     | official Browse adapter for active inventory                       | blocked: production credentials, partner approval/agreements, and attribution config absent     |
+| Grailed                  | active/sold adapter and fixtures                                   | operator attested permission; blocked until a durable provider-specific reference is configured |
+| Depop                    | adapter, fixtures, pagination, filters, and normalization          | operator attested permission; blocked until a durable provider-specific reference is configured |
+| Yahoo! Auctions Japan    | auction adapter, fixtures, bids/end-time and JP-language semantics | operator attested permission; blocked until a durable provider-specific reference is configured |
+| Mercari Japan            | adapter, fixtures, market-state and JP-language semantics          | operator attested permission; blocked until a durable provider-specific reference is configured |
+| other researched sources | unsupported and not enabled                                        | blocked/unsupported as recorded in the acquisition matrix                                       |
 
-Result: the target of two independently live authorized real providers is not
-satisfied. No fixture is counted as live.
+All five requested adapters are implemented. Zero are activation-ready or
+configured live in this checkout, and no fixture counts as live evidence.
 
 ## Ingestion, engagement, alerts, and entitlements
 
@@ -100,10 +122,18 @@ grant is disabled by default, requires verified admin identity, and is forbidden
 in production. There is no billing provider.
 
 In-app alerts support unseen/seen/dismissed state in the API and web inbox.
-Delivery records support cadence, quiet hours, claim, retry, suppression, and
-dead letter for a future outbound handler. In-app matches are immediate and are
-not delayed by outbound digest/quiet-hour settings. Outbound email, push, and
-SMS remain disabled.
+Email and SMS now have fail-closed Resend and Twilio transport implementations,
+an `alerts.deliver_due` worker job, idempotency keys, retry/dead-letter state,
+delivery-time consent and suppression checks, and verified-destination
+readiness. Resend webhooks verify the raw-body Svix signature and deduplicate
+provider event IDs; Twilio webhooks verify the public callback URL signature,
+deduplicate events, handle STOP/START/HELP, and suppress failed destinations.
+Email has signed one-click unsubscribe links. Global and per-watchlist email/SMS
+flags default off; in-app remains immediate and does not wait for quiet hours.
+
+The repository does not contain production Resend/Twilio credentials, verified
+senders/numbers, webhook secrets, public callback origin, user consent, or
+staging delivery evidence. Therefore outbound delivery remains inactive.
 
 ## Account security
 
@@ -118,13 +148,37 @@ and removes directly user-owned state; retained pseudonymous engagement loses
 its user association under the current draft retention boundary.
 
 The web app implements email/account controls, reset request/completion, email
-verification, export download, and confirmed deletion. Activation blocker: no
-transactional email provider/sender is configured, so action-link delivery is
-disabled.
+verification, export download, and confirmed deletion. Account-action email can
+use the configured Resend transport. Activation remains blocked until an
+approved Resend account, verified sender/domain, API key, webhook secret, and
+public HTTPS account-action origin are configured and exercised in staging.
 
 Generated action links keep the one-time token in the URL fragment so it is not
 sent in the initial HTTP request. The client reads and immediately scrubs the
 fragment.
+
+## Listing detail and price intelligence
+
+Public `GET /listings/:listingId` and
+`GET /listings/:listingId/price-trends` (with `/price-history` compatibility)
+read normalized durable PostgreSQL state. Detail responses include original and
+translated marketplace content, product dimensions, seller/shipping context,
+marketplace limitations, auction state, and attribution without exposing raw
+provider payloads.
+
+Trend responses use integer minor units and one currency at a time. Evidence is
+typed as asking, current bid, completed auction, or confirmed sold; incomplete
+auctions are never inferred as sales. Statistics include sample size,
+freshness, confidence, quartiles/outlier counts, and 7/30/90/365-day changes
+with optional provider/date filters. The UI labels sparse or asking-only
+evidence and does not present a prediction, guarantee, or cross-currency
+comparison. Both routes fail honestly outside PostgreSQL and require migration
+`007`.
+
+The web artifact includes `apps/web/public/closetsearch-og.png` (1200×630) and
+wires it into Open Graph/Twitter metadata. That is implementation evidence only;
+the final release still needs an HTTPS crawler fetch, metadata/alt/copy review,
+and target link-unfurler screenshots.
 
 ## ML evaluation and active fallback
 
@@ -196,8 +250,9 @@ run then recorded:
 - web component suite `58/58` plus the focused browser action-link flow after
   fragment consumption/scrubbing was aligned with generated email URLs
 
-These targeted results are historical phase evidence. The final-code results
-below supersede them.
+These targeted results are historical phase evidence. They do not cover the
+current five-provider, migration `007`, listing-detail, price-trend, or outbound
+notification changes.
 
 After that drill, restore hardening added a fail-closed
 `current_database() === RESTORE_TARGET_DATABASE` check before any `--clean`
@@ -218,10 +273,12 @@ is made. The isolated logical restore was not encrypted or off-host and was not
 a managed-HA/PITR or production-incident cutover. No authorized live-provider
 or HTTPS staging claim is made.
 
-## Final-code command results
+## Historical baseline command results
 
 The following ran on implementation commit `3072b33`. PostgreSQL commands used
-an ephemeral local PostgreSQL 17.10 instance, not `pg-mem`.
+an ephemeral local PostgreSQL 17.10 instance, not `pg-mem`. They are retained as
+baseline history and must not be represented as final evidence for the current
+working tree.
 
 | Required command                          | Final result                                                                                                                                                             |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -236,7 +293,7 @@ an ephemeral local PostgreSQL 17.10 instance, not `pg-mem`.
 | `corepack pnpm db:migrate`                | PASS — no pending migrations, current version `6`                                                                                                                        |
 | `corepack pnpm smoke:test`                | BLOCKED/EXPECTED FAIL-CLOSED — no `CLOSETSEARCH_API_BASE_URL`; the command refused to default to local or mock inventory                                                 |
 
-Additional gates passed:
+Additional baseline gates recorded:
 
 - `corepack pnpm deps:check`: no known vulnerabilities
 - `corepack pnpm infrastructure:check`: all 13 static infrastructure contracts
@@ -251,17 +308,65 @@ Release-environment evidence still required: a current CI URL/artifact set,
 Compose boot, encrypted off-host restore, and authorized HTTPS no-mock staging
 smoke.
 
+## Current verification status
+
+The final working tree was verified on 2026-07-26 before its release commit:
+
+| Required command / evidence                     | Current result                                                                                                                                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `corepack pnpm format:check`                    | PASS                                                                                                                                                                                             |
+| `corepack pnpm lint`                            | PASS — all five code workspaces                                                                                                                                                                  |
+| `corepack pnpm typecheck`                       | PASS — all five code workspaces                                                                                                                                                                  |
+| `corepack pnpm build`                           | PASS — shared, ML, providers, web, and API; web JavaScript `387.83 kB` / `112.15 kB` gzip                                                                                                        |
+| `corepack pnpm test`                            | PASS — `445/445`: shared `3`, ML `19`, providers `73`, web `72`, API `278`, including all six real-PostgreSQL reliability tests                                                                  |
+| `corepack pnpm test:integration`                | PASS — `45/45` with the real-PostgreSQL gate enabled                                                                                                                                             |
+| `corepack pnpm test:e2e`                        | PASS — `20/20` in PostgreSQL mode across desktop, Pixel-sized mobile, and tablet projects, including axe WCAG A/AA scans                                                                         |
+| `corepack pnpm test:sites`                      | PASS — `4/4`, including SPA restoration, same-origin API embedding, fail-closed missing origin, and configured proxy forwarding                                                                  |
+| `corepack pnpm infrastructure:check`            | PASS — all 13 static infrastructure contracts                                                                                                                                                    |
+| PostgreSQL migration                            | PASS — clean application of `001`–`007`; immediate second run applied nothing and remained at version `7`                                                                                        |
+| PostgreSQL backup, restore, and service restart | PASS — custom-format isolated restore and post-restart ledgers both reported `7` migrations / max version `7`; backup SHA-256 `d17c49776aaeffd552815ae52f02dfd056dec301bc0b7c4817f391a936677c3d` |
+| Final notification/security review              | PASS — no remaining P0, P1, or P2 finding; final focused closure set `31/31`                                                                                                                     |
+| Manual responsive review                        | PASS — home/search/detail/error surfaces reviewed at 1440px desktop and 412px mobile; title wrapping, touch navigation, dense listing grid, and filter drawer repaired                           |
+
+The responsive visual pass also caught and fixed low-contrast navigation
+indexes, undersized listing links, bottom-navigation contrast, and a long
+detail-title word break before the final browser run.
+
+The current working tree still does not provide live external evidence:
+
+- no explicitly gated authorized marketplace smoke ran;
+- Resend/Twilio are implemented and fixture/contract tested but have no
+  configured staging accounts, senders, verified destinations, callbacks, or
+  delivery evidence;
+- Docker is unavailable on this workstation, so no local Compose boot or image
+  scan ran;
+- `corepack pnpm deps:check` was blocked because this managed environment does
+  not permit sending dependency metadata to the registry; approved CI must run
+  it;
+- the Sites edge deliberately returns `503` until an approved
+  `CLOSETSEARCH_API_ORIGIN` is configured;
+- no five-consecutive-suite run was recorded on the final tree.
+
+The code-level release candidate is clean, but the product remains **NO-GO for
+a public live-data launch** until the external configuration and staging
+evidence below exist.
+
 ## Remaining external blockers
 
-1. eBay production approval/credentials/attribution.
-2. Grailed written permission/reference.
-3. Authorized second live provider.
-4. Transactional email provider and sender domain.
+1. Provider-specific authorization references for eBay, Grailed, Depop, Yahoo!
+   Auctions Japan, and Mercari Japan, plus eBay production credentials and any
+   required attribution.
+2. Approved Resend/Twilio accounts, verified sender identities, credentials,
+   signed-webhook secrets, HTTPS callback/action origins, explicit verified-user
+   consent, and staging delivery evidence for any claimed outbound channel.
+3. Production operations bearer token and secret-managed database/auth/provider
+   configuration.
+4. Production Sites-to-API origin wiring.
 5. Billing provider and signed webhook configuration.
 6. Approved live exchange-rate source.
 7. Adequate privacy-reviewed temporal engagement and confirmed-sold datasets for
    ML promotion.
-8. HTTPS no-mock staging environment and retained smoke evidence.
+8. HTTPS no-mock staging environment and retained live-provider smoke evidence.
 
 ## Remaining internal/deployment work
 
@@ -280,7 +385,7 @@ smoke.
 1. Complete the [deployment checklist](runbooks/deployment-checklist.md).
 2. Capture a fresh encrypted backup and isolated restore evidence.
 3. Build immutable API/worker/web images.
-4. Run the migration job once and verify versions `001`–`006`.
+4. Run the migration job once and verify versions `001`–`007`.
 5. Deploy worker, inspect active/blocked provider IDs and checkpoints.
 6. Canary API; verify PostgreSQL/migration/provider readiness.
 7. Deploy web built for the correct HTTPS API origin.

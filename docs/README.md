@@ -21,6 +21,16 @@
 - [Provider configuration](runbooks/PROVIDER_CONFIGURATION.md)
 - [Pagination/caching](runbooks/PAGINATION_AND_CACHING.md)
 
+## Marketplace integration notes
+
+- [Grailed](marketplace-notes/GRAILED.md)
+- [Depop](marketplace-notes/DEPOP.md)
+- [Yahoo! Auctions Japan](marketplace-notes/YAHOO_AUCTIONS_JP.md)
+- [Mercari Japan](marketplace-notes/MERCARI_JP.md)
+
+eBay uses the official API path documented in the provider operations and
+configuration runbooks.
+
 ## Product systems
 
 - [Authentication/account security](runbooks/auth.md)

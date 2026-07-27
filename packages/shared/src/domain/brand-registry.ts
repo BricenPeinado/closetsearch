@@ -28,7 +28,7 @@ export const CANONICAL_BRANDS: readonly Brand[] = [
     tags: ["streetwear", "jewelry", "luxury"],
   },
   {
-    aliases: ["CDG", "Comme des Garcons"],
+    aliases: ["CDG", "Comme des Garcons", "コムデギャルソン", "コム デ ギャルソン"],
     id: "brand:comme-des-garcons",
     name: "Comme des Garçons",
     slug: "comme-des-garcons",
@@ -49,14 +49,14 @@ export const CANONICAL_BRANDS: readonly Brand[] = [
     tags: ["archive", "designer", "minimal"],
   },
   {
-    aliases: [],
+    aliases: ["ヒステリックグラマー"],
     id: "brand:hysteric-glamour",
     name: "Hysteric Glamour",
     slug: "hysteric-glamour",
     tags: ["japanese", "archive", "streetwear"],
   },
   {
-    aliases: ["IM"],
+    aliases: ["IM", "イッセイミヤケ", "イッセイ ミヤケ"],
     id: "brand:issey-miyake",
     name: "Issey Miyake",
     slug: "issey-miyake",
@@ -70,7 +70,7 @@ export const CANONICAL_BRANDS: readonly Brand[] = [
     tags: ["designer", "archive", "runway"],
   },
   {
-    aliases: [],
+    aliases: ["キャピタル"],
     id: "brand:kapital",
     name: "Kapital",
     slug: "kapital",
@@ -84,7 +84,7 @@ export const CANONICAL_BRANDS: readonly Brand[] = [
     tags: ["designer", "avant-garde", "belgian"],
   },
   {
-    aliases: ["Number Nine", "Number N ine"],
+    aliases: ["Number Nine", "Number N ine", "ナンバーナイン", "ナンバー ナイン"],
     id: "brand:number-n-ine",
     name: "Number (N)ine",
     slug: "number-n-ine",
@@ -140,7 +140,7 @@ export const CANONICAL_BRANDS: readonly Brand[] = [
     tags: ["streetwear", "surf", "california"],
   },
   {
-    aliases: ["UC"],
+    aliases: ["UC", "アンダーカバー"],
     id: "brand:undercover",
     name: "Undercover",
     slug: "undercover",
@@ -154,22 +154,28 @@ export const CANONICAL_BRANDS: readonly Brand[] = [
     tags: ["designer", "punk", "british"],
   },
   {
-    aliases: ["Y's", "Yohji"],
+    aliases: ["Y's", "Yohji", "ヨウジヤマモト", "ヨウジ ヤマモト"],
     id: "brand:yohji-yamamoto",
     name: "Yohji Yamamoto",
     slug: "yohji-yamamoto",
     tags: ["designer", "avant-garde", "japanese"],
   },
+  {
+    aliases: ["Visvim", "ヴィズヴィム", "ビズビム"],
+    id: "brand:visvim",
+    name: "Visvim",
+    slug: "visvim",
+    tags: ["designer", "japanese", "workwear"],
+  },
 ];
 
 function normalizeBrandKey(value: string) {
   return value
-    .normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
+    .normalize("NFKC")
     .trim()
     .toLowerCase()
     .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
 }

@@ -3,6 +3,12 @@ import { resolvePersistenceDriver, type PersistenceDriver } from "./db/persisten
 import { loadPostgresRuntimeConfig } from "./db/postgres/config.js";
 import { getEngagementRuntimeConfig } from "./services/durableEngagementService.js";
 import { readRecommendationRuntimeConfig } from "./services/mlRecommendationRuntimeService.js";
+import {
+  alertDeliveryEnabled,
+  createEmailTransportFromEnvironment,
+  createSmsTransportFromEnvironment,
+} from "./services/notificationTransports.js";
+import { loadProviderRuntimeConfig } from "./providers/runtime-config.js";
 
 export interface StartupConfig {
   host: string;
@@ -68,6 +74,26 @@ function validateProductionProviderOrigin(
   }
 }
 
+function validateProductionPublicUrl(value: string | undefined, label: string) {
+  const normalized = value?.trim();
+
+  if (!normalized) {
+    throw new Error(`${label} is required when outbound delivery is configured.`);
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error(`${label} must be an absolute HTTPS URL.`);
+  }
+
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error(`${label} must be an absolute HTTPS URL.`);
+  }
+}
+
 export function validateStartupEnvironment(
   env: Record<string, string | undefined> = process.env,
 ): StartupConfig {
@@ -75,6 +101,9 @@ export function validateStartupEnvironment(
   const persistenceDriver = resolvePersistenceDriver(env);
   getEngagementRuntimeConfig(env);
   const recommendationConfig = readRecommendationRuntimeConfig(env);
+  const providerConfig = loadProviderRuntimeConfig(env);
+  const emailTransport = createEmailTransportFromEnvironment(env);
+  const smsTransport = createSmsTransportFromEnvironment(env);
 
   if (persistenceDriver === "postgres") {
     loadPostgresRuntimeConfig(env);
@@ -107,8 +136,53 @@ export function validateStartupEnvironment(
       throw new Error("AUTH_SESSION_PEPPER must contain at least 32 characters in production.");
     }
 
+    if ((env.NOTIFICATION_DESTINATION_PEPPER?.trim().length ?? 0) < 32) {
+      throw new Error(
+        "NOTIFICATION_DESTINATION_PEPPER must contain at least 32 characters in production.",
+      );
+    }
+
     if (!authConfig.cookieSecure) {
       throw new Error("AUTH_COOKIE_SECURE must be true in production.");
+    }
+
+    if ((env.OPERATIONS_BEARER_TOKEN?.trim().length ?? 0) < 32) {
+      throw new Error("OPERATIONS_BEARER_TOKEN must contain at least 32 characters in production.");
+    }
+
+    if (alertDeliveryEnabled(env) && !emailTransport.configured && !smsTransport.configured) {
+      throw new Error(
+        "ALERT_DELIVERY_ENABLED requires at least one configured email or SMS transport.",
+      );
+    }
+
+    if (emailTransport.configured) {
+      validateProductionPublicUrl(env.ACCOUNT_ACTION_BASE_URL, "ACCOUNT_ACTION_BASE_URL");
+      validateProductionPublicUrl(env.ALERT_PUBLIC_BASE_URL, "ALERT_PUBLIC_BASE_URL");
+
+      if ((env.EMAIL_WEBHOOK_SECRET?.trim().length ?? 0) < 32) {
+        throw new Error(
+          "EMAIL_WEBHOOK_SECRET must contain at least 32 characters when email delivery is configured.",
+        );
+      }
+    }
+
+    if (smsTransport.configured) {
+      validateProductionPublicUrl(env.ALERT_PUBLIC_BASE_URL, "ALERT_PUBLIC_BASE_URL");
+
+      if ((env.TWILIO_AUTH_TOKEN?.trim().length ?? 0) < 32) {
+        throw new Error(
+          "TWILIO_AUTH_TOKEN must contain at least 32 characters when SMS delivery is configured.",
+        );
+      }
+      if (
+        env.TWILIO_WEBHOOK_SECRET?.trim() &&
+        env.TWILIO_WEBHOOK_SECRET.trim() !== env.TWILIO_AUTH_TOKEN?.trim()
+      ) {
+        throw new Error(
+          "TWILIO_WEBHOOK_SECRET, when set, must equal TWILIO_AUTH_TOKEN because Twilio signs webhooks with the account Auth Token.",
+        );
+      }
     }
 
     if (
@@ -139,18 +213,63 @@ export function validateStartupEnvironment(
     validateProductionProviderOrigin(
       env.EBAY_API_BASE_URL,
       "EBAY_API_BASE_URL",
-      new Set(["https://api.ebay.com", "https://api.sandbox.ebay.com"]),
+      new Set(["https://api.ebay.com"]),
     );
     validateProductionProviderOrigin(
       env.EBAY_IDENTITY_BASE_URL,
       "EBAY_IDENTITY_BASE_URL",
-      new Set(["https://api.ebay.com", "https://api.sandbox.ebay.com"]),
+      new Set(["https://api.ebay.com"]),
     );
     validateProductionProviderOrigin(
       env.GRAILED_BASE_URL,
       "GRAILED_BASE_URL",
       new Set(["https://www.grailed.com"]),
     );
+    validateProductionProviderOrigin(
+      env.DEPOP_BASE_URL,
+      "DEPOP_BASE_URL",
+      new Set(["https://webapi.depop.com"]),
+    );
+    validateProductionProviderOrigin(
+      env.YAHOO_AUCTIONS_JP_BASE_URL,
+      "YAHOO_AUCTIONS_JP_BASE_URL",
+      new Set(["https://auctions.yahoo.co.jp"]),
+    );
+    validateProductionProviderOrigin(
+      env.MERCARI_JP_BASE_URL,
+      "MERCARI_JP_BASE_URL",
+      new Set(["https://api.mercari.jp"]),
+    );
+
+    const enabledProviders = [
+      ["eBay", providerConfig.providers.ebay, false],
+      ["Grailed", providerConfig.providers.grailed, true],
+      ["Depop", providerConfig.providers.depop, true],
+      ["Yahoo! Auctions Japan", providerConfig.providers.yahooAuctionsJp, true],
+      ["Mercari Japan", providerConfig.providers.mercariJp, true],
+    ] as const;
+
+    for (const [name, provider, requiresScrapingFlag] of enabledProviders) {
+      if (!provider.enabled) {
+        continue;
+      }
+
+      if (!provider.authorizationReference) {
+        throw new Error(
+          `${name} is enabled in production but its provider-specific authorization reference is missing.`,
+        );
+      }
+
+      if (requiresScrapingFlag && provider.scrapingAllowed !== true) {
+        throw new Error(
+          `${name} is enabled in production but its explicit authorized-scraping flag is not true.`,
+        );
+      }
+
+      if (!provider.configured) {
+        throw new Error(`${name} is enabled in production but required configuration is missing.`);
+      }
+    }
   }
 
   return {

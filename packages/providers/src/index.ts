@@ -34,6 +34,31 @@ export type {
 } from "./http/resilient-http.js";
 export { createEbayProvider, ebayProviderCapabilities } from "./ebay/index.js";
 export type { EbayProviderOptions } from "./ebay/index.js";
+export {
+  buildDepopSearchUrl,
+  createDepopProvider,
+  depopProviderCapabilities,
+} from "./depop/index.js";
+export type { DepopProviderOptions, DepopProviderRuntimeMode } from "./depop/index.js";
 export { mockProvider, normalizeMockListing } from "./examples/index.js";
-export { createGrailedProvider } from "./grailed/index.js";
+export { createGrailedProvider, grailedProviderCapabilities } from "./grailed/index.js";
 export type { GrailedProviderOptions, GrailedProviderRuntimeMode } from "./grailed/index.js";
+export {
+  buildMercariJpSearchRequest,
+  createMercariJpProvider,
+  mercariJpProviderCapabilities,
+} from "./mercari-jp/index.js";
+export type {
+  MercariJpProviderOptions,
+  MercariJpProviderRuntimeMode,
+  MercariJpSearchPayload,
+} from "./mercari-jp/index.js";
+export {
+  buildYahooAuctionsJpSearchUrl,
+  createYahooAuctionsJpProvider,
+  yahooAuctionsJpProviderCapabilities,
+} from "./yahoo-auctions-jp/index.js";
+export type {
+  YahooAuctionsJpProviderOptions,
+  YahooAuctionsJpProviderRuntimeMode,
+} from "./yahoo-auctions-jp/index.js";

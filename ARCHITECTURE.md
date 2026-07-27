@@ -9,6 +9,9 @@ Browser (React/Vite)
             -> mock fixtures (local/test only)
             -> eBay Browse official API adapter (credential/approval gated)
             -> Grailed adapter (written-authorization gated)
+            -> Depop adapter (written-authorization gated)
+            -> Yahoo! Auctions Japan adapter (written-authorization gated)
+            -> Mercari Japan adapter (written-authorization gated)
        -> PostgreSQL request/data repositories
        -> guarded recommendation runtime
 
@@ -99,6 +102,9 @@ classified failure. Raw response types are adapter-private. Normalization covers
 - comparison/display conversion provenance when available
 - title, canonical/provider brand, images, category, size, and condition
 - listing type, active/sold/lifecycle/freshness state
+- auction current bid, buy-now/completed price, bid count, and end time
+- original-language and separately labeled translated text
+- shipping payer, relist linkage, and discovery/proxy limitations
 - seller fields only when supported
 - attribution and mock/data-origin metadata
 - analytics eligibility and exclusion reasons
@@ -117,12 +123,14 @@ circuit, credential, and cache state therefore survives individual HTTP
 requests. Each API replica and worker still owns an independent runtime, so
 deployment-wide provider budgets must account for every process.
 
-Credential-bearing eBay requests are restricted to the official production or
-sandbox HTTPS origins. Authorized-live Grailed is restricted to its canonical
-HTTPS origin, credential bundle discovery is same-origin, and Algolia
-application IDs must match a bounded alphanumeric grammar before they can enter
-a hostname. Provider HTTP clients handle redirects manually, so authorization
-headers are never implicitly forwarded to a redirect target.
+Credential-bearing eBay requests are restricted to reviewed official HTTPS
+origins, and production accepts only the canonical production origin.
+Authorized-live Grailed, Depop, Yahoo! Auctions Japan, and Mercari Japan are
+restricted to provider-specific reviewed HTTPS origins. Grailed credential
+bundle discovery is same-origin, and Algolia application IDs must match a
+bounded alphanumeric grammar before they can enter a hostname. Provider HTTP
+clients handle redirects manually, so authorization headers are never
+implicitly forwarded to a redirect target.
 
 Production cannot activate the mock provider or mock fallback. A recorded
 fixture demonstrates contract behavior, not live authorization.
@@ -161,14 +169,15 @@ share a unit.
 
 PostgreSQL migrations:
 
-| Version                                  | Scope                                                                                                                                                  |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `001_identity_and_access`                | users, identities, account tokens, sessions, settings                                                                                                  |
-| `002_catalog_ingestion_and_jobs`         | brands/aliases, listings/images/state/transitions, currency rates, monotonic price observations, ingestion checkpoints/health/events, worker jobs/runs |
-| `003_engagement_alerts_and_entitlements` | likes/searches/filters/watchlists/preferences, raw and daily engagement, alert matches/deliveries, subscriptions/entitlements/webhook idempotency      |
-| `004_ml_and_operations`                  | datasets, feature snapshots, model versions, predictions, audit and maintenance records                                                                |
-| `005_request_store_hardening`            | token invalidation, email uniqueness, watchlist canonical/provider brand compatibility                                                                 |
-| `006_user_engagement_features`           | per-user daily listing engagement features                                                                                                             |
+| Version                                     | Scope                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `001_identity_and_access`                   | users, identities, account tokens, sessions, settings                                                                                                               |
+| `002_catalog_ingestion_and_jobs`            | brands/aliases, listings/images/state/transitions, currency rates, monotonic price observations, ingestion checkpoints/health/events, worker jobs/runs              |
+| `003_engagement_alerts_and_entitlements`    | likes/searches/filters/watchlists/preferences, raw and daily engagement, alert matches/deliveries, subscriptions/entitlements/webhook idempotency                   |
+| `004_ml_and_operations`                     | datasets, feature snapshots, model versions, predictions, audit and maintenance records                                                                             |
+| `005_request_store_hardening`               | token invalidation, email uniqueness, watchlist canonical/provider brand compatibility                                                                              |
+| `006_user_engagement_features`              | per-user daily listing engagement features                                                                                                                          |
+| `007_price_intelligence_and_alert_delivery` | typed asking/bid/completed/sold evidence, richer listing dimensions, alert event policy, verified phones, consent/suppression, unsubscribe, and webhook idempotency |
 
 Important invariants include foreign keys, currency/state/amount checks, unique
 provider listing identity, event idempotency, one verified email identity,
@@ -266,7 +275,8 @@ Deployment artifacts define separate migration, API, worker, web, PostgreSQL,
 and backup processes. Readiness verifies database access, migration state, and a
 real provider in production. `/operations/status` reports sanitized durable job,
 checkpoint, and provider-health state without payloads, cursors, credentials, or
-raw error messages. `/metrics` exposes bounded-cardinality counters, gauges, and
+raw error messages. In production it, `/providers/health`, and `/metrics`
+require a dedicated bearer token. `/metrics` exposes bounded-cardinality counters, gauges, and
 latency histograms for HTTP/provider activity, PostgreSQL pool/query state,
 provider rate limits/cache state, worker/ingestion health, engagement ingestion,
 and recommendation request/fallback/version data. Secrets come from
@@ -282,9 +292,12 @@ not a routine deploy rollback.
 
 ## Known architectural limits
 
-- authorized live provider credentials/permission are absent in this checkout
+- the four collection integrations are operator-authorized, but their deployable
+  authorization-reference values and live credentials are absent; eBay
+  credentials/approval are also absent
 - the default exchange-rate provider is disabled
-- billing and outbound notification providers are absent
+- billing is absent; outbound notification adapters exist but Resend/Twilio
+  accounts, senders, secrets, callbacks, and staging evidence are absent
 - process-local API rate limiting and process-local provider cache do not provide
   shared multi-replica state
 - ML evidence is synthetic and insufficient for promotion

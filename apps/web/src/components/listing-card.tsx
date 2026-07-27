@@ -1,26 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import type { Listing, Money } from "@closetsearch/shared";
+import type { Listing } from "@closetsearch/shared";
+import { Link } from "react-router-dom";
 import {
   isListingEngagementEligible,
   recordEngagementEvent,
   sessionViewDeduplicator,
 } from "../engagement-client";
+import { rememberListingForDetail } from "../listing-detail-data";
+import { formatMoney } from "../product-formatting";
 import { observeContinuousListingView } from "../listing-view-observer";
 
 const fallbackImageUrl = "/listing-placeholder.svg";
-
-function formatMoney(money: Money) {
-  const amount =
-    typeof money.amountMinor === "number" && Number.isInteger(money.amountMinor)
-      ? money.amountMinor / 10 ** (money.fractionDigits ?? 2)
-      : money.amount;
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: money.currency,
-    maximumFractionDigits: money.fractionDigits ?? 2,
-  }).format(amount);
-}
 
 function formatListingType(listing: Listing) {
   if (listing.listingType === "auction") {
@@ -38,7 +28,9 @@ interface ListingCardProps {
   engagement?: ListingCardEngagementContext;
   listing: Listing;
   isLiked?: boolean;
+  onDismissRecommendation?: (listing: Listing) => void;
   onToggleLike?: (listing: Listing, nextLiked: boolean) => Promise<void>;
+  recommendationReason?: string;
 }
 
 export interface ListingCardEngagementContext {
@@ -52,7 +44,9 @@ export function ListingCard({
   engagement,
   listing,
   isLiked = false,
+  onDismissRecommendation,
   onToggleLike,
+  recommendationReason,
 }: ListingCardProps) {
   const cardReference = useRef<HTMLElement>(null);
   const metadata = [listing.category, listing.size, listing.condition].filter(Boolean).join(" • ");
@@ -138,6 +132,8 @@ export function ListingCard({
   }
 
   function handleListingOpen() {
+    rememberListingForDetail(listing);
+
     if (!engagement || !isListingEngagementEligible(listing)) {
       return;
     }
@@ -153,6 +149,25 @@ export function ListingCard({
       requestId: engagement.recommendationRequestId,
     });
   }
+
+  function handleMarketplaceOpen() {
+    if (!engagement || !isListingEngagementEligible(listing)) {
+      return;
+    }
+
+    void recordEngagementEvent({
+      eventType: "conversion",
+      listingId: listing.id,
+      properties: {
+        providerId: listing.providerId,
+        surface: engagement.surface,
+      },
+      rankedPosition: engagement.rankedPosition,
+      requestId: engagement.recommendationRequestId,
+    });
+  }
+
+  const detailPath = `/listings/${encodeURIComponent(listing.id)}`;
 
   return (
     <article
@@ -179,14 +194,14 @@ export function ListingCard({
         </span>
       </button>
 
-      <a
+      <Link
         className="listing-card__link"
-        href={listing.sourceUrl}
         onClick={handleListingOpen}
-        rel="noreferrer"
-        target="_blank"
+        state={{ listing }}
+        to={detailPath}
       >
         <div className="listing-card__image-wrap">
+          <span className="listing-card__market-badge">{marketplaceName}</span>
           {hasListingTypeBadge ? (
             <span className="listing-card__type-badge">{formatListingType(listing)}</span>
           ) : null}
@@ -201,6 +216,11 @@ export function ListingCard({
           {status !== "unknown" ? (
             <span className={`listing-card__status listing-card__status--${status}`}>{status}</span>
           ) : null}
+          {engagement?.rankedPosition !== undefined ? (
+            <span aria-hidden="true" className="listing-card__rank">
+              {String(engagement.rankedPosition + 1).padStart(2, "0")}
+            </span>
+          ) : null}
         </div>
         <div className="listing-card__body">
           <div className="listing-card__topline">
@@ -210,20 +230,53 @@ export function ListingCard({
           <h2>{listing.title}</h2>
           <p className="listing-card__meta">{metadata || "Curated resale listing"}</p>
           {sellerName ? <p className="listing-card__seller">Seller: {sellerName}</p> : null}
-          <div className="listing-card__footer">
-            <div className="listing-card__prices">
-              <strong>{formatMoney(displayPrice ?? originalPrice)}</strong>
-              {convertedPrice ? <span>Originally {formatMoney(originalPrice)}</span> : null}
-              {listing.pricing?.shipping ? (
-                <span>Shipping {formatMoney(listing.pricing.shipping)}</span>
-              ) : null}
-            </div>
-            <span className="listing-card__marketplace-action">
-              View on {marketplaceName} <span aria-hidden="true">↗</span>
-            </span>
-          </div>
         </div>
-      </a>
+      </Link>
+      {recommendationReason ? (
+        <p className="listing-card__reason">
+          <span aria-hidden="true">✦</span> {recommendationReason}
+        </p>
+      ) : null}
+      <div className="listing-card__footer">
+        <div className="listing-card__prices">
+          <strong>{formatMoney(displayPrice ?? originalPrice)}</strong>
+          {convertedPrice ? <span>Originally {formatMoney(originalPrice)}</span> : null}
+          {listing.pricing?.shipping ? (
+            <span>Shipping {formatMoney(listing.pricing.shipping)}</span>
+          ) : null}
+          {listing.pricing?.landed ? (
+            <span>Est. landed {formatMoney(listing.pricing.landed)}</span>
+          ) : null}
+        </div>
+        <div className="listing-card__actions">
+          <Link
+            className="listing-card__detail-action"
+            onClick={handleListingOpen}
+            state={{ listing }}
+            to={detailPath}
+          >
+            Details
+          </Link>
+          <a
+            className="listing-card__marketplace-action"
+            href={listing.sourceUrl}
+            onClick={handleMarketplaceOpen}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {marketplaceName} <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </div>
+      {onDismissRecommendation ? (
+        <button
+          className="listing-card__dismiss"
+          onClick={() => onDismissRecommendation(listing)}
+          type="button"
+        >
+          Not for me
+        </button>
+      ) : null}
       {riskSignal ? (
         <details className="listing-risk">
           <summary className="listing-risk__summary">

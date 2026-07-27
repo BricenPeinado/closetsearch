@@ -14,8 +14,9 @@ The repository now contains substantially more than a preview scaffold:
 - deterministic multi-provider orchestration with per-provider continuation,
   conservative deduplication, partial-failure summaries, rate limiting, bounded
   retry/circuit behavior, and stale-while-revalidate caching
-- a fixture-only mock provider, an official eBay Browse adapter, and a Grailed
-  adapter that is locked behind a retained written-authorization reference
+- a fixture-only mock provider plus eBay, Grailed, Depop, Yahoo! Auctions Japan,
+  and Mercari Japan adapters, each locked behind credentials and/or a retained
+  provider-specific authorization reference
 - PostgreSQL as the required production persistence driver, with pooled access,
   transaction retry, checksummed forward migrations, drift detection, durable
   request state, listing history, jobs, engagement, alerts, entitlements, and ML
@@ -32,8 +33,9 @@ The repository now contains substantially more than a preview scaffold:
 - persisted premium entitlements and a non-production administrative grant path;
   there is no configured billing provider
 - in-app alert matching, inbox, seen/dismissed state, plus durable
-  quiet-hour/frequency-aware outbound delivery-attempt primitives; outbound
-  email, push, and SMS remain disabled
+  quiet-hour/frequency-aware email and SMS delivery with explicit consent,
+  verified destinations, suppression, signed webhooks, crash recovery, and a
+  fail-closed global gate; push remains unavailable
 - an offline reproducible ML package plus a guarded API recommendation runtime;
   the rules ranker remains authoritative because the checked-in candidate is not
   promotion-eligible
@@ -46,9 +48,9 @@ The repository now contains substantially more than a preview scaffold:
   runbooks
 
 ClosetSearch is still **blocked from a truthful live production launch** in this
-checkout. No eBay production credentials/partner approval are present, and no
-Grailed written-authorization reference is present. Production fails closed:
-mock inventory cannot silently replace unavailable real providers.
+checkout. eBay production credentials/approval and all five provider-specific
+authorization references are absent. Production fails closed: mock inventory
+cannot silently replace unavailable real providers.
 
 See the [implementation report](docs/implementation-report.md), the immutable
 [pre-implementation gap matrix](docs/production-gap-matrix.md), and the
@@ -62,7 +64,7 @@ apps/
   web/          React/Vite product
 packages/
   shared/       normalized product contracts
-  providers/    mock, eBay, Grailed, and resilient HTTP adapters
+  providers/    mock plus five marketplace and resilient HTTP adapters
   ml/           offline deterministic training/evaluation package
 docs/
   ml/           dataset/model cards and fixture evaluation
@@ -103,8 +105,11 @@ corepack pnpm lint
 corepack pnpm typecheck
 corepack pnpm build
 corepack pnpm test
+corepack pnpm test:sites
 corepack pnpm test:integration
 corepack pnpm test:e2e
+corepack pnpm infrastructure:check
+corepack pnpm deps:check
 corepack pnpm db:migrate
 corepack pnpm smoke:test
 ```
@@ -134,6 +139,7 @@ local Compose claim is made.
 - `PROVIDER_ALLOW_MOCK_FALLBACK=false`
 - `PROVIDER_MOCK_ENABLED=false`
 - secure cookies, explicit HTTPS origins, and a secret session pepper
+- a dedicated secret bearer token for metrics and operational/provider health
 - an authorized/configured real provider must pass readiness
 - migrations run as a one-shot deployment job
 - ML remains `disabled` or `shadow` unless an immutable promoted artifact and an

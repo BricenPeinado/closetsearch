@@ -48,6 +48,9 @@ function listingType(value: unknown): SavedFilterListingType | undefined {
 
 function sortMode(value: unknown): SearchSortMode | undefined {
   return value === "newest" ||
+    value === "ending_soon" ||
+    value === "popularity" ||
+    value === "recommended" ||
     value === "price_asc" ||
     value === "price_desc" ||
     value === "relevance"

@@ -321,18 +321,21 @@ export function normalizeGrailedAlgoliaHit(
   const brandName =
     firstString(designer?.name, firstDesigner?.name, hit.brand_name, hit.brand) ?? "Unknown Brand";
   const providerBrandSlug = firstString(designer?.slug, firstDesigner?.slug, hit.brand_slug);
-  const priceInCents = firstNumber(
-    hit.price_in_cents,
-    hit.priceInCents,
-    hit.sold_price_in_cents,
-    asRecord(hit.price)?.amount,
-  );
+  const marketStatus = options.marketScope ?? "active";
+  const priceInCents =
+    marketStatus === "sold"
+      ? firstNumber(
+          hit.sold_price_in_cents,
+          hit.price_in_cents,
+          hit.priceInCents,
+          asRecord(hit.price)?.amount,
+        )
+      : firstNumber(hit.price_in_cents, hit.priceInCents, asRecord(hit.price)?.amount);
   const currency = firstString(hit.currency, asRecord(hit.price)?.currency);
   const seller = normalizeSeller(hit);
   const trustTier = seller?.trustTier ?? "unknown";
   const tags = asStringArray(hit.tags) ?? asStringArray(hit.metadata_tags);
   const priceDropsCount = firstNumber(hit.price_drops_count, hit.priceDropsCount);
-  const marketStatus = options.marketScope ?? "active";
   const price =
     priceInCents !== undefined &&
     Number.isSafeInteger(priceInCents) &&

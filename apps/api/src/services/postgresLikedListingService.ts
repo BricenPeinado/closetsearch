@@ -129,7 +129,7 @@ function toIso(value: Date | string) {
 function listingFromRow(row: LikedListingRow): Listing {
   const originalPrice = money(row.original_price_minor, row.original_currency);
   const publicId = formatPublicListingId(row.provider_id, row.source_listing_id);
-  const imageUrl = row.image_url ?? "/listing-image-fallback.svg";
+  const imageUrl = row.image_url ?? "/listing-placeholder.svg";
   const observedAt = toIso(row.last_seen_at);
   const staleAt = row.stale_after ? toIso(row.stale_after) : undefined;
   const isStale =

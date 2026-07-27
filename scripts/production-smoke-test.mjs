@@ -1,6 +1,9 @@
 import { pathToFileURL } from "node:url";
 
 const configuredApiBaseUrl = process.env.CLOSETSEARCH_API_BASE_URL?.trim();
+const liveProviderSmokeEnabled =
+  process.env.LIVE_PROVIDER_SMOKE_TESTS?.trim().toLowerCase() === "true";
+const operationsBearerToken = process.env.CLOSETSEARCH_OPERATIONS_BEARER_TOKEN?.trim();
 const requireHttps = process.env.CLOSETSEARCH_SMOKE_REQUIRE_HTTPS?.toLowerCase() !== "false";
 const expectedProviderIds = new Set(
   (process.env.CLOSETSEARCH_EXPECTED_PROVIDER_IDS ?? "")
@@ -32,6 +35,7 @@ async function fetchJson(apiBaseUrl, timeoutMs, path) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     headers: {
       accept: "application/json",
+      ...(operationsBearerToken ? { authorization: `Bearer ${operationsBearerToken}` } : {}),
     },
     redirect: "error",
     signal: AbortSignal.timeout(timeoutMs),
@@ -86,8 +90,16 @@ function assertNormalizedListing(listing) {
 
 export async function main() {
   assert(
+    liveProviderSmokeEnabled,
+    "LIVE_PROVIDER_SMOKE_TESTS=true is required before contacting an authorized live-provider deployment.",
+  );
+  assert(
     configuredApiBaseUrl,
     "CLOSETSEARCH_API_BASE_URL is required; smoke:test never defaults to a local or mock runtime.",
+  );
+  assert(
+    operationsBearerToken,
+    "CLOSETSEARCH_OPERATIONS_BEARER_TOKEN is required for the protected provider readiness check.",
   );
   const apiBaseUrl = configuredApiBaseUrl.replace(/\/+$/, "");
   const parsedBaseUrl = new URL(apiBaseUrl);

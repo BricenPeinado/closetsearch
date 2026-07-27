@@ -6,8 +6,10 @@
 - normalized exact listing/money/lifecycle data and discovery UX
 - PostgreSQL production request/data plane and resumable worker ingestion
 - deterministic price history and observed analytics
+- normalized listing detail and typed price-trend intelligence
 - durable qualified engagement and guarded recommendation runtime
-- persisted entitlements and in-app watchlist alerts
+- persisted entitlements, in-app watchlist alerts, and fail-closed opt-in
+  Resend/Twilio delivery foundations
 - secure account verification/reset/export/deletion foundations
 - API security/OpenAPI, tests, containers, CI, metrics, backup/restore, deploy/
   rollback docs
@@ -15,15 +17,18 @@
 ## External activation blockers
 
 - eBay approval/credentials
-- Grailed written authorization
-- second independent live provider
-- transactional email, billing, and live FX providers
+- durable authorization references for the operator-attested Grailed, Depop,
+  Yahoo! Auctions Japan, and Mercari Japan permissions
+- production Resend/Twilio accounts, verified senders, credentials, public
+  callback origins, explicit user consent, and staging evidence
+- billing and live FX providers
+- Sites-to-API origin and production operations bearer configuration
 - adequate production ML data
 - authorized HTTPS staging environment
 
 ## Intentionally excluded
 
-- push/SMS
+- push
 - OAuth/social login
 - production authenticity/fake verdicts
 - active unpromoted ML

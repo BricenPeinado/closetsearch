@@ -1,8 +1,15 @@
 import {
+  createDepopProvider,
   createEbayProvider,
   createGrailedProvider,
+  createMercariJpProvider,
+  createYahooAuctionsJpProvider,
+  depopProviderCapabilities,
   ebayProviderCapabilities,
+  grailedProviderCapabilities,
+  mercariJpProviderCapabilities,
   mockProvider,
+  yahooAuctionsJpProviderCapabilities,
   type Provider,
   type ProviderCapabilities,
   type ProviderFailure,
@@ -64,31 +71,6 @@ export interface ProviderRuntime {
   statuses: ProviderStatus[];
 }
 
-const grailedCapabilities: ProviderCapabilities = {
-  dataOrigin: "authorized_scraping",
-  paginationModel: "page",
-  requiresAttribution: true,
-  supportsActiveListings: true,
-  supportsAttribution: true,
-  supportsBrandFilter: false,
-  supportsCategoryFilter: false,
-  supportsChangeFeed: false,
-  supportsConditionFilter: false,
-  supportsPagination: true,
-  supportsPagePagination: true,
-  supportsCursorPagination: false,
-  supportsPriceRange: false,
-  supportsSearch: true,
-  supportsSellerMetadata: true,
-  supportsShipping: false,
-  supportsSizeFilter: false,
-  supportsSoldListings: true,
-  supportsWebhooks: false,
-  supportedListingTypes: ["auction", "buy_now", "unknown"],
-  supportedMarketStatuses: ["active", "sold"],
-  supportedSortModes: ["relevance", "newest"],
-};
-
 const defaultProviderDefinitions: ProviderDefinition[] = [
   {
     id: mockProvider.id,
@@ -103,7 +85,7 @@ const defaultProviderDefinitions: ProviderDefinition[] = [
     displayName: "Grailed",
     mode: "real",
     implementationStatus: "available",
-    capabilities: grailedCapabilities,
+    capabilities: grailedProviderCapabilities,
     requiredEnvVars: [
       "GRAILED_PROVIDER_ENABLED",
       "GRAILED_SCRAPING_ALLOWED",
@@ -140,6 +122,106 @@ const defaultProviderDefinitions: ProviderDefinition[] = [
       }),
   },
   {
+    id: "depop",
+    displayName: "Depop",
+    mode: "real",
+    implementationStatus: "available",
+    capabilities: depopProviderCapabilities,
+    requiredEnvVars: [
+      "DEPOP_PROVIDER_ENABLED",
+      "DEPOP_SCRAPING_ALLOWED",
+      "DEPOP_AUTHORIZATION_REFERENCE",
+      "DEPOP_BASE_URL",
+      "DEPOP_MAX_RESULTS_PER_SEARCH",
+      "DEPOP_USER_AGENT",
+    ],
+    createProvider: (config) =>
+      createDepopProvider({
+        authorizationReference: config.providers.depop.authorizationReference,
+        baseBackoffMs: config.providers.depop.baseBackoffMs,
+        baseUrl: config.providers.depop.baseUrl,
+        circuitBreakerCooldownMs: config.providers.depop.circuitBreakerCooldownMs,
+        circuitBreakerFailureThreshold: config.providers.depop.circuitBreakerFailureThreshold,
+        fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
+        maxConcurrency: config.providers.depop.maxConcurrency,
+        maxResultsPerSearch: config.providers.depop.maxResultsPerSearch,
+        maxRetries: config.providers.depop.maxRetries,
+        maxRetryAfterMs: config.providers.depop.maxRetryAfterMs,
+        minRequestIntervalMs: config.providers.depop.minRequestIntervalMs,
+        requestTimeoutMs: config.providers.depop.requestTimeoutMs,
+        runtimeMode: "authorized-live",
+        scrapingAllowed: config.providers.depop.scrapingAllowed,
+        userAgent: config.providers.depop.userAgent,
+      }),
+  },
+  {
+    id: "yahoo-auctions-jp",
+    displayName: "Yahoo! Auctions Japan",
+    mode: "real",
+    implementationStatus: "available",
+    capabilities: yahooAuctionsJpProviderCapabilities,
+    requiredEnvVars: [
+      "YAHOO_AUCTIONS_JP_PROVIDER_ENABLED",
+      "YAHOO_AUCTIONS_JP_SCRAPING_ALLOWED",
+      "YAHOO_AUCTIONS_JP_AUTHORIZATION_REFERENCE",
+      "YAHOO_AUCTIONS_JP_BASE_URL",
+      "YAHOO_AUCTIONS_JP_MAX_RESULTS_PER_SEARCH",
+      "YAHOO_AUCTIONS_JP_USER_AGENT",
+    ],
+    createProvider: (config) =>
+      createYahooAuctionsJpProvider({
+        authorizationReference: config.providers.yahooAuctionsJp.authorizationReference,
+        baseBackoffMs: config.providers.yahooAuctionsJp.baseBackoffMs,
+        baseUrl: config.providers.yahooAuctionsJp.baseUrl,
+        circuitBreakerCooldownMs: config.providers.yahooAuctionsJp.circuitBreakerCooldownMs,
+        circuitBreakerFailureThreshold:
+          config.providers.yahooAuctionsJp.circuitBreakerFailureThreshold,
+        fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
+        maxConcurrency: config.providers.yahooAuctionsJp.maxConcurrency,
+        maxResultsPerSearch: config.providers.yahooAuctionsJp.maxResultsPerSearch,
+        maxRetries: config.providers.yahooAuctionsJp.maxRetries,
+        maxRetryAfterMs: config.providers.yahooAuctionsJp.maxRetryAfterMs,
+        minRequestIntervalMs: config.providers.yahooAuctionsJp.minRequestIntervalMs,
+        requestTimeoutMs: config.providers.yahooAuctionsJp.requestTimeoutMs,
+        runtimeMode: "authorized-live",
+        scrapingAllowed: config.providers.yahooAuctionsJp.scrapingAllowed,
+        userAgent: config.providers.yahooAuctionsJp.userAgent,
+      }),
+  },
+  {
+    id: "mercari-jp",
+    displayName: "Mercari Japan",
+    mode: "real",
+    implementationStatus: "available",
+    capabilities: mercariJpProviderCapabilities,
+    requiredEnvVars: [
+      "MERCARI_JP_PROVIDER_ENABLED",
+      "MERCARI_JP_SCRAPING_ALLOWED",
+      "MERCARI_JP_AUTHORIZATION_REFERENCE",
+      "MERCARI_JP_BASE_URL",
+      "MERCARI_JP_MAX_RESULTS_PER_SEARCH",
+      "MERCARI_JP_USER_AGENT",
+    ],
+    createProvider: (config) =>
+      createMercariJpProvider({
+        authorizationReference: config.providers.mercariJp.authorizationReference,
+        baseBackoffMs: config.providers.mercariJp.baseBackoffMs,
+        baseUrl: config.providers.mercariJp.baseUrl,
+        circuitBreakerCooldownMs: config.providers.mercariJp.circuitBreakerCooldownMs,
+        circuitBreakerFailureThreshold: config.providers.mercariJp.circuitBreakerFailureThreshold,
+        fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
+        maxConcurrency: config.providers.mercariJp.maxConcurrency,
+        maxResultsPerSearch: config.providers.mercariJp.maxResultsPerSearch,
+        maxRetries: config.providers.mercariJp.maxRetries,
+        maxRetryAfterMs: config.providers.mercariJp.maxRetryAfterMs,
+        minRequestIntervalMs: config.providers.mercariJp.minRequestIntervalMs,
+        requestTimeoutMs: config.providers.mercariJp.requestTimeoutMs,
+        runtimeMode: "authorized-live",
+        scrapingAllowed: config.providers.mercariJp.scrapingAllowed,
+        userAgent: config.providers.mercariJp.userAgent,
+      }),
+  },
+  {
     id: "ebay",
     displayName: "eBay",
     mode: "real",
@@ -147,6 +229,7 @@ const defaultProviderDefinitions: ProviderDefinition[] = [
     capabilities: ebayProviderCapabilities,
     requiredEnvVars: [
       "EBAY_PROVIDER_ENABLED",
+      "EBAY_AUTHORIZATION_REFERENCE",
       "EBAY_CLIENT_ID",
       "EBAY_CLIENT_SECRET",
       "EBAY_MARKETPLACE_ID",
@@ -161,6 +244,7 @@ const defaultProviderDefinitions: ProviderDefinition[] = [
         fetchImpl: typeof fetch === "function" ? (input, init) => fetch(input, init) : undefined,
         identityBaseUrl: config.providers.ebay.identityBaseUrl,
         marketplaceId: config.providers.ebay.marketplaceId,
+        locale: config.providers.ebay.locale,
         maxConcurrency: config.providers.ebay.maxConcurrency,
         maxRetries: config.providers.ebay.maxRetries,
         minRequestIntervalMs: config.providers.ebay.minRequestIntervalMs,
@@ -177,6 +261,9 @@ function getProviderToggle(
   if (providerId === "mock") return config.providers.mock;
   if (providerId === "grailed") return config.providers.grailed;
   if (providerId === "ebay") return config.providers.ebay;
+  if (providerId === "depop") return config.providers.depop;
+  if (providerId === "yahoo-auctions-jp") return config.providers.yahooAuctionsJp;
+  if (providerId === "mercari-jp") return config.providers.mercariJp;
   return { enabled: false, configured: false };
 }
 
@@ -220,14 +307,16 @@ export function createProviderRuntime(
         : config.mode === "real"
           ? definition.mode === "real"
           : definition.mode === "mock";
-    const requiresAuthorization = definition.id === "grailed";
+    const requiresAuthorization = definition.mode === "real";
+    const requiresScrapingAuthorization = requiresAuthorization && definition.id !== "ebay";
     const hasAuthorization =
       !requiresAuthorization ||
-      (toggle.scrapingAllowed === true && Boolean(toggle.authorizationReference));
+      (Boolean(toggle.authorizationReference) &&
+        (!requiresScrapingAuthorization || toggle.scrapingAllowed === true));
 
     if (!toggle.enabled) reasons.push("disabled");
     if (!toggle.configured) reasons.push("missing_configuration");
-    if (requiresAuthorization && toggle.scrapingAllowed !== true) {
+    if (requiresScrapingAuthorization && toggle.scrapingAllowed !== true) {
       reasons.push("scraping_not_authorized");
     }
     if (requiresAuthorization && !toggle.authorizationReference) {
@@ -269,7 +358,7 @@ export function createProviderRuntime(
         failure = createPreflightFailure(
           definition,
           "authorization_required",
-          "The Grailed provider is enabled but both GRAILED_SCRAPING_ALLOWED=true and GRAILED_AUTHORIZATION_REFERENCE are required.",
+          `${definition.displayName} is enabled but its production authorization reference${requiresScrapingAuthorization ? " and explicit scraping flag are" : " is"} required.`,
         );
       } else if (!definition.createProvider) {
         failure = createPreflightFailure(
@@ -304,8 +393,8 @@ export function createProviderRuntime(
       capabilities: definition.capabilities,
       reasons,
       authorizationReferencePresent:
-        definition.id === "grailed" ? Boolean(toggle.authorizationReference) : undefined,
-      scrapingAllowed: definition.id === "grailed" ? toggle.scrapingAllowed : undefined,
+        definition.mode === "real" ? Boolean(toggle.authorizationReference) : undefined,
+      scrapingAllowed: requiresScrapingAuthorization ? toggle.scrapingAllowed : undefined,
       lastErrorCategory,
     });
   }

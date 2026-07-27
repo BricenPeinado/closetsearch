@@ -1,7 +1,7 @@
 import { renderToString } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { AlertInboxPage, describeAlertReasons } from "./alert-inbox";
+import { AlertInboxPage, alertListingPath, describeAlertReasons } from "./alert-inbox";
 
 describe("alert inbox", () => {
   it("formats match reasons without exposing internal codes", () => {
@@ -12,6 +12,9 @@ describe("alert inbox", () => {
       ]),
     ).toBe("Brand matched • Price range matched");
     expect(describeAlertReasons([])).toBe("Watchlist criteria matched");
+    expect(alertListingPath("yahoo-auctions-jp:item/42")).toBe(
+      "/listings/yahoo-auctions-jp%3Aitem%2F42",
+    );
   });
 
   it("shows a signed-out login state and truthful delivery dependencies", () => {
@@ -50,6 +53,6 @@ describe("alert inbox", () => {
 
     expect(html).toContain("Checking your durable in-app inbox");
     expect(html).toContain("production PostgreSQL worker");
-    expect(html).toContain("Push and SMS are unavailable");
+    expect(html).toContain("verified, explicitly consented phone");
   });
 });

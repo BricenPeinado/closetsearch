@@ -44,6 +44,7 @@ export interface EbayRawItemLocation {
 export interface EbayRawItemSummary {
   additionalImages?: EbayRawImage[];
   adultOnly?: boolean;
+  bidCount?: number;
   buyingOptions?: string[];
   categories?: EbayRawCategory[];
   categoryPath?: string;

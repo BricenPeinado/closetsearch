@@ -164,7 +164,7 @@ describe("feed and search pagination", () => {
 
   it("throws a recoverable API error when pagination fails on a later provider page", async () => {
     const flakyProvider: Provider = {
-      id: "flaky",
+      id: "mock",
       name: "Flaky Provider",
       capabilities: {
         supportsPagination: true,
@@ -176,14 +176,14 @@ describe("feed and search pagination", () => {
         }
 
         return {
-          providerId: "flaky",
+          providerId: "mock",
           status: "success",
           listings: [
             {
-              id: "flaky:1",
-              providerId: "flaky",
+              id: "mock:flaky-1",
+              providerId: "mock",
               providerListingId: "1",
-              source: { id: "flaky", name: "Flaky Provider" },
+              source: { id: "mock", name: "Flaky Provider" },
               sourceUrl: "https://example.com/flaky-1",
               title: "Flaky page 1 listing",
               brand: { id: "brand:flaky", slug: "flaky", name: "Flaky" },
@@ -225,18 +225,18 @@ describe("feed and search pagination", () => {
 
   it("does not crash when provider pagination metadata is missing", async () => {
     const noPaginationProvider: Provider = {
-      id: "no-pagination",
+      id: "mock",
       name: "No Pagination",
       async search() {
         return {
-          providerId: "no-pagination",
+          providerId: "mock",
           status: "success",
           listings: [
             {
-              id: "no-pagination:1",
-              providerId: "no-pagination",
+              id: "mock:no-pagination-1",
+              providerId: "mock",
               providerListingId: "1",
-              source: { id: "no-pagination", name: "No Pagination" },
+              source: { id: "mock", name: "No Pagination" },
               sourceUrl: "https://example.com/no-pagination-1",
               title: "No pagination listing",
               brand: { id: "brand:no-pagination", slug: "no-pagination", name: "No Pagination" },

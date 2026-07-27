@@ -30,11 +30,15 @@ function createRequest() {
 }
 
 function dataPlaneState(input?: {
+  alertDeliveries?: unknown[];
   checkpoints?: unknown[];
   jobs?: unknown[];
   providerHealth?: unknown[];
 }) {
   return {
+    alerts: {
+      listDeliveryStatusCounts: vi.fn().mockResolvedValue(input?.alertDeliveries ?? []),
+    },
     jobs: {
       listIngestionCheckpoints: vi.fn().mockResolvedValue(input?.checkpoints ?? []),
       listStatuses: vi.fn().mockResolvedValue(input?.jobs ?? []),
@@ -76,6 +80,13 @@ describe("operations routes", () => {
   it("reports durable job, checkpoint, and provider state without job payloads", async () => {
     mocks.getPostgresDataPlane.mockResolvedValue(
       dataPlaneState({
+        alertDeliveries: [
+          {
+            channel: "sms",
+            count: 2,
+            status: "dead_letter",
+          },
+        ],
         checkpoints: [
           {
             consecutiveFailures: 1,
@@ -129,6 +140,13 @@ describe("operations routes", () => {
 
     expect(result).toMatchObject({
       body: {
+        alertDeliveries: [
+          {
+            channel: "sms",
+            count: 2,
+            status: "dead_letter",
+          },
+        ],
         checkpoints: [
           {
             consecutiveFailures: 1,
@@ -175,10 +193,50 @@ describe("operations routes", () => {
     expect(JSON.stringify(result)).not.toContain("must-not-leak");
   });
 
+  it("requires a timing-safe bearer credential for production operations surfaces", async () => {
+    const unauthorized = await handleOperationsRoute(
+      createRequest(),
+      new URL("https://closetsearch.example/providers/health"),
+      mocks.createProviderRuntime(),
+      {
+        NODE_ENV: "production",
+        OPERATIONS_BEARER_TOKEN: "expected-operations-token-123456789",
+      },
+    );
+
+    expect(unauthorized).toMatchObject({
+      body: { error: "operations_unauthorized" },
+      statusCode: 401,
+    });
+
+    const request = createRequest();
+    request.headers = {
+      authorization: "Bearer expected-operations-token-123456789",
+    };
+    const authorized = await handleOperationsRoute(
+      request,
+      new URL("https://closetsearch.example/providers/health"),
+      mocks.createProviderRuntime(),
+      {
+        NODE_ENV: "production",
+        OPERATIONS_BEARER_TOKEN: "expected-operations-token-123456789",
+      },
+    );
+
+    expect(authorized).toMatchObject({ statusCode: 200 });
+  });
+
   it("exports aggregated PostgreSQL gauges and clears stale values after failure", async () => {
     const now = Date.now();
     mocks.getPostgresDataPlane.mockResolvedValue(
       dataPlaneState({
+        alertDeliveries: [
+          {
+            channel: "email",
+            count: 3,
+            status: "queued",
+          },
+        ],
         checkpoints: [
           {
             consecutiveFailures: 1,
@@ -219,6 +277,7 @@ describe("operations routes", () => {
     const firstBody = String(first?.body);
 
     expect(firstBody).toContain('closetsearch_worker_jobs{status="running"} 1');
+    expect(firstBody).toContain('closetsearch_alert_deliveries{channel="email",status="queued"} 3');
     expect(firstBody).toContain(
       'closetsearch_ingestion_consecutive_failures{provider="ebay",scope="active"} 3',
     );
@@ -239,6 +298,7 @@ describe("operations routes", () => {
 
     expect(secondBody).toContain('closetsearch_operations_metrics_available{driver="postgres"} 0');
     expect(secondBody).not.toContain("closetsearch_worker_jobs{");
+    expect(secondBody).not.toContain("closetsearch_alert_deliveries{");
     expect(secondBody).not.toContain("closetsearch_ingestion_lag_seconds{");
     expect(secondBody).not.toContain("closetsearch_provider_health_latency_ms{");
   });

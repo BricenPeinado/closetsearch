@@ -66,6 +66,9 @@ import {
   resetEngagementRateLimitsForTests,
 } from "./routes/engagement-routes.js";
 import { handleOperationsRoute } from "./routes/operations-routes.js";
+import { handleNotificationRoute } from "./routes/notification-routes.js";
+import { handlePriceTrendRoute } from "./routes/price-trend-routes.js";
+import { handleListingDetailRoute } from "./routes/listing-detail-routes.js";
 import { handleBrandRoute } from "./routes/brand-routes.js";
 import { handleAnalyticsRoute } from "./routes/analytics-routes.js";
 import { handleEntitlementRoute } from "./routes/entitlement-routes.js";
@@ -116,6 +119,10 @@ const exactMetricRoutes = new Set([
   "/me/email/verification",
   "/me/likes",
   "/me/notification-preferences",
+  "/me/notification-readiness",
+  "/me/phone",
+  "/me/phone/verification",
+  "/me/phone/verify",
   "/me/saved-filters",
   "/me/saved-searches",
   "/me/settings",
@@ -123,9 +130,12 @@ const exactMetricRoutes = new Set([
   "/metrics",
   "/operations/status",
   "/providers/health",
+  "/notifications/unsubscribe",
   "/recent-searches",
   "/saved-searches",
   "/search",
+  "/webhooks/email",
+  "/webhooks/sms",
   "/users/onboarding",
 ]);
 
@@ -164,7 +174,21 @@ export function getMetricRoute(rawUrl: string | undefined) {
     return "/saved-searches/:legacyUserId";
   }
   if (pathname.startsWith("/me/watchlists/")) {
+    if (pathname.endsWith("/alert-settings")) {
+      return "/me/watchlists/:watchlistId/alert-settings";
+    }
     return "/me/watchlists/:watchlistId";
+  }
+  if (
+    pathname.startsWith("/listings/") &&
+    (pathname.endsWith("/price-trends") || pathname.endsWith("/price-history"))
+  ) {
+    return pathname.endsWith("/price-trends")
+      ? "/listings/:listingId/price-trends"
+      : "/listings/:listingId/price-history";
+  }
+  if (pathname.startsWith("/listings/")) {
+    return "/listings/:listingId";
   }
 
   return "unmatched";
@@ -246,6 +270,9 @@ function parseSearchSortMode(value: string | null): SearchSortMode {
     case "price_asc":
     case "price_desc":
     case "newest":
+    case "ending_soon":
+    case "popularity":
+    case "recommended":
     case "relevance":
       return value;
     default:
@@ -416,6 +443,9 @@ function toOptionalSearchSortMode(value: unknown) {
     value === "price_asc" ||
     value === "price_desc" ||
     value === "newest" ||
+    value === "ending_soon" ||
+    value === "popularity" ||
+    value === "recommended" ||
     value === "relevance"
   ) {
     return value;
@@ -1139,7 +1169,13 @@ export async function handleRequest(
 
   await prepareRequestAuthContext(request);
 
-  assertCsrfSafeRequest(request);
+  if (
+    requestUrl.pathname !== "/webhooks/email" &&
+    requestUrl.pathname !== "/webhooks/sms" &&
+    requestUrl.pathname !== "/notifications/unsubscribe"
+  ) {
+    assertCsrfSafeRequest(request);
+  }
 
   const postgresAuthRoute = await handlePostgresAuthRoute(request, requestUrl);
 
@@ -1164,6 +1200,27 @@ export async function handleRequest(
       postgresAccountRoute.body,
       postgresAccountRoute.headers,
     );
+    return;
+  }
+
+  const notificationRoute = await handleNotificationRoute(request, requestUrl);
+
+  if (notificationRoute) {
+    if (notificationRoute.kind === "json") {
+      sendJson(
+        request,
+        response,
+        notificationRoute.statusCode,
+        notificationRoute.body,
+        notificationRoute.headers,
+      );
+    } else {
+      response.writeHead(notificationRoute.statusCode, {
+        ...buildResponseHeaders(request),
+        ...notificationRoute.headers,
+      });
+      response.end(notificationRoute.body);
+    }
     return;
   }
 
@@ -1290,6 +1347,32 @@ export async function handleRequest(
       analyticsRoute.statusCode,
       analyticsRoute.body,
       analyticsRoute.headers,
+    );
+    return;
+  }
+
+  const priceTrendRoute = await handlePriceTrendRoute(request, requestUrl);
+
+  if (priceTrendRoute) {
+    sendJson(
+      request,
+      response,
+      priceTrendRoute.statusCode,
+      priceTrendRoute.body,
+      priceTrendRoute.headers,
+    );
+    return;
+  }
+
+  const listingDetailRoute = await handleListingDetailRoute(request, requestUrl);
+
+  if (listingDetailRoute) {
+    sendJson(
+      request,
+      response,
+      listingDetailRoute.statusCode,
+      listingDetailRoute.body,
+      listingDetailRoute.headers,
     );
     return;
   }

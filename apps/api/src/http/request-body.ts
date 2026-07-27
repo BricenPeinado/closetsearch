@@ -13,7 +13,7 @@ export function getRequestBodyLimitBytes(env: Record<string, string | undefined>
   return parsePositiveInteger(env.HTTP_BODY_LIMIT_BYTES, defaultBodyLimitBytes);
 }
 
-export async function parseJsonRequestBody(
+export async function readRequestBody(
   request: IncomingMessage,
   limitBytes = getRequestBodyLimitBytes(),
 ) {
@@ -48,11 +48,15 @@ export async function parseJsonRequestBody(
     chunks.push(buffer);
   }
 
-  if (chunks.length === 0) {
-    return null;
-  }
+  return chunks.length === 0 ? Buffer.alloc(0) : Buffer.concat(chunks);
+}
 
-  const body = Buffer.concat(chunks).toString("utf-8").trim();
+export async function parseJsonRequestBody(
+  request: IncomingMessage,
+  limitBytes = getRequestBodyLimitBytes(),
+) {
+  const rawBody = await readRequestBody(request, limitBytes);
+  const body = rawBody.toString("utf-8").trim();
 
   if (body.length === 0) {
     return null;

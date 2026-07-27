@@ -2,25 +2,42 @@
 
 ## Launch blockers
 
-- No real provider is authorized/configured in this checkout.
+- All five requested marketplace adapters are implemented, but no real provider
+  is activation-ready/configured in this checkout.
 - eBay needs production Buy API credentials, partner eligibility/agreements, and
   any required affiliate attribution.
-- Grailed needs exact written permission and a retained authorization reference.
-- Therefore the requested two independently live real providers and no-mock
-  staging smoke are not satisfied.
+- The operator attested permission for Grailed, Depop, Yahoo! Auctions Japan,
+  and Mercari Japan, but each still needs a retained non-secret
+  provider-specific authorization reference for the implemented access method
+  and data-use scope before production can enable it.
+- Therefore no live five-marketplace or no-mock staging claim is satisfied.
+- Resend/Twilio transports exist but production credentials, verified
+  senders/numbers, webhook secrets, public callback origins, verified-user
+  consent, and delivery evidence are absent.
+- PostgreSQL migration `007` has not yet received retained final release
+  evidence on the current tree. Listing detail, price trends, and outbound
+  delivery require that migration and are unavailable in SQLite mode.
+- The production operations bearer token and the Sites
+  `CLOSETSEARCH_API_ORIGIN` are not configured in the repository. A Sites edge
+  without a valid origin returns `503`.
 - This workstation has no Docker executable, so it cannot supply local Compose
-  boot evidence. An ephemeral PostgreSQL 17.10 engine and isolated logical
-  restore were verified locally, but that does not establish managed HA/PITR or
-  encrypted off-host backup operations.
-- Final code commit `3072b33` passed every locally executable required command
-  and five consecutive full suites with the real-PostgreSQL gate. The production
-  smoke remains blocked because no authorized HTTPS deployment URL exists.
+  boot evidence.
+- The dependency audit is blocked in this managed environment because it would
+  send dependency metadata outbound; approved CI must supply that evidence.
+- Historical final-code evidence on `3072b33` predates the current
+  five-provider, notification, price-intelligence, and migration `007` changes
+  and cannot be carried forward as a current release pass.
 
 ## Providers and listings
 
 - Provider fields can be incomplete, stale, removed, or unavailable.
 - eBay Browse does not provide general confirmed-sold history.
-- Grailed active/sold behavior is adapter/fixture evidence only while blocked.
+- Grailed, Depop, Yahoo! Auctions Japan, and Mercari Japan behavior is
+  adapter/fixture evidence only while live access is blocked.
+- Japanese original-language fields and marketplace limitations are preserved
+  only when a provider supplies them; translations may be absent.
+- Auction current bids and completed-auction prices are distinct. A missing
+  completed price is not inferred as a sale.
 - Process-local provider cache is not shared across API replicas.
 - Cross-provider canonical dedupe is deliberately conservative and can leave
   uncertain duplicates.
@@ -30,14 +47,34 @@
 ## Accounts, billing, and alerts
 
 - Account verification/reset/export API and web flows cannot deliver links until
-  a transactional email provider/sender domain is configured.
+  the Resend transport, verified sender domain, public action origin, and
+  credentials are configured.
 - The breached-password integration boundary has no approved provider.
 - API fixed-window rate limits are process-local.
 - Premium uses persisted entitlements, but no billing/subscription provider or
   signed webhook route is configured.
-- In-app watchlist alerts are implemented; email, push, and SMS are disabled.
-- Alert delivery retry/dead-letter repositories exist, but no outbound delivery
-  worker/provider is active.
+- In-app watchlist alerts are implemented and default on.
+- Email/SMS transports, worker processing, consent/suppression state, phone
+  verification, unsubscribe/STOP handling, and signed webhook handlers are
+  implemented, but both outbound channels default off and are inactive without
+  configuration, explicit opt-in, a verified destination, per-watchlist
+  enablement, and staging evidence.
+- Push delivery is not implemented.
+- Notification destinations are operational personal data. Production
+  retention/deletion, subprocessor, and support-contact policy still needs
+  approval.
+
+## Listing detail and price intelligence
+
+- Durable listing detail and price trends require PostgreSQL and migration
+  `007`; local SQLite compatibility returns an honest unavailable response.
+- Trend calculations use observations ClosetSearch has actually retained. A
+  provider outage, sparse history, asking-only evidence, or short observation
+  period lowers confidence or yields no trend.
+- Currency series are never silently combined. Without approved FX provenance,
+  cross-currency comparisons remain separate.
+- Trend summaries are descriptive observations, not forecasts, valuation
+  guarantees, or investment advice.
 
 ## Analytics and ML
 
@@ -67,12 +104,16 @@
   before either becomes an easy multi-owner module.
 - The API emits redacted structured logs and Prometheus metrics, but no external
   error-tracking exporter/provider is implemented.
-- Local PostgreSQL evidence covers migrations `001`–`006`, real repository
+- Historical local PostgreSQL evidence covers migrations `001`–`006`, real repository
   concurrency/rollback/lease/session cases, PostgreSQL-backed Playwright, and a
   checksummed isolated logical restore. A database-process stop/start preserved
-  the verified data and the browser suite passed afterward. Retain
-  CI/deployment evidence and still test managed HA/PITR/failover, encrypted
-  off-host storage, and the container topology before launch.
+  the verified data and the browser suite passed afterward. It does not verify
+  current migration `007`; retain current CI/deployment evidence and still test
+  managed HA/PITR/failover, encrypted off-host storage, and the container
+  topology before launch.
+- `/metrics`, `/operations/status`, and `/providers/health` require a bearer
+  token in production and whenever configured; monitors must send it without
+  logging it.
 - Managed high availability, point-in-time recovery, dashboards, alerts, secret
   rotation, and error-tracking provider configuration belong to the deployment
   environment and cannot be proven by repository artifacts alone.

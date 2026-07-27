@@ -15,6 +15,7 @@ import { ProviderHttpError, type ProviderHttpMetric } from "../http/resilient-ht
 import {
   createGrailedPagination,
   GRAILED_ALGOLIA_HITS_PER_PAGE,
+  type GrailedAlgoliaResponse,
   normalizeGrailedAlgoliaHit,
   queryGrailedAlgolia,
 } from "./algolia.js";
@@ -42,6 +43,7 @@ export type GrailedProviderRuntimeMode = "fixture" | "authorized-live";
 
 export interface GrailedProviderOptions {
   authorizationReference?: string;
+  backoffJitterRatio?: number;
   baseBackoffMs?: number;
   baseUrl?: string;
   circuitBreakerCooldownMs?: number;
@@ -56,6 +58,7 @@ export interface GrailedProviderOptions {
   minRequestIntervalMs?: number;
   nowImpl?: () => number;
   onHttpMetric?: (metric: ProviderHttpMetric) => void;
+  randomImpl?: () => number;
   requestTimeoutMs?: number;
   runtimeMode?: GrailedProviderRuntimeMode;
   scrapingAllowed?: boolean;
@@ -63,7 +66,7 @@ export interface GrailedProviderOptions {
   userAgent?: string;
 }
 
-const grailedCapabilities: ProviderCapabilities = {
+export const grailedProviderCapabilities: ProviderCapabilities = {
   dataOrigin: "authorized_scraping",
   paginationModel: "page",
   requiresAttribution: true,
@@ -90,6 +93,36 @@ const grailedCapabilities: ProviderCapabilities = {
 
 function toTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasValidOptionalNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0);
+}
+
+function parseGrailedAlgoliaResponse(value: unknown): GrailedAlgoliaResponse {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.hits) ||
+    !hasValidOptionalNumber(value, "hitsPerPage") ||
+    !hasValidOptionalNumber(value, "nbHits") ||
+    !hasValidOptionalNumber(value, "nbPages") ||
+    !hasValidOptionalNumber(value, "page")
+  ) {
+    throw new ProviderHttpError(
+      "Grailed response no longer matches the reviewed Algolia search schema.",
+      {
+        code: "invalid_response",
+        retryable: false,
+      },
+    );
+  }
+
+  return value as unknown as GrailedAlgoliaResponse;
 }
 
 function createFailure(
@@ -406,7 +439,8 @@ async function searchAuthorizedLiveListings(
       );
     }
 
-    const hits = Array.isArray(response.body.hits) ? response.body.hits : [];
+    const body = parseGrailedAlgoliaResponse(response.body);
+    const hits = body.hits ?? [];
     const fetchedAt = new Date().toISOString();
     const normalizedListings = hits
       .map((hit) =>
@@ -424,7 +458,7 @@ async function searchAuthorizedLiveListings(
 
     return createSuccess(
       listings,
-      createGrailedPagination(response.body, page),
+      createGrailedPagination(body, page),
       droppedListingCount > 0
         ? [
             {
@@ -473,6 +507,7 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
   const credentialCache = createGrailedCredentialCache(credentialTtlMs, options.nowImpl);
   const httpClient = options.fetchImpl
     ? createGrailedHttpClient({
+        backoffJitterRatio: options.backoffJitterRatio,
         baseBackoffMs: options.baseBackoffMs,
         circuitBreakerCooldownMs: options.circuitBreakerCooldownMs,
         circuitBreakerFailureThreshold: options.circuitBreakerFailureThreshold,
@@ -483,6 +518,7 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
         minRequestIntervalMs,
         nowImpl: options.nowImpl,
         onHttpMetric: options.onHttpMetric,
+        randomImpl: options.randomImpl,
         requestTimeoutMs,
         sleepImpl: options.sleepImpl,
         userAgent,
@@ -494,7 +530,7 @@ export function createGrailedProvider(options: GrailedProviderOptions = {}): Pro
     name: GRAILED_PROVIDER_NAME,
     dataOrigin: runtimeMode === "fixture" ? "mock" : "authorized_scraping",
     isMock: runtimeMode === "fixture",
-    capabilities: grailedCapabilities,
+    capabilities: grailedProviderCapabilities,
     async search(request) {
       if (runtimeMode === "fixture") {
         return searchFixtureListings(fixtureListings, request, maxResultsPerSearch);

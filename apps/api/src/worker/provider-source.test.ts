@@ -13,7 +13,7 @@ function listing(overrides: Partial<Listing> = {}): Listing {
       slug: "kapital",
     },
     fetchedAt,
-    id: "fixture:item-1",
+    id: "mock:item-1",
     imageUrl: "https://images.example/item-1.jpg",
     images: [
       {
@@ -48,13 +48,13 @@ function listing(overrides: Partial<Listing> = {}): Listing {
         fractionDigits: 2,
       },
     },
-    providerId: "fixture",
+    providerId: "mock",
     providerListingId: "item-1",
     source: {
       dataOrigin: "official_api",
-      id: "fixture",
+      id: "mock",
       isMock: false,
-      name: "Fixture Market",
+      name: "Mock Fixture Market",
     },
     sourceUrl: "https://market.example/items/item-1",
     title: "Kapital sashiko chore jacket",
@@ -84,7 +84,7 @@ describe("provider ingestion source", () => {
         amountMinor: 12_500n,
         currency: "USD",
       },
-      providerId: "fixture",
+      providerId: "mock",
       shippingPrice: {
         amountMinor: 1_000n,
         currency: "USD",

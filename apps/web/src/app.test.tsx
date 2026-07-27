@@ -12,6 +12,7 @@ import {
 describe("AppLayout", () => {
   it.each([
     { path: "/", title: "Find your next piece" },
+    { path: "/suggested", title: "Suggested Pieces" },
     { path: "/search", title: "Search" },
     { path: "/recent-searches", title: "Recent Searches" },
     { path: "/analytics", title: "Premium Analytics" },
@@ -27,6 +28,7 @@ describe("AppLayout", () => {
     { path: "/onboarding", title: "Tell us what you like" },
     { path: "/brands", title: "Brands" },
     { path: "/brands/kapital", title: "Brand Profile" },
+    { path: "/listings/mock%3Alisting-1", title: "Loading listing context" },
     { path: "/not-a-route", title: "Page not found" },
   ])("renders $path", ({ path, title }) => {
     const html = renderToString(

@@ -1,5 +1,6 @@
 import {
   createResilientHttpClient,
+  ProviderHttpError,
   type ProviderFetch,
   type ProviderHttpMetric,
 } from "../http/resilient-http.js";
@@ -19,6 +20,7 @@ export interface GrailedJsonClientResponse<T> {
 export type GrailedFetch = ProviderFetch;
 
 export interface GrailedHttpClientOptions {
+  backoffJitterRatio?: number;
   baseBackoffMs?: number;
   circuitBreakerCooldownMs?: number;
   circuitBreakerFailureThreshold?: number;
@@ -28,6 +30,7 @@ export interface GrailedHttpClientOptions {
   maxRetryAfterMs?: number;
   minRequestIntervalMs: number;
   onHttpMetric?: (metric: ProviderHttpMetric) => void;
+  randomImpl?: () => number;
   requestTimeoutMs: number;
   sleepImpl?: (ms: number) => Promise<void>;
   nowImpl?: () => number;
@@ -63,6 +66,7 @@ function createBaseHeaders(userAgent: string) {
 
 export function createGrailedHttpClient(options: GrailedHttpClientOptions): GrailedHttpClient {
   const resilientClient = createResilientHttpClient({
+    backoffJitterRatio: options.backoffJitterRatio,
     baseBackoffMs: options.baseBackoffMs,
     circuitBreakerCooldownMs: options.circuitBreakerCooldownMs,
     circuitBreakerFailureThreshold: options.circuitBreakerFailureThreshold,
@@ -73,6 +77,7 @@ export function createGrailedHttpClient(options: GrailedHttpClientOptions): Grai
     minRequestIntervalMs: options.minRequestIntervalMs,
     nowImpl: options.nowImpl,
     onMetric: options.onHttpMetric,
+    randomImpl: options.randomImpl,
     requestTimeoutMs: options.requestTimeoutMs,
     sleepImpl: options.sleepImpl,
   });
@@ -142,11 +147,19 @@ export function createGrailedHttpClient(options: GrailedHttpClientOptions): Grai
         },
       });
 
-      return {
-        ok: response.ok,
-        status: response.status,
-        body: JSON.parse(response.body) as T,
-      } satisfies GrailedJsonClientResponse<T>;
+      try {
+        return {
+          ok: response.ok,
+          status: response.status,
+          body: JSON.parse(response.body) as T,
+        } satisfies GrailedJsonClientResponse<T>;
+      } catch {
+        throw new ProviderHttpError("Grailed returned a malformed JSON response.", {
+          code: "invalid_response",
+          retryable: false,
+          statusCode: response.status,
+        });
+      }
     },
   };
 }

@@ -1,6 +1,9 @@
 import type { Brand } from "./brand.js";
 import type { RiskSignal } from "./risk.js";
 
+export type MarketplaceProviderId =
+  "depop" | "ebay" | "grailed" | "mercari-jp" | "yahoo-auctions-jp";
+export type ProviderId = MarketplaceProviderId | "mock";
 export type ListingType = "auction" | "buy_now" | "unknown";
 export type ListingMarketStatus = "active" | "sold";
 export type ListingAvailabilityStatus =
@@ -39,6 +42,23 @@ export interface ListingPricing {
   landed?: Money;
   original: Money;
   shipping?: Money;
+}
+
+export interface ListingAuction {
+  /** A live bid is not a completed transaction and must not be used as sold-price evidence. */
+  currentBid?: Money;
+  buyNowPrice?: Money;
+  /** Populated only when the marketplace confirms the auction completed with a sale. */
+  completedPrice?: Money;
+  bidCount?: number;
+  endsAt?: string;
+}
+
+export interface ListingMarketplaceLimitations {
+  closetSearchRole: "discovery_only";
+  internationalShipping: "available" | "domestic_only" | "proxy_only" | "unknown";
+  notices?: string[];
+  proxyPurchaseRequired?: boolean;
 }
 
 export interface ListingSource {
@@ -90,6 +110,7 @@ export interface ListingShipping {
   maxEstimatedDeliveryAt?: string;
   minEstimatedDeliveryAt?: string;
   originCountry?: string;
+  payer?: "buyer" | "seller" | "shared" | "unknown";
   type?: string;
 }
 
@@ -98,6 +119,7 @@ export interface ListingLifecycle {
   lastSeenAt?: string;
   listedAt?: string;
   observedAt: string;
+  relistedFromProviderListingId?: string;
   soldAt?: string;
   sourceUpdatedAt?: string;
   status: ListingAvailabilityStatus;
@@ -132,15 +154,24 @@ export interface Listing {
   providerListingId: string;
   sourceUrl: string;
   title: string;
+  description?: string;
+  originalDescription?: string;
+  originalLanguage?: string;
+  originalTitle?: string;
+  translatedDescription?: string;
+  translatedTitle?: string;
   brand: Brand;
   imageUrl: string;
   images?: ListingImage[];
   price: Money;
   pricing?: ListingPricing;
   category?: string;
+  color?: string;
+  material?: string;
   size?: string;
   condition?: ListingCondition;
   listingType: ListingType;
+  auction?: ListingAuction;
   fetchedAt: string;
   analyticsEligibility?: ListingAnalyticsEligibility;
   attribution?: ListingAttribution;
@@ -149,5 +180,6 @@ export interface Listing {
   seller?: ListingSeller;
   shipping?: ListingShipping;
   market?: ListingMarketMetrics;
+  marketplaceLimitations?: ListingMarketplaceLimitations;
   riskSignal?: RiskSignal;
 }

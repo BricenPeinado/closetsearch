@@ -59,6 +59,9 @@ export async function createPostgresTestHarness(memory = newDb()) {
     transactionRetryLimit: 0,
   });
   const dataPlane = new PostgresDataPlane(database, {
+    alerts: {
+      useSkipLocked: false,
+    },
     jobs: {
       supportsSkipLocked: false,
     },

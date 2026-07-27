@@ -12,6 +12,9 @@ Before promotion, retain:
 - fresh backup/checksum and restore-drill evidence
 - provider health/configuration without secrets
 - production smoke result proving mock inventory is disabled
+- notification transport/consent/webhook configuration and migration `007`
+  evidence when those surfaces are enabled
+- authenticated operations-probe and Sites API-origin checks
 
 ## Rollback triggers
 
@@ -21,6 +24,9 @@ Before promotion, retain:
 - unsafe provider behavior or mock inventory in production
 - database corruption, pool exhaustion, or elevated transaction failures
 - worker lease churn, dead jobs, duplicate processing, or growing ingestion lag
+- unauthorized/repeated outbound notifications, webhook signature failures,
+  opt-out violations, or growing delivery dead letters
+- listing detail/price trend schema errors after migration `007`
 
 ## Rules
 

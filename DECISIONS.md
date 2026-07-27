@@ -817,3 +817,97 @@ corruption/data loss after isolated validation and incident approval.
 
 Application and data recovery remain separate decisions. Backups, checksums,
 restore drills, image digests, and schema versions are required release evidence.
+
+### Five-Marketplace Access Requires Provider-Specific Evidence
+
+**Date:** 2026-07-26
+**Status:** Accepted
+
+#### Context
+
+The operator has asserted permission to build Grailed, Depop, Yahoo! Auctions
+Japan, and Mercari Japan integrations, while eBay has an official API path.
+That assertion authorizes implementation work but does not supply deployable
+credentials or a durable reference that an on-call engineer can audit.
+
+#### Decision
+
+ClosetSearch implements all five adapters behind independent activation gates.
+Every real provider requires a non-secret provider-specific authorization
+reference. The four authorized collection adapters additionally require an
+explicit scraping switch; eBay requires official credentials and a reviewed
+production origin. CI uses fixtures, and live staging smoke runs only when
+`LIVE_PROVIDER_SMOKE_TESTS=true`.
+
+#### Alternatives Considered
+
+- treat the implementation brief itself as a runtime credential
+- use one global permission flag for all marketplaces
+- let CI probe live marketplaces opportunistically
+
+#### Consequences
+
+The complete provider contract can be developed and tested without concealing
+missing external inputs. Production intentionally remains unready until each
+marketplace's evidence and secrets are configured and live-verified.
+
+### Japanese Marketplace Semantics Stay First-Class
+
+**Date:** 2026-07-26
+**Status:** Accepted
+
+#### Context
+
+Flattening Japanese resale records into a US fixed-price model would lose
+original-language evidence, auction outcomes, JPY precision, shipping payer
+rules, and domestic/proxy limitations.
+
+#### Decision
+
+Normalized listings preserve original and separately labeled translated text,
+exact original currency, auction bid/buy-now/completed amounts, bid count/end
+time, shipping payer, relist linkage, and discovery/proxy limitations. A Yahoo!
+auction contributes a sold comparable only after the completed price is
+confirmed. Cross-marketplace price ordering never silently mixes currencies.
+
+#### Alternatives Considered
+
+- overwrite Japanese text with a translation
+- treat an ended auction's last visible bid as a confirmed sale
+- hide domestic-only shipping behind a generic marketplace link
+
+#### Consequences
+
+The UI and analytics carry more explicit states, but users can distinguish
+source facts, translations, and purchasing constraints. Price intelligence
+does not gain false precision from incomplete auction outcomes.
+
+### Operational Surfaces Are Private in Production
+
+**Date:** 2026-07-26
+**Status:** Accepted
+
+#### Context
+
+Metrics and provider/job health avoid raw secrets, but public access still
+reveals deployment topology, provider activation, failure timing, and capacity
+signals that are useful to an attacker.
+
+#### Decision
+
+`/metrics`, `/operations/status`, and `/providers/health` require a constant-time
+compared bearer token in production. Startup requires a secret of at least 32
+characters. Development may use the endpoints without a token when none is
+configured. Smoke and runbook commands pass the token without printing it.
+
+#### Alternatives Considered
+
+- rely on sanitized response fields alone
+- leave protection entirely to an undocumented network perimeter
+- use a query-string credential
+
+#### Consequences
+
+Production orchestration must inject `OPERATIONS_BEARER_TOKEN`, monitoring must
+send an authorization header, and public health remains limited to
+`/health/live` and `/health/ready`.

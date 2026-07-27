@@ -274,6 +274,38 @@ describe("createGrailedProvider", () => {
     });
   });
 
+  it("degrades safely when the live search root schema changes", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(createTextResponse(200, grailedPublicConfigHtmlFixture))
+      .mockResolvedValueOnce(
+        createJsonResponse(200, {
+          hits: [],
+          hitsPerPage: 1,
+          nbHits: 0,
+          nbPages: 0,
+          page: 0,
+        }),
+      )
+      .mockResolvedValueOnce(createJsonResponse(200, { results: [] }));
+    const provider = createGrailedProvider({
+      authorizationReference: "fixture-written-authorization",
+      fetchImpl,
+      maxRetries: 0,
+      minRequestIntervalMs: 0,
+      runtimeMode: "authorized-live",
+      scrapingAllowed: true,
+    });
+
+    await expect(provider.search({ query: { text: "kapital" } })).resolves.toMatchObject({
+      status: "failure",
+      failure: {
+        code: "invalid_response",
+        retryable: false,
+      },
+    });
+  });
+
   it("switches to the sold Algolia index when the market scope requests historical comps", async () => {
     const fetchImpl = vi
       .fn()
@@ -319,12 +351,17 @@ describe("createGrailedProvider", () => {
     expect(response.listings[0]).toMatchObject({
       market: {
         status: "sold",
+        soldPrice: {
+          amount: 295,
+          currency: "USD",
+        },
       },
       price: {
         amount: 295,
         currency: "USD",
       },
     });
+    expect(response.listings[0]?.market?.askingPrice).toBeUndefined();
   });
 
   it("refreshes credentials once after a simulated Algolia 401 and retries successfully", async () => {
@@ -561,6 +598,7 @@ describe("createGrailedProvider", () => {
       fetchImpl,
       maxRetries: 1,
       minRequestIntervalMs: 0,
+      randomImpl: () => 0.5,
       scrapingAllowed: true,
       sleepImpl: async (ms) => {
         slept.push(ms);
@@ -758,6 +796,7 @@ describe("createGrailedProvider", () => {
       scrapingAllowed: true,
       minRequestIntervalMs: 0,
       maxRetries: 0,
+      randomImpl: () => 0.5,
       fetchImpl: vi
         .fn()
         .mockResolvedValueOnce(createTextResponse(200, grailedPublicConfigHtmlFixture))

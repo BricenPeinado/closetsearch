@@ -3,11 +3,13 @@ import type {
   ConvertedMoney,
   Listing,
   ListingAnalyticsEligibility,
+  ListingAuction,
   ListingAttribution,
   ListingFreshness,
   ListingImage,
   ListingLifecycle,
   ListingMarketMetrics,
+  ListingMarketplaceLimitations,
   ListingPricing,
   ListingSeller,
   ListingShipping,
@@ -24,7 +26,23 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function sanitizeOptionalString(value: unknown) {
-  return value === undefined ? undefined : isNonEmptyString(value) ? value.trim() : null;
+  return value === undefined ? undefined : sanitizeText(value);
+}
+
+function sanitizeText(value: unknown, maximumLength = 2_000) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+
+  const text = value
+    .normalize("NFC")
+    .replace(/<[^>]*>/gu, " ")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+
+  return text.length > 0 && text.length <= maximumLength ? text : null;
 }
 
 function sanitizeStringArray(value: unknown) {
@@ -46,10 +64,71 @@ function sanitizeHttpUrl(value: unknown) {
 
   try {
     const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+    return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password
+      ? url.toString()
+      : null;
   } catch {
     return null;
   }
+}
+
+function hostnameMatches(hostname: string, allowedHost: string) {
+  return hostname === allowedHost || hostname.endsWith(`.${allowedHost}`);
+}
+
+const marketplaceHosts: Record<string, readonly string[]> = {
+  depop: ["depop.com"],
+  ebay: [
+    "ebay.at",
+    "ebay.be",
+    "ebay.ca",
+    "ebay.ch",
+    "ebay.co.uk",
+    "ebay.com",
+    "ebay.com.au",
+    "ebay.de",
+    "ebay.es",
+    "ebay.fr",
+    "ebay.ie",
+    "ebay.it",
+    "ebay.nl",
+    "ebay.pl",
+    "ebay.us",
+  ],
+  grailed: ["grailed.com"],
+  "mercari-jp": ["jp.mercari.com"],
+  "yahoo-auctions-jp": ["auctions.yahoo.co.jp", "page.auctions.yahoo.co.jp"],
+};
+
+const marketplaceImageHosts: Record<string, readonly string[]> = {
+  depop: ["depop.com"],
+  ebay: ["ebay.com", "ebayimg.com"],
+  grailed: ["grailed.com"],
+  "mercari-jp": ["mercari.com", "mercdn.net"],
+  "yahoo-auctions-jp": ["yahoo.co.jp", "yimg.jp"],
+};
+
+function isReviewedProviderUrl(
+  providerId: string,
+  value: string,
+  purpose: "destination" | "image",
+) {
+  if (providerId === "mock") {
+    return true;
+  }
+
+  const allowedHosts =
+    purpose === "image" ? marketplaceImageHosts[providerId] : marketplaceHosts[providerId];
+
+  if (!allowedHosts) {
+    return false;
+  }
+
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    allowedHosts.some((allowedHost) => hostnameMatches(url.hostname, allowedHost))
+  );
 }
 
 function sanitizeOptionalHttpUrl(value: unknown) {
@@ -128,6 +207,15 @@ function sanitizeMoney(value: unknown): Money | null {
 
 function sanitizeOptionalMoney(value: unknown) {
   return value === undefined ? undefined : sanitizeMoney(value);
+}
+
+function moneyEquals(left: Money, right: Money) {
+  return (
+    left.amount === right.amount &&
+    left.amountMinor === right.amountMinor &&
+    left.currency === right.currency &&
+    left.fractionDigits === right.fractionDigits
+  );
 }
 
 function sanitizeConvertedMoney(value: unknown): ConvertedMoney | null {
@@ -388,8 +476,7 @@ function sanitizePricing(value: unknown, legacyPrice: Money): ListingPricing | n
     display === null ||
     shipping === null ||
     landed === null ||
-    original.amount !== legacyPrice.amount ||
-    original.currency !== legacyPrice.currency
+    !moneyEquals(original, legacyPrice)
   ) {
     return null;
   }
@@ -400,6 +487,37 @@ function sanitizePricing(value: unknown, legacyPrice: Money): ListingPricing | n
     display,
     shipping,
     landed,
+  };
+}
+
+function sanitizeAuction(value: unknown): ListingAuction | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const currentBid = sanitizeOptionalMoney(value.currentBid);
+  const buyNowPrice = sanitizeOptionalMoney(value.buyNowPrice);
+  const completedPrice = sanitizeOptionalMoney(value.completedPrice);
+  const endsAt = sanitizeOptionalTimestamp(value.endsAt);
+  const bidCount = value.bidCount;
+
+  if (
+    currentBid === null ||
+    buyNowPrice === null ||
+    completedPrice === null ||
+    endsAt === null ||
+    (bidCount !== undefined &&
+      (typeof bidCount !== "number" || !Number.isSafeInteger(bidCount) || bidCount < 0))
+  ) {
+    return null;
+  }
+
+  return {
+    bidCount,
+    buyNowPrice,
+    completedPrice,
+    currentBid,
+    endsAt,
   };
 }
 
@@ -414,6 +532,7 @@ function sanitizeShipping(value: unknown): ListingShipping | null {
   const type = sanitizeOptionalString(value.type);
   const minEstimatedDeliveryAt = sanitizeOptionalTimestamp(value.minEstimatedDeliveryAt);
   const maxEstimatedDeliveryAt = sanitizeOptionalTimestamp(value.maxEstimatedDeliveryAt);
+  const payer = value.payer;
 
   if (
     cost === null ||
@@ -422,6 +541,11 @@ function sanitizeShipping(value: unknown): ListingShipping | null {
     type === null ||
     minEstimatedDeliveryAt === null ||
     maxEstimatedDeliveryAt === null ||
+    (payer !== undefined &&
+      payer !== "buyer" &&
+      payer !== "seller" &&
+      payer !== "shared" &&
+      payer !== "unknown") ||
     (value.available !== undefined && typeof value.available !== "boolean") ||
     (value.isFree !== undefined && typeof value.isFree !== "boolean")
   ) {
@@ -436,6 +560,7 @@ function sanitizeShipping(value: unknown): ListingShipping | null {
     maxEstimatedDeliveryAt,
     minEstimatedDeliveryAt,
     originCountry,
+    payer,
     type,
   };
 }
@@ -460,6 +585,7 @@ function sanitizeLifecycle(value: unknown): ListingLifecycle | null {
   const soldAt = sanitizeOptionalTimestamp(value.soldAt);
   const sourceUpdatedAt = sanitizeOptionalTimestamp(value.sourceUpdatedAt);
   const unavailableAt = sanitizeOptionalTimestamp(value.unavailableAt);
+  const relistedFromProviderListingId = sanitizeOptionalString(value.relistedFromProviderListingId);
 
   if (
     !validStatus ||
@@ -469,7 +595,8 @@ function sanitizeLifecycle(value: unknown): ListingLifecycle | null {
     listedAt === null ||
     soldAt === null ||
     sourceUpdatedAt === null ||
-    unavailableAt === null
+    unavailableAt === null ||
+    relistedFromProviderListingId === null
   ) {
     return null;
   }
@@ -483,6 +610,39 @@ function sanitizeLifecycle(value: unknown): ListingLifecycle | null {
     soldAt,
     sourceUpdatedAt,
     unavailableAt,
+    relistedFromProviderListingId,
+  };
+}
+
+function sanitizeMarketplaceLimitations(value: unknown): ListingMarketplaceLimitations | null {
+  if (!isRecord(value) || value.closetSearchRole !== "discovery_only") {
+    return null;
+  }
+
+  const internationalShipping = value.internationalShipping;
+  const notices = sanitizeStringArray(value.notices);
+
+  if (
+    internationalShipping !== "available" &&
+    internationalShipping !== "domestic_only" &&
+    internationalShipping !== "proxy_only" &&
+    internationalShipping !== "unknown"
+  ) {
+    return null;
+  }
+
+  if (
+    notices === null ||
+    (value.proxyPurchaseRequired !== undefined && typeof value.proxyPurchaseRequired !== "boolean")
+  ) {
+    return null;
+  }
+
+  return {
+    closetSearchRole: "discovery_only",
+    internationalShipping,
+    notices,
+    proxyPurchaseRequired: value.proxyPurchaseRequired,
   };
 }
 
@@ -592,6 +752,7 @@ export function sanitizeProviderListing(value: unknown): Listing | null {
   const images = value.images === undefined ? undefined : sanitizeImages(value.images);
   const pricing =
     value.pricing === undefined || !price ? undefined : sanitizePricing(value.pricing, price);
+  const auction = value.auction === undefined ? undefined : sanitizeAuction(value.auction);
   const shipping = value.shipping === undefined ? undefined : sanitizeShipping(value.shipping);
   const lifecycle = value.lifecycle === undefined ? undefined : sanitizeLifecycle(value.lifecycle);
   const freshness = value.freshness === undefined ? undefined : sanitizeFreshness(value.freshness);
@@ -601,14 +762,33 @@ export function sanitizeProviderListing(value: unknown): Listing | null {
     value.analyticsEligibility === undefined
       ? undefined
       : sanitizeAnalyticsEligibility(value.analyticsEligibility);
+  const marketplaceLimitations =
+    value.marketplaceLimitations === undefined
+      ? undefined
+      : sanitizeMarketplaceLimitations(value.marketplaceLimitations);
+  const description = sanitizeOptionalString(value.description);
+  const originalDescription = sanitizeOptionalString(value.originalDescription);
+  const originalLanguage = sanitizeOptionalString(value.originalLanguage);
+  const originalTitle = sanitizeOptionalString(value.originalTitle);
+  const translatedDescription = sanitizeOptionalString(value.translatedDescription);
+  const translatedTitle = sanitizeOptionalString(value.translatedTitle);
+  const title = sanitizeText(value.title, 1_000);
+  const providerId = isNonEmptyString(value.providerId) ? value.providerId.trim() : "";
+  const isJapaneseProvider = providerId === "mercari-jp" || providerId === "yahoo-auctions-jp";
+  const auctionCurrencies = auction
+    ? [auction.currentBid, auction.buyNowPrice, auction.completedPrice]
+        .filter((money): money is Money => money !== undefined)
+        .map((money) => money.currency)
+    : [];
 
   if (
     !isNonEmptyString(value.id) ||
-    !isNonEmptyString(value.providerId) ||
+    !providerId ||
     !isNonEmptyString(value.providerListingId) ||
     !source ||
+    source.id !== providerId ||
     !sourceUrl ||
-    !isNonEmptyString(value.title) ||
+    !title ||
     !brand ||
     !imageUrl ||
     !price ||
@@ -621,11 +801,38 @@ export function sanitizeProviderListing(value: unknown): Listing | null {
     market === null ||
     images === null ||
     pricing === null ||
+    auction === null ||
     shipping === null ||
     lifecycle === null ||
     freshness === null ||
     attribution === null ||
     analyticsEligibility === null ||
+    marketplaceLimitations === null ||
+    description === null ||
+    originalDescription === null ||
+    originalLanguage === null ||
+    originalTitle === null ||
+    translatedDescription === null ||
+    translatedTitle === null ||
+    (value.listingType === "auction") !== (auction !== undefined) ||
+    auctionCurrencies.some((currency) => currency !== price.currency) ||
+    (auction?.completedPrice !== undefined && lifecycle?.status !== "sold") ||
+    (market?.status === "active" && market.soldPrice !== undefined) ||
+    (market?.status === "sold" && market.askingPrice !== undefined) ||
+    (market?.askingPrice !== undefined && market.askingPrice.currency !== price.currency) ||
+    (market?.soldPrice !== undefined && market.soldPrice.currency !== price.currency) ||
+    (isJapaneseProvider &&
+      (!originalTitle ||
+        originalLanguage?.toLowerCase() !== "ja" ||
+        marketplaceLimitations === undefined)) ||
+    !isReviewedProviderUrl(providerId, sourceUrl, "destination") ||
+    !isReviewedProviderUrl(providerId, imageUrl, "image") ||
+    (seller?.profileUrl !== undefined &&
+      !isReviewedProviderUrl(providerId, seller.profileUrl, "destination")) ||
+    (images !== undefined &&
+      images.some((image) => !isReviewedProviderUrl(providerId, image.url, "image"))) ||
+    (attribution !== undefined &&
+      !isReviewedProviderUrl(providerId, attribution.destinationUrl, "destination")) ||
     (images !== undefined && !images.some((image) => image.url === imageUrl))
   ) {
     return null;
@@ -633,11 +840,17 @@ export function sanitizeProviderListing(value: unknown): Listing | null {
 
   return {
     id: value.id.trim(),
-    providerId: value.providerId.trim(),
+    providerId,
     source,
     providerListingId: value.providerListingId.trim(),
     sourceUrl,
-    title: value.title.trim(),
+    title,
+    description,
+    originalDescription,
+    originalLanguage,
+    originalTitle,
+    translatedDescription,
+    translatedTitle,
     brand,
     imageUrl,
     images,
@@ -647,6 +860,7 @@ export function sanitizeProviderListing(value: unknown): Listing | null {
     size,
     condition: value.condition,
     listingType: value.listingType,
+    auction,
     fetchedAt,
     analyticsEligibility,
     attribution,
@@ -655,5 +869,6 @@ export function sanitizeProviderListing(value: unknown): Listing | null {
     seller,
     shipping,
     market,
+    marketplaceLimitations,
   };
 }

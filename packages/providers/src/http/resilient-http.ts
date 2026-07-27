@@ -33,6 +33,7 @@ export interface ProviderHttpMetric {
 }
 
 export interface ResilientHttpClientOptions {
+  backoffJitterRatio?: number;
   baseBackoffMs?: number;
   circuitBreakerCooldownMs?: number;
   circuitBreakerFailureThreshold?: number;
@@ -43,6 +44,7 @@ export interface ResilientHttpClientOptions {
   minRequestIntervalMs?: number;
   nowImpl?: () => number;
   onMetric?: (metric: ProviderHttpMetric) => void;
+  randomImpl?: () => number;
   requestTimeoutMs?: number;
   sleepImpl?: (ms: number) => Promise<void>;
 }
@@ -90,6 +92,14 @@ function normalizePositiveInteger(value: number | undefined, fallback: number, m
   return Math.max(minimum, Math.trunc(value));
 }
 
+function normalizeRatio(value: number | undefined, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.min(1, value));
+}
+
 export function parseRetryAfterMs(
   value: string | null | undefined,
   now = Date.now(),
@@ -114,6 +124,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
   const baseBackoffMs = normalizePositiveInteger(options.baseBackoffMs, 250);
   const minRequestIntervalMs = normalizePositiveInteger(options.minRequestIntervalMs, 0);
   const maxRetryAfterMs = normalizePositiveInteger(options.maxRetryAfterMs, 60_000);
+  const backoffJitterRatio = normalizeRatio(options.backoffJitterRatio, 0.2);
   const maxConcurrency = normalizePositiveInteger(options.maxConcurrency, 2, 1);
   const circuitBreakerFailureThreshold = normalizePositiveInteger(
     options.circuitBreakerFailureThreshold,
@@ -126,6 +137,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
     1,
   );
   const nowImpl = options.nowImpl ?? (() => Date.now());
+  const randomImpl = options.randomImpl ?? Math.random;
   const sleepImpl =
     options.sleepImpl ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   let activeRequests = 0;
@@ -135,6 +147,18 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
   let consecutiveFailures = 0;
   let circuitOpenedAt: number | undefined;
   let halfOpenRequestActive = false;
+
+  function exponentialBackoffMs(attempt: number) {
+    const observedRandomValue = randomImpl();
+    const randomValue = Number.isFinite(observedRandomValue)
+      ? Math.max(0, Math.min(1, observedRandomValue))
+      : 0.5;
+    const jitterMultiplier = 1 - backoffJitterRatio + randomValue * backoffJitterRatio * 2;
+    return Math.min(
+      maxRetryAfterMs,
+      Math.max(0, Math.round(baseBackoffMs * 2 ** attempt * jitterMultiplier)),
+    );
+  }
 
   function getCircuitState(): ProviderHttpMetric["circuitState"] {
     if (circuitOpenedAt === undefined) {
@@ -291,11 +315,14 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
             return response;
           }
 
-          const retryAfterMs = Math.min(
-            maxRetryAfterMs,
-            parseRetryAfterMs(response.headers?.get("retry-after"), nowImpl()) ??
-              baseBackoffMs * 2 ** attempt,
+          const retryAfterHeaderMs = parseRetryAfterMs(
+            response.headers?.get("retry-after"),
+            nowImpl(),
           );
+          const retryAfterMs =
+            retryAfterHeaderMs === undefined
+              ? exponentialBackoffMs(attempt)
+              : Math.min(maxRetryAfterMs, retryAfterHeaderMs);
           lastError = new ProviderHttpError(
             `Provider HTTP request failed with retryable status ${response.status}.`,
             {
@@ -327,7 +354,7 @@ export function createResilientHttpClient(options: ResilientHttpClientOptions) {
           }
 
           if (attempt < maxRetries) {
-            await sleepImpl(baseBackoffMs * 2 ** attempt);
+            await sleepImpl(exponentialBackoffMs(attempt));
             continue;
           }
         }

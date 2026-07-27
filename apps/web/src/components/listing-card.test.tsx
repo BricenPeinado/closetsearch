@@ -1,5 +1,6 @@
 import type { Listing } from "@closetsearch/shared";
 import { renderToString } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { ListingCard } from "./listing-card";
 
@@ -45,14 +46,18 @@ const listing: Listing = {
 
 describe("ListingCard", () => {
   it("hides placeholder risk output unless the experimental flag is enabled", () => {
-    const html = renderToString(<ListingCard listing={listing} />);
+    const html = renderToString(
+      <MemoryRouter>
+        <ListingCard listing={listing} />
+      </MemoryRouter>,
+    );
 
     expect(html).not.toContain("review signal");
     expect(html).not.toContain("authenticity guarantee");
   });
 
   it("renders normalized status, seller, marketplace action, and converted price", () => {
-    const html = renderToString(
+    const card = (
       <ListingCard
         listing={{
           ...listing,
@@ -83,15 +88,16 @@ describe("ListingCard", () => {
             displayName: "Archive Seller",
           },
         }}
-      />,
+      />
     );
+    const html = renderToString(<MemoryRouter>{card}</MemoryRouter>);
 
     expect(html).toContain("€165.00");
     expect(html).toContain("Originally");
     expect(html).toContain("$180.00");
     expect(html).toContain("Seller:");
     expect(html).toContain("Archive Seller");
-    expect(html).toContain("View on");
+    expect(html).toContain("Details");
     expect(html).toContain("Mock Closet");
     expect(html).toContain(">active<");
   });

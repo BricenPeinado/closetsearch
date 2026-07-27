@@ -183,4 +183,211 @@ describe("sanitizeProviderListing", () => {
 
     expect(sanitizeProviderListing({ ...validListing, ...override })).toBeNull();
   });
+
+  it("preserves Japanese original text, auction facts, and marketplace limitations", () => {
+    const listing = sanitizeProviderListing({
+      id: "yahoo-auctions-jp:x123",
+      providerId: "yahoo-auctions-jp",
+      providerListingId: "x123",
+      source: {
+        id: "yahoo-auctions-jp",
+        name: "Yahoo! Auctions Japan",
+        dataOrigin: "authorized_scraping",
+        isMock: false,
+        marketplaceId: "YAHOO_AUCTIONS_JP",
+      },
+      sourceUrl: "https://page.auctions.yahoo.co.jp/jp/auction/x123",
+      title: "<strong>Translated jacket</strong>",
+      originalTitle: "コムデギャルソン ジャケット",
+      originalDescription: "状態の良いジャケットです",
+      originalLanguage: "ja",
+      translatedTitle: "Comme des Garçons jacket",
+      translatedDescription: "A jacket in good condition",
+      brand: {
+        id: "brand:comme-des-garcons",
+        slug: "comme-des-garcons",
+        name: "Comme des Garçons",
+      },
+      imageUrl: "https://auctions.c.yimg.jp/images.auctions.yahoo.co.jp/image/x123.jpg",
+      images: [
+        {
+          url: "https://auctions.c.yimg.jp/images.auctions.yahoo.co.jp/image/x123.jpg",
+          role: "primary",
+          alt: "コムデギャルソン ジャケット",
+        },
+      ],
+      price: {
+        amount: 12_500,
+        amountMinor: 12_500,
+        currency: "JPY",
+        fractionDigits: 0,
+      },
+      pricing: {
+        original: {
+          amount: 12_500,
+          amountMinor: 12_500,
+          currency: "JPY",
+          fractionDigits: 0,
+        },
+      },
+      listingType: "auction",
+      auction: {
+        currentBid: {
+          amount: 12_500,
+          amountMinor: 12_500,
+          currency: "JPY",
+          fractionDigits: 0,
+        },
+        bidCount: 7,
+        endsAt: "2026-07-28T12:00:00Z",
+      },
+      fetchedAt: "2026-07-26T12:00:00Z",
+      lifecycle: {
+        status: "active",
+        observedAt: "2026-07-26T12:00:00Z",
+        lastSeenAt: "2026-07-26T12:00:00Z",
+      },
+      market: {
+        status: "active",
+        isExcludedFromAnalytics: true,
+      },
+      marketplaceLimitations: {
+        closetSearchRole: "discovery_only",
+        internationalShipping: "proxy_only",
+        proxyPurchaseRequired: true,
+        notices: ["Domestic Japan shipping only"],
+      },
+      attribution: {
+        destinationUrl: "https://page.auctions.yahoo.co.jp/jp/auction/x123",
+        displayText: "View on Yahoo! Auctions Japan",
+        marketplaceName: "Yahoo! Auctions Japan",
+        required: true,
+      },
+    });
+
+    expect(listing).toMatchObject({
+      title: "Translated jacket",
+      originalTitle: "コムデギャルソン ジャケット",
+      originalLanguage: "ja",
+      auction: {
+        bidCount: 7,
+        currentBid: { amountMinor: 12_500, currency: "JPY" },
+      },
+      marketplaceLimitations: {
+        closetSearchRole: "discovery_only",
+        proxyPurchaseRequired: true,
+      },
+    });
+  });
+
+  it.each([
+    [
+      "a provider/source identity mismatch",
+      {
+        source: {
+          id: "mercari-jp",
+          name: "Yahoo! Auctions Japan",
+          dataOrigin: "authorized_scraping",
+        },
+      },
+    ],
+    ["an unreviewed destination host", { sourceUrl: "https://example.com/jp/auction/x123" }],
+    ["auction metadata on a fixed-price listing", { listingType: "buy_now" }],
+  ])("rejects %s at the provider boundary", (_label, override) => {
+    const validAuction = {
+      id: "yahoo-auctions-jp:x123",
+      providerId: "yahoo-auctions-jp",
+      providerListingId: "x123",
+      source: {
+        id: "yahoo-auctions-jp",
+        name: "Yahoo! Auctions Japan",
+        dataOrigin: "authorized_scraping",
+      },
+      sourceUrl: "https://page.auctions.yahoo.co.jp/jp/auction/x123",
+      title: "Jacket",
+      originalTitle: "ジャケット",
+      originalLanguage: "ja",
+      brand: { id: "brand:test", slug: "test", name: "Test" },
+      imageUrl: "https://auctions.c.yimg.jp/images.auctions.yahoo.co.jp/image/x123.jpg",
+      price: { amount: 1000, amountMinor: 1000, currency: "JPY", fractionDigits: 0 },
+      listingType: "auction",
+      auction: {
+        currentBid: {
+          amount: 1000,
+          amountMinor: 1000,
+          currency: "JPY",
+          fractionDigits: 0,
+        },
+      },
+      fetchedAt: "2026-07-26T12:00:00Z",
+      lifecycle: { status: "active", observedAt: "2026-07-26T12:00:00Z" },
+      marketplaceLimitations: {
+        closetSearchRole: "discovery_only",
+        internationalShipping: "unknown",
+      },
+    };
+
+    expect(sanitizeProviderListing({ ...validAuction, ...override })).toBeNull();
+  });
+
+  it.each([
+    ["depop", "https://www.depop.com/products/item-1", "https://media.depop.com/item-1.jpg", {}],
+    ["ebay", "https://www.ebay.com/itm/item-1", "https://i.ebayimg.com/item-1.jpg", {}],
+    [
+      "grailed",
+      "https://www.grailed.com/listings/item-1",
+      "https://cdn.grailed.com/item-1.jpg",
+      {},
+    ],
+    [
+      "mercari-jp",
+      "https://jp.mercari.com/item/item-1",
+      "https://static.mercdn.net/item/detail/orig/item-1.jpg",
+      {
+        marketplaceLimitations: {
+          closetSearchRole: "discovery_only",
+          internationalShipping: "unknown",
+        },
+        originalLanguage: "ja",
+        originalTitle: "ジャケット",
+      },
+    ],
+    [
+      "yahoo-auctions-jp",
+      "https://page.auctions.yahoo.co.jp/jp/auction/item-1",
+      "https://auctions.c.yimg.jp/images.auctions.yahoo.co.jp/image/item-1.jpg",
+      {
+        marketplaceLimitations: {
+          closetSearchRole: "discovery_only",
+          internationalShipping: "unknown",
+        },
+        originalLanguage: "ja",
+        originalTitle: "ジャケット",
+      },
+    ],
+  ])(
+    "rejects a cross-origin seller profile for %s",
+    (providerId, sourceUrl, imageUrl, providerFields) => {
+      expect(
+        sanitizeProviderListing({
+          id: `${providerId}:item-1`,
+          providerId,
+          providerListingId: "item-1",
+          source: { id: providerId, name: providerId },
+          sourceUrl,
+          title: "Jacket",
+          brand: { id: "brand:test", slug: "test", name: "Test" },
+          imageUrl,
+          price: { amount: 100, currency: "USD" },
+          listingType: "buy_now",
+          fetchedAt: "2026-07-26T12:00:00Z",
+          seller: {
+            username: "seller",
+            profileUrl: "https://attacker.example/profile/seller",
+          },
+          ...providerFields,
+        }),
+      ).toBeNull();
+    },
+  );
 });

@@ -276,6 +276,9 @@ function normalizeSavedFilter(input: PersistSavedFilterInput) {
       : undefined;
   const sortMode =
     input.sortMode === "newest" ||
+    input.sortMode === "ending_soon" ||
+    input.sortMode === "popularity" ||
+    input.sortMode === "recommended" ||
     input.sortMode === "price_asc" ||
     input.sortMode === "price_desc" ||
     input.sortMode === "relevance"
@@ -316,6 +319,9 @@ function mapSavedFilter(row: SavedFilterRow): SavedFilter {
       : undefined;
   const sortMode =
     filters.sortMode === "newest" ||
+    filters.sortMode === "ending_soon" ||
+    filters.sortMode === "popularity" ||
+    filters.sortMode === "recommended" ||
     filters.sortMode === "price_asc" ||
     filters.sortMode === "price_desc" ||
     filters.sortMode === "relevance"

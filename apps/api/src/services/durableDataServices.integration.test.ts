@@ -256,7 +256,7 @@ describe("durable PostgreSQL domain services", () => {
     const persisted = await harness.dataPlane.listings.upsertObservation(
       listing("service-alert-listing"),
     );
-    expect(await harness.dataPlane.alerts.matchListing(persisted.listingId, now)).toBe(1);
+    expect(await harness.dataPlane.alerts.matchListing(persisted.listingId, now, true)).toBe(1);
     const service = new AlertInboxService(harness.dataPlane, () => now);
     const initial = await service.list(userId);
     expect(initial.unseenCount).toBe(1);

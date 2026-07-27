@@ -91,6 +91,116 @@ describe("createProviderRuntime", () => {
     expect(grailedStatus?.reasons).toContain("scraping_not_authorized");
   });
 
+  it("fails closed for every enabled real provider without its retained authorization reference", () => {
+    const cases = [
+      {
+        id: "grailed",
+        env: {
+          GRAILED_PROVIDER_ENABLED: "true",
+          GRAILED_SCRAPING_ALLOWED: "true",
+        },
+      },
+      {
+        id: "depop",
+        env: {
+          DEPOP_PROVIDER_ENABLED: "true",
+          DEPOP_SCRAPING_ALLOWED: "true",
+        },
+      },
+      {
+        id: "yahoo-auctions-jp",
+        env: {
+          YAHOO_AUCTIONS_JP_PROVIDER_ENABLED: "true",
+          YAHOO_AUCTIONS_JP_SCRAPING_ALLOWED: "true",
+        },
+      },
+      {
+        id: "mercari-jp",
+        env: {
+          MERCARI_JP_PROVIDER_ENABLED: "true",
+          MERCARI_JP_SCRAPING_ALLOWED: "true",
+        },
+      },
+      {
+        id: "ebay",
+        env: {
+          EBAY_PROVIDER_ENABLED: "true",
+          EBAY_CLIENT_ID: "fixture-client",
+          EBAY_CLIENT_SECRET: "fixture-secret",
+        },
+      },
+    ] as const;
+
+    for (const fixture of cases) {
+      const runtime = createProviderRuntime(
+        loadProviderRuntimeConfig({
+          PROVIDER_ALLOW_MOCK_FALLBACK: "false",
+          PROVIDER_MOCK_ENABLED: "false",
+          PROVIDER_RUNTIME_MODE: "real",
+          ...fixture.env,
+        }),
+      );
+
+      expect(runtime.activeProviders.map(({ provider }) => provider.id)).not.toContain(fixture.id);
+      expect(runtime.preflightFailures).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            providerId: fixture.id,
+            failure: expect.objectContaining({ code: "authorization_required" }),
+          }),
+        ]),
+      );
+      expect(runtime.statuses.find(({ id }) => id === fixture.id)).toMatchObject({
+        active: false,
+        authorizationReferencePresent: false,
+        lastErrorCategory: "authorization_required",
+      });
+    }
+  });
+
+  it("activates all five real marketplaces only when their explicit gates are complete", () => {
+    const runtime = createProviderRuntime(
+      loadProviderRuntimeConfig({
+        PROVIDER_ALLOW_MOCK_FALLBACK: "false",
+        PROVIDER_MAX_ACTIVE_PROVIDERS: "5",
+        PROVIDER_MOCK_ENABLED: "false",
+        PROVIDER_RUNTIME_MODE: "real",
+        GRAILED_PROVIDER_ENABLED: "true",
+        GRAILED_SCRAPING_ALLOWED: "true",
+        GRAILED_AUTHORIZATION_REFERENCE: "grailed-approval-2026",
+        DEPOP_PROVIDER_ENABLED: "true",
+        DEPOP_SCRAPING_ALLOWED: "true",
+        DEPOP_AUTHORIZATION_REFERENCE: "depop-approval-2026",
+        YAHOO_AUCTIONS_JP_PROVIDER_ENABLED: "true",
+        YAHOO_AUCTIONS_JP_SCRAPING_ALLOWED: "true",
+        YAHOO_AUCTIONS_JP_AUTHORIZATION_REFERENCE: "yahoo-approval-2026",
+        MERCARI_JP_PROVIDER_ENABLED: "true",
+        MERCARI_JP_SCRAPING_ALLOWED: "true",
+        MERCARI_JP_AUTHORIZATION_REFERENCE: "mercari-approval-2026",
+        EBAY_PROVIDER_ENABLED: "true",
+        EBAY_CLIENT_ID: "fixture-client",
+        EBAY_CLIENT_SECRET: "fixture-secret",
+        EBAY_AUTHORIZATION_REFERENCE: "ebay-approval-2026",
+      }),
+    );
+
+    expect(runtime.activeProviders.map(({ provider }) => provider.id)).toEqual([
+      "grailed",
+      "depop",
+      "yahoo-auctions-jp",
+      "mercari-jp",
+      "ebay",
+    ]);
+    expect(runtime.preflightFailures).toEqual([]);
+    expect(
+      runtime.statuses
+        .filter(({ providerMode }) => providerMode === "real")
+        .every(({ active, authorizationReferencePresent }) => {
+          return active && authorizationReferencePresent === true;
+        }),
+    ).toBe(true);
+  });
+
   it("returns predictable provider status metadata for the health/debug path", () => {
     const runtime = createProviderRuntime(
       loadProviderRuntimeConfig({
@@ -126,6 +236,7 @@ describe("createProviderRuntime", () => {
             "GRAILED_PROVIDER_ENABLED",
             "GRAILED_SCRAPING_ALLOWED",
             "GRAILED_BASE_URL",
+            "GRAILED_MAX_RESULTS_PER_SEARCH",
             "GRAILED_USER_AGENT",
           ]),
         }),

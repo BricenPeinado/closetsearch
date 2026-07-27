@@ -167,6 +167,7 @@ export const grailedAlgoliaSoldResponseFixture = {
       brand_name: "Kapital",
       brand_slug: "kapital",
       image_url: "https://media.example.com/grailed-sold-1001.jpg",
+      price_in_cents: 32500,
       sold_price_in_cents: 29500,
       currency: "USD",
       category: "outerwear",

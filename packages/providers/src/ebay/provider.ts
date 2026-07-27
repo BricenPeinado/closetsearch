@@ -24,6 +24,7 @@ const ebayProviderName = "eBay";
 const defaultApiBaseUrl = "https://api.ebay.com";
 const defaultIdentityBaseUrl = "https://api.ebay.com";
 const defaultMarketplaceId = "EBAY_US";
+const defaultLocale = "en-US";
 const defaultOAuthScope = "https://api.ebay.com/oauth/api_scope";
 const defaultSearchQuery = "designer clothing";
 const defaultPageSize = 50;
@@ -35,6 +36,7 @@ export const ebayProviderCapabilities: ProviderCapabilities = {
   paginationModel: "offset",
   requiresAttribution: true,
   supportsActiveListings: true,
+  supportsAuctionMetadata: true,
   supportsAttribution: true,
   supportsBrandFilter: false,
   supportsCategoryFilter: false,
@@ -52,13 +54,14 @@ export const ebayProviderCapabilities: ProviderCapabilities = {
   supportsWebhooks: false,
   supportedListingTypes: ["auction", "buy_now"],
   supportedMarketStatuses: ["active"],
-  supportedSortModes: ["relevance", "price_asc", "price_desc", "newest"],
+  supportedSortModes: ["relevance", "price_asc", "price_desc", "newest", "ending_soon"],
 };
 
 export interface EbayProviderOptions {
   affiliateCampaignId?: string;
   affiliateReferenceId?: string;
   apiBaseUrl?: string;
+  backoffJitterRatio?: number;
   baseBackoffMs?: number;
   circuitBreakerCooldownMs?: number;
   circuitBreakerFailureThreshold?: number;
@@ -67,13 +70,16 @@ export interface EbayProviderOptions {
   defaultSearchQuery?: string;
   fetchImpl?: ProviderFetch;
   identityBaseUrl?: string;
+  locale?: string;
   marketplaceId?: string;
   maxConcurrency?: number;
   maxRetries?: number;
+  maxRetryAfterMs?: number;
   minRequestIntervalMs?: number;
   nowImpl?: () => number;
   oauthScope?: string;
   onHttpMetric?: (metric: ProviderHttpMetric) => void;
+  randomImpl?: () => number;
   requestTimeoutMs?: number;
   sleepImpl?: (ms: number) => Promise<void>;
 }
@@ -110,6 +116,16 @@ function normalizeBaseUrl(value: string | undefined, fallback: string) {
   }
 
   return url.origin;
+}
+
+function normalizeLocale(value: string | undefined) {
+  const locale = toTrimmedString(value) || defaultLocale;
+
+  if (!/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(locale)) {
+    throw new Error("eBay locale must be a valid language tag such as en-US or ja-JP.");
+  }
+
+  return locale;
 }
 
 function createFailure(
@@ -277,6 +293,8 @@ function mapSort(sort: ProviderSearchRequest["query"]["sort"]) {
       return "-price";
     case "newest":
       return "newlyListed";
+    case "ending_soon":
+      return "endingSoon";
     case "relevance":
     default:
       return undefined;
@@ -347,6 +365,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function parseBrowsePayload(value: unknown, statusCode: number): EbayRawBrowseResponse {
+  if (
+    !isRecord(value) ||
+    (value.itemSummaries !== undefined && !Array.isArray(value.itemSummaries)) ||
+    (value.itemSummaries === undefined && value.total !== 0) ||
+    (value.warnings !== undefined && !Array.isArray(value.warnings))
+  ) {
+    throw new ProviderHttpError(
+      "eBay Browse response no longer matches the reviewed item-summary schema.",
+      {
+        code: "invalid_response",
+        retryable: false,
+        statusCode,
+      },
+    );
+  }
+
+  return value as EbayRawBrowseResponse;
+}
+
 function toHttpFailure(error: unknown): ProviderSearchFailure {
   if (error instanceof ProviderHttpError) {
     return createFailure(error.code, error.message, {
@@ -367,20 +405,24 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
   const apiBaseUrl = normalizeBaseUrl(options.apiBaseUrl, defaultApiBaseUrl);
   const identityBaseUrl = normalizeBaseUrl(options.identityBaseUrl, defaultIdentityBaseUrl);
   const marketplaceId = toTrimmedString(options.marketplaceId) || defaultMarketplaceId;
+  const locale = normalizeLocale(options.locale);
   const oauthScope = toTrimmedString(options.oauthScope) || defaultOAuthScope;
   const defaultQuery = toTrimmedString(options.defaultSearchQuery) || defaultSearchQuery;
   const nowImpl = options.nowImpl ?? (() => Date.now());
   const httpClient = options.fetchImpl
     ? createResilientHttpClient({
+        backoffJitterRatio: options.backoffJitterRatio,
         baseBackoffMs: options.baseBackoffMs,
         circuitBreakerCooldownMs: options.circuitBreakerCooldownMs,
         circuitBreakerFailureThreshold: options.circuitBreakerFailureThreshold,
         fetchImpl: options.fetchImpl,
         maxConcurrency: options.maxConcurrency,
         maxRetries: options.maxRetries,
+        maxRetryAfterMs: options.maxRetryAfterMs,
         minRequestIntervalMs: options.minRequestIntervalMs,
         nowImpl,
         onMetric: options.onHttpMetric,
+        randomImpl: options.randomImpl,
         requestTimeoutMs: options.requestTimeoutMs,
         sleepImpl: options.sleepImpl,
       })
@@ -519,6 +561,7 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
       url: searchRequest.url,
       headers: {
         accept: "application/json",
+        "accept-language": locale,
         authorization: `Bearer ${accessToken}`,
         "x-ebay-c-marketplace-id": marketplaceId,
         ...(affiliateHeader ? { "x-ebay-c-enduserctx": affiliateHeader } : {}),
@@ -617,7 +660,10 @@ export function createEbayProvider(options: EbayProviderOptions = {}): Provider 
           );
         }
 
-        const payload = await parseJsonResponse<EbayRawBrowseResponse>(browse.response);
+        const payload = parseBrowsePayload(
+          await parseJsonResponse<unknown>(browse.response),
+          browse.response.status,
+        );
         const fetchedAt = new Date(nowImpl()).toISOString();
         const rawItems = Array.isArray(payload.itemSummaries) ? payload.itemSummaries : [];
         const listings = rawItems
