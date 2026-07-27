@@ -16,12 +16,16 @@ The API rejects production startup unless:
 - `PERSISTENCE_DRIVER=postgres`
 - `DATABASE_URL` is valid
 - `AUTH_SESSION_PEPPER` has at least 32 characters
+- `NOTIFICATION_DESTINATION_PEPPER` has at least 32 characters
 - `AUTH_COOKIE_SECURE=true`
 - `AUTH_ALLOWED_ORIGINS` contains only explicit non-local HTTPS origins
+- `OPERATIONS_BEARER_TOKEN` has at least 32 characters
 - `PROVIDER_RUNTIME_MODE=real`
 - mock provider and fallback are disabled
 - a non-disabled recommendation mode has an artifact path
 - active recommendation mode has explicit promotion approval
+- configured outbound delivery has HTTPS public action URLs and matching
+  signed-webhook credentials
 
 Readiness additionally requires successful PostgreSQL access, no migration
 drift/pending version, and at least one active real provider.
@@ -61,19 +65,55 @@ for isolated local/CI networking.
 
 ## Auth and account actions
 
-| Variable                   | Default                                    | Notes                                              |
-| -------------------------- | ------------------------------------------ | -------------------------------------------------- |
-| `AUTH_ALLOWED_ORIGINS`     | local Vite origins                         | explicit HTTPS production origins                  |
-| `AUTH_SESSION_COOKIE_NAME` | `closetsearch_session`                     | keep stable                                        |
-| `AUTH_SESSION_TTL_DAYS`    | `14`                                       | positive integer                                   |
-| `AUTH_COOKIE_SECURE`       | true in production                         | must remain true                                   |
-| `AUTH_SESSION_PEPPER`      | empty                                      | production secret, minimum 32                      |
-| `AUTH_TOKEN_PEPPER`        | empty                                      | legacy fallback only                               |
-| `ACCOUNT_ACTION_BASE_URL`  | local URL / invalid production placeholder | set explicit HTTPS origin when email sender exists |
+| Variable                   | Default                                    | Notes                                                           |
+| -------------------------- | ------------------------------------------ | --------------------------------------------------------------- |
+| `AUTH_ALLOWED_ORIGINS`     | local Vite origins                         | explicit HTTPS production origins                               |
+| `AUTH_SESSION_COOKIE_NAME` | `closetsearch_session`                     | keep stable                                                     |
+| `AUTH_SESSION_TTL_DAYS`    | `14`                                       | positive integer                                                |
+| `AUTH_COOKIE_SECURE`       | true in production                         | must remain true                                                |
+| `AUTH_SESSION_PEPPER`      | empty                                      | production secret, minimum 32                                   |
+| `AUTH_TOKEN_PEPPER`        | empty                                      | legacy fallback only                                            |
+| `ACCOUNT_ACTION_BASE_URL`  | local URL / invalid production placeholder | set explicit HTTPS origin when email sender exists              |
+| `OPERATIONS_BEARER_TOKEN`  | none                                       | production secret protecting metrics/operations/provider health |
 
 Rotating session/token peppers invalidates live sessions/action links. The
-repository does not configure an account email sender; `ACCOUNT_ACTION_BASE_URL`
-alone cannot activate delivery.
+account email sender uses the configured email transport;
+`ACCOUNT_ACTION_BASE_URL` alone cannot activate delivery.
+
+## Email, SMS, and alert delivery
+
+All outbound settings default fail-closed. `capture` stores messages only in
+memory for local/test use and is rejected in production.
+
+| Variable                          | Default                                    | Notes                                                                                                         |
+| --------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `EMAIL_TRANSPORT`                 | `disabled`                                 | `disabled`, local/test `capture`, or production `resend`                                                      |
+| `RESEND_API_KEY`                  | none                                       | required for `EMAIL_TRANSPORT=resend`; secret                                                                 |
+| `EMAIL_FROM_ADDRESS`              | none                                       | required verified Resend sender                                                                               |
+| `EMAIL_WEBHOOK_SECRET`            | none                                       | raw-body Svix verification secret; minimum 32 characters when email is configured in production               |
+| `SMS_TRANSPORT`                   | `disabled`                                 | `disabled`, local/test `capture`, or production `twilio`                                                      |
+| `TWILIO_ACCOUNT_SID`              | none                                       | required for `SMS_TRANSPORT=twilio`                                                                           |
+| `TWILIO_AUTH_TOKEN`               | none                                       | required Twilio API secret and `X-Twilio-Signature` verification key                                          |
+| `TWILIO_FROM_NUMBER`              | none                                       | approved E.164 sender                                                                                         |
+| `TWILIO_WEBHOOK_SECRET`           | none                                       | compatibility alias; when set it must exactly equal `TWILIO_AUTH_TOKEN`                                       |
+| `ALERT_DELIVERY_ENABLED`          | false                                      | worker sends due email/SMS only when explicitly true                                                          |
+| `ALERT_DELIVERY_CLAIM_TIMEOUT_MS` | `300000`                                   | stale worker-claim recovery window                                                                            |
+| `ALERT_PUBLIC_BASE_URL`           | local URL / invalid production placeholder | explicit HTTPS public origin for unsubscribe and `/webhooks/*`; required for configured production transports |
+| `NOTIFICATION_DESTINATION_PEPPER` | none                                       | stable production secret (minimum 32 characters) for non-reversible destination HMACs                         |
+
+Resend account-action email also requires the auth variables above, including
+HTTPS `ACCOUNT_ACTION_BASE_URL`. Twilio outbound messages set
+`StatusCallback` to `/webhooks/sms` on `ALERT_PUBLIC_BASE_URL`.
+
+Transport configuration does not opt in a user. Email/SMS delivery additionally
+requires global and per-watchlist channel enablement, verified destination,
+current explicit consent, and no active suppression. Do not place webhook
+signatures, phone numbers, email addresses, provider response bodies, or secrets
+in logs/metrics.
+
+API and worker processes need the same auth and delivery configuration. A
+destination-bound unsubscribe link is non-mutating on `GET`; only its `POST`
+confirmation records opt-out and suppression.
 
 ## Engagement
 
@@ -115,16 +155,18 @@ Core:
 | `PROVIDER_ALLOW_MOCK_FALLBACK`  | `true`                   | `false`    |
 | `PROVIDER_MOCK_ENABLED`         | `true`                   | `false`    |
 | `PROVIDER_REQUEST_TIMEOUT_MS`   | `10000`                  | 1000–60000 |
-| `PROVIDER_MAX_ACTIVE_PROVIDERS` | `2`                      | 1–5        |
+| `PROVIDER_MAX_ACTIVE_PROVIDERS` | `5`                      | 1–5        |
 
 eBay:
 
 - `EBAY_PROVIDER_ENABLED`
+- `EBAY_AUTHORIZATION_REFERENCE`
 - `EBAY_CLIENT_ID`
 - `EBAY_CLIENT_SECRET`
 - `EBAY_API_BASE_URL`
 - `EBAY_IDENTITY_BASE_URL`
 - `EBAY_MARKETPLACE_ID`
+- `EBAY_LOCALE`
 - `EBAY_OAUTH_SCOPE`
 - `EBAY_AFFILIATE_CAMPAIGN_ID`
 - `EBAY_AFFILIATE_REFERENCE_ID`
@@ -150,9 +192,28 @@ Grailed:
 - `GRAILED_MAX_RESULTS_PER_SEARCH`
 - `GRAILED_USER_AGENT`
 
+Depop, Yahoo! Auctions Japan, and Mercari Japan use the same suffix family
+under prefixes `DEPOP`, `YAHOO_AUCTIONS_JP`, and `MERCARI_JP`:
+
+- `<PREFIX>_PROVIDER_ENABLED`
+- `<PREFIX>_SCRAPING_ALLOWED`
+- `<PREFIX>_AUTHORIZATION_REFERENCE`
+- `<PREFIX>_BASE_URL`
+- `<PREFIX>_REQUEST_TIMEOUT_MS`
+- `<PREFIX>_MIN_REQUEST_INTERVAL_MS`
+- `<PREFIX>_MAX_CONCURRENCY`
+- `<PREFIX>_MAX_RETRIES`
+- `<PREFIX>_BASE_BACKOFF_MS`
+- `<PREFIX>_MAX_RETRY_AFTER_MS`
+- `<PREFIX>_CIRCUIT_BREAKER_FAILURE_THRESHOLD`
+- `<PREFIX>_CIRCUIT_BREAKER_COOLDOWN_MS`
+- `<PREFIX>_MAX_RESULTS_PER_SEARCH`
+- `<PREFIX>_USER_AGENT`
+
 See [Provider configuration](PROVIDER_CONFIGURATION.md). Credentials do not
 replace partner approval; Grailed flags must not be set without written
-permission.
+permission. Every real provider also requires a retained non-secret
+authorization reference.
 
 ## Worker
 
@@ -174,7 +235,22 @@ optional `providerIds`, `pageSize`, and `intervalSeconds`. Invalid definitions
 fail worker startup. The worker needs the same provider authorization/credentials
 as the API.
 
+The worker also seeds `alerts.deliver_due`; it uses the email/SMS variables
+above. Leaving `ALERT_DELIVERY_ENABLED` false keeps the job safely inert.
+
 ## Web
+
+Compose assigns deterministic local image names so CI and operators scan and
+promote the same release artifacts:
+
+| Variable                    | Default                     | Notes                                     |
+| --------------------------- | --------------------------- | ----------------------------------------- |
+| `CLOSETSEARCH_API_IMAGE`    | `closetsearch-api:local`    | shared by the API and one-shot migration  |
+| `CLOSETSEARCH_WORKER_IMAGE` | `closetsearch-worker:local` | asynchronous ingestion and alert delivery |
+| `CLOSETSEARCH_WEB_IMAGE`    | `closetsearch-web:local`    | nginx-hosted browser artifact             |
+
+Production values should be immutable registry digests from the reviewed
+release. Tags are provided only for the local topology.
 
 | Variable                             | Default   | Notes                                             |
 | ------------------------------------ | --------- | ------------------------------------------------- |
@@ -182,6 +258,17 @@ as the API.
 | `VITE_EXPERIMENTAL_METADATA_SIGNALS` | false     | keeps placeholder metadata-risk assistance hidden |
 
 Changing either requires a new web artifact.
+
+The Sites build always defaults `VITE_API_BASE_URL` to the same-origin `/api`
+edge route. Configure the following runtime value in Sites rather than in a
+committed environment file:
+
+| Variable                  | Default | Notes                                                  |
+| ------------------------- | ------- | ------------------------------------------------------ |
+| `CLOSETSEARCH_API_ORIGIN` | none    | HTTPS Node API origin proxied by the Sites edge worker |
+
+When this value is absent or invalid, the Sites edge returns `503` and never
+substitutes mock inventory.
 
 ## Smoke and backup
 
@@ -191,6 +278,8 @@ Smoke:
 - `CLOSETSEARCH_SMOKE_TIMEOUT_MS`
 - `CLOSETSEARCH_SMOKE_REQUIRE_HTTPS`
 - `CLOSETSEARCH_EXPECTED_PROVIDER_IDS`
+- `CLOSETSEARCH_OPERATIONS_BEARER_TOKEN`
+- `LIVE_PROVIDER_SMOKE_TESTS` (must be exactly `true` for live marketplace smoke)
 
 Backup:
 

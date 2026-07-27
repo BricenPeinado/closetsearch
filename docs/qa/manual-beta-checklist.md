@@ -8,10 +8,12 @@ present. Public staging must contain no fixtures.
 
 - [ ] web, `/health/live`, `/health/ready`, `/metrics`,
       `/operations/status`, `/providers/health`
+- [ ] operational endpoints reject a missing/incorrect bearer token and accept
+      the monitored secret without logging it
 - [ ] readiness reports PostgreSQL, no pending/drifted migration, real provider
 - [ ] restart API and verify sessions/saved state persist
 - [ ] restart worker and verify lease/checkpoint resume without duplicate prices
-- [ ] confirm schema migrations `001` through `006`
+- [ ] confirm schema migrations `001` through `007`
 
 ## Feed/search/listings
 
@@ -23,6 +25,8 @@ present. Public staging must contain no fixtures.
 - [ ] image aspect reservation, lazy load, local failure fallback
 - [ ] original/display price is truthful; no relabeled unconverted amount
 - [ ] status/freshness/seller/shipping/marketplace action only when supported
+- [ ] listing detail gallery, original Japanese/translation labels, auction
+      bid/buy-now/end state, price trend, and domestic/proxy limitation copy
 - [ ] partial provider, stale cache, all-provider failure, offline, empty, retry
 - [ ] no production mock provider/listing
 
@@ -54,8 +58,10 @@ present. Public staging must contain no fixtures.
 - [ ] new/changed ingested listing creates one match
 - [ ] inbox unseen/seen/dismissed state
 - [ ] frequency/quiet-hour scheduling
-- [ ] email/push/SMS enable attempts remain unavailable
-- [ ] outbound delivery is not claimed
+- [ ] email/SMS controls expose readiness and cannot save an unusable channel
+- [ ] push enable attempts remain unavailable
+- [ ] outbound delivery is not claimed without a configured transport,
+      verified destination, current consent, and staging evidence
 
 ## Engagement and recommendations
 
@@ -79,7 +85,7 @@ present. Public staging must contain no fixtures.
 
 ## Provider/operations
 
-- [ ] intended authorized provider is active; blocked list understood
+- [ ] all intended authorized provider IDs are active; blocked list understood
 - [ ] rate limit honors `Retry-After`; circuit/partial banner appears
 - [ ] worker checkpoint/health/last-success advances
 - [ ] operations status degrades or returns its stable unavailable response when

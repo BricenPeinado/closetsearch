@@ -360,7 +360,7 @@ describe("PostgresRequestStore", () => {
     const persistedListing = await test.dataPlane.listings.upsertObservation(
       listing("watchlist-brand-listing", "watchlist-brand-listing"),
     );
-    expect(await test.dataPlane.alerts.matchListing(persistedListing.listingId, now)).toBe(1);
+    expect(await test.dataPlane.alerts.matchListing(persistedListing.listingId, now, true)).toBe(1);
     const restartedStore = new PostgresRequestStore(test.database);
 
     await expect(restartedStore.listWatchlistsByUserId(user.id)).resolves.toEqual([created]);
@@ -469,7 +469,26 @@ describe("PostgresRequestStore", () => {
       userId: user.id,
     });
     await store.updateNotificationPreferences({
+      emailEnabled: false,
       inAppEnabled: true,
+      smsEnabled: false,
+      userId: user.id,
+    });
+    const phone = "+12025550123";
+    await test.dataPlane.notifications.upsertPhoneIdentity(user.id, phone, now);
+    await test.dataPlane.notifications.recordConsent({
+      action: "opt_out",
+      channel: "sms",
+      destination: phone,
+      occurredAt: now,
+      source: "account_settings",
+      userId: user.id,
+    });
+    await test.dataPlane.notifications.suppressDestination({
+      channel: "sms",
+      destination: phone,
+      occurredAt: now,
+      reason: "manual",
       userId: user.id,
     });
 
@@ -480,6 +499,24 @@ describe("PostgresRequestStore", () => {
         id: user.id,
         username: "delete-me",
       },
+      activeNotificationSuppressions: [
+        {
+          channel: "sms",
+          reason: "manual",
+        },
+      ],
+      notificationConsents: [
+        {
+          action: "opt_out",
+          channel: "sms",
+          source: "account_settings",
+        },
+      ],
+      phoneIdentities: [
+        {
+          phoneE164: phone,
+        },
+      ],
       schemaVersion: 2,
     });
     expect(serialized).not.toContain(passwordHash);
@@ -496,9 +533,12 @@ describe("PostgresRequestStore", () => {
       "auth_sessions",
       "likes",
       "notification_preferences",
+      "notification_channel_consents",
+      "notification_suppressions",
       "saved_filters",
       "saved_searches",
       "user_identities",
+      "user_phone_identities",
       "user_settings",
       "watchlists",
     ]) {
@@ -509,6 +549,19 @@ describe("PostgresRequestStore", () => {
         [user.id],
       );
       expect(result.rows[0].count, table).toBe("0");
+    }
+
+    for (const table of ["notification_channel_consents", "notification_suppressions"]) {
+      const retained = await test.database.query<{
+        destination_hash: string;
+      }>(
+        `SELECT destination_hash
+         FROM ${table}
+         WHERE user_id IS NULL`,
+      );
+      expect(retained.rows, table).toHaveLength(1);
+      expect(retained.rows[0]?.destination_hash, table).toMatch(/^[0-9a-f]{64}$/);
+      expect(retained.rows[0]?.destination_hash, table).not.toBe(phone);
     }
 
     const listingCount = await test.database.query<{ count: string }>(

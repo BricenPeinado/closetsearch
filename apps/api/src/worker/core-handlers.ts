@@ -1,12 +1,22 @@
 import type { WorkerJobHandler } from "./types.js";
 import { WorkerJobError } from "./types.js";
+import { AlertDeliveryProcessor } from "../services/alertDeliveryService.js";
+import type { EmailTransport, SmsTransport } from "../services/notificationTransports.js";
 
 function numericPayload(payload: Record<string, unknown>, key: string, fallback: number) {
   const value = payload[key];
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-export function createCoreWorkerHandlers(now: () => Date = () => new Date()) {
+export function createCoreWorkerHandlers(
+  now: () => Date = () => new Date(),
+  options: {
+    deliveryEnabled?: boolean;
+    emailTransport?: EmailTransport;
+    env?: Record<string, string | undefined>;
+    smsTransport?: SmsTransport;
+  } = {},
+) {
   const handlers = new Map<string, WorkerJobHandler>();
 
   handlers.set("engagement.rollup_day", async ({ dataPlane, job }) => {
@@ -39,6 +49,21 @@ export function createCoreWorkerHandlers(now: () => Date = () => new Date()) {
       checkpoint: {
         cutoff: cutoff.toISOString(),
         records,
+      },
+    };
+  });
+
+  handlers.set("alerts.deliver_due", async ({ dataPlane, job }) => {
+    const limit = Math.max(1, Math.min(100, numericPayload(job.payload, "limit", 25)));
+    const summary = await new AlertDeliveryProcessor(dataPlane, {
+      ...options,
+      now,
+    }).processDue(limit);
+
+    return {
+      checkpoint: {
+        ...summary,
+        processedAt: now().toISOString(),
       },
     };
   });

@@ -8,7 +8,14 @@ import type {
 } from "./listing.js";
 import type { PaginationInfo } from "./pagination.js";
 
-export type SearchSortMode = "relevance" | "price_asc" | "price_desc" | "newest";
+export type SearchSortMode =
+  | "relevance"
+  | "price_asc"
+  | "price_desc"
+  | "newest"
+  | "ending_soon"
+  | "popularity"
+  | "recommended";
 
 export interface PriceRange {
   min?: number;

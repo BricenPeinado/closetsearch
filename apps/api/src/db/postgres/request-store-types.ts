@@ -73,11 +73,29 @@ export interface RequestStoreOptions {
 
 export interface RequestAccountDataExport {
   account: User;
+  activeNotificationSuppressions: Array<{
+    channel: "email" | "sms";
+    createdAt: string;
+    reason: string;
+  }>;
   alertMatches: Array<Record<string, unknown>>;
   emailIdentities: EmailIdentityRecord[];
   exportedAt: string;
   likes: Like[];
+  notificationConsents: Array<{
+    action: "opt_in" | "opt_out";
+    channel: "email" | "sms";
+    occurredAt: string;
+    source: string;
+  }>;
   notificationPreferences?: NotificationPreferences;
+  phoneIdentities: Array<{
+    createdAt: string;
+    disabledAt?: string;
+    phoneE164: string;
+    updatedAt: string;
+    verifiedAt?: string;
+  }>;
   recentSearches: RecentSearch[];
   savedFilters: SavedFilter[];
   savedSearches: SavedSearch[];

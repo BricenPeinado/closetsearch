@@ -115,7 +115,11 @@ export class PostgresAccountSecurityService {
   ) {
     const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
 
-    if (options.emailSender && !options.actionBaseUrl) {
+    if (
+      options.emailSender?.configured !== false &&
+      options.emailSender &&
+      !options.actionBaseUrl
+    ) {
       throw new TypeError(
         "A configured email sender requires an explicit account action base URL.",
       );

@@ -144,13 +144,13 @@ describe("separate worker runtime", () => {
     );
     const matchListing = vi
       .spyOn(harness.dataPlane.alerts, "matchListing")
-      .mockImplementationOnce(async (listingId, matchedAt) => {
-        await originalMatchListing(listingId, matchedAt);
+      .mockImplementationOnce(async (listingId, matchedAt, providerAuthorized) => {
+        await originalMatchListing(listingId, matchedAt, providerAuthorized);
         throw new Error("Simulated crash after durable alert matching.");
       })
       .mockImplementation(originalMatchListing);
     const handlers = new Map([
-      ["provider.ingest", createProviderIngestionHandler([source], clock.now)],
+      ["provider.ingest", createProviderIngestionHandler([source], clock.now, () => true)],
     ]);
     const runtime = new WorkerRuntime(harness.dataPlane, handlers, {
       clock,

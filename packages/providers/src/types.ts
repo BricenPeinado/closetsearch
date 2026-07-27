@@ -91,6 +91,7 @@ export interface ProviderCapabilities {
   paginationModel?: "none" | "page" | "cursor" | "offset";
   requiresAttribution?: boolean;
   supportsActiveListings?: boolean;
+  supportsAuctionMetadata?: boolean;
   supportsAttribution?: boolean;
   supportsBrandFilter?: boolean;
   supportsCategoryFilter?: boolean;
@@ -103,8 +104,10 @@ export interface ProviderCapabilities {
   supportsSearch?: boolean;
   supportsSellerMetadata?: boolean;
   supportsShipping?: boolean;
+  supportsShippingLimitations?: boolean;
   supportsSizeFilter?: boolean;
   supportsSoldListings?: boolean;
+  supportsOriginalLanguageText?: boolean;
   supportsWebhooks?: boolean;
   supportedConditions?: ListingCondition[];
   supportedListingTypes?: ListingType[];

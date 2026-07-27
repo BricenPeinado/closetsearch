@@ -227,6 +227,9 @@ function normalizeSortMode(value: UserSettings["defaultSortMode"] | null) {
     value !== null &&
     value !== undefined &&
     value !== "newest" &&
+    value !== "ending_soon" &&
+    value !== "popularity" &&
+    value !== "recommended" &&
     value !== "price_asc" &&
     value !== "price_desc" &&
     value !== "relevance"

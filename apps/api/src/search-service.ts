@@ -9,6 +9,7 @@ import { persistProviderListings } from "./services/providerListingPersistenceSe
 import { recordObservedListings } from "./services/priceSnapshotService.js";
 import { generateRiskSignal } from "./services/riskService.js";
 import { applyDisplayCurrency } from "./services/exchangeRateService.js";
+import { getMlRecommendationRuntime } from "./services/mlRecommendationRuntimeService.js";
 
 function getComparisonMoney(listing: Listing) {
   return (
@@ -25,6 +26,26 @@ export function sortListingsForSearch(listings: Listing[], sort: SearchQuery["so
     sorted.map((listing) => getComparisonMoney(listing).currency.toUpperCase()),
   );
   const canComparePrices = comparisonCurrencies.size <= 1;
+  const timestamp = (listing: Listing) =>
+    new Date(
+      listing.lifecycle?.sourceUpdatedAt ?? listing.lifecycle?.listedAt ?? listing.fetchedAt,
+    ).getTime();
+  const auctionEnd = (listing: Listing) => {
+    const value = listing.auction?.endsAt;
+    const end = value ? new Date(value).getTime() : Number.POSITIVE_INFINITY;
+    return Number.isFinite(end) && end >= Date.now() ? end : Number.POSITIVE_INFINITY;
+  };
+  const popularity = (listing: Listing) => {
+    const tagScore =
+      listing.market?.tags?.filter((tag) => /popular|trending|watched|featured/i.test(tag))
+        .length ?? 0;
+    const feedbackScore = Math.log10(1 + (listing.seller?.feedbackCount ?? 0));
+    const completeness =
+      Math.min(4, listing.images?.length ?? (listing.imageUrl ? 1 : 0)) +
+      (listing.description ? 1 : 0) +
+      (listing.shipping ? 1 : 0);
+    return tagScore * 10 + feedbackScore + completeness + (listing.market?.priceDropsCount ?? 0);
+  };
 
   switch (sort) {
     case "price_asc":
@@ -45,13 +66,29 @@ export function sortListingsForSearch(listings: Listing[], sort: SearchQuery["so
         );
       }
       break;
+    case "ending_soon":
+      sorted.sort(
+        (left, right) =>
+          auctionEnd(left) - auctionEnd(right) ||
+          timestamp(right) - timestamp(left) ||
+          left.id.localeCompare(right.id),
+      );
+      break;
+    case "popularity":
+      sorted.sort(
+        (left, right) =>
+          popularity(right) - popularity(left) ||
+          timestamp(right) - timestamp(left) ||
+          left.id.localeCompare(right.id),
+      );
+      break;
+    case "recommended":
+      break;
     case "newest":
     case "relevance":
     default:
       sorted.sort(
-        (left, right) =>
-          new Date(right.fetchedAt).getTime() - new Date(left.fetchedAt).getTime() ||
-          left.id.localeCompare(right.id),
+        (left, right) => timestamp(right) - timestamp(left) || left.id.localeCompare(right.id),
       );
       break;
   }
@@ -107,10 +144,14 @@ export async function searchListings(
   }
 
   const providerListings = execution.listings.map(attachRiskSignal);
-  const responseListings = sortListingsForSearch(
-    await applyDisplayCurrency(providerListings, query.currency),
-    query.sort,
-  );
+  const displayListings = await applyDisplayCurrency(providerListings, query.currency);
+  const responseListings =
+    query.sort === "recommended"
+      ? getMlRecommendationRuntime().rank({
+          listings: displayListings,
+          userId: "anonymous-search",
+        }).listings
+      : sortListingsForSearch(displayListings, query.sort);
 
   if (resolvePersistenceDriver() !== "postgres") {
     rememberListings(providerListings);

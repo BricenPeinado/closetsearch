@@ -77,7 +77,7 @@ describe("PostgreSQL production data plane", () => {
       });
       expect(secondRun).toEqual({
         applied: [],
-        currentVersion: 6,
+        currentVersion: 7,
       });
 
       const migrations = loadPostgresMigrations();

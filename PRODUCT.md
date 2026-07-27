@@ -13,6 +13,8 @@ Core workflows are:
   market status, price, currency, and sort
 - inspect marketplace, status, freshness, seller, shipping, original price, and
   converted display price when those fields are actually supported
+- inspect auction facts, original Japanese/translated text, price changes, and
+  marketplace shipping/proxy limitations on a listing detail view
 - save listings, searches, filters, and watchlists
 - receive durable in-app watchlist matches
 - view entitlement-gated, observed comparable-price context
@@ -43,7 +45,10 @@ prevention, URL-persisted filters, IntersectionObserver loading with an
 accessible Load More fallback, scroll restoration, partial/degraded states, and
 responsive listing cards. Cards reserve image aspect ratio, have a local error
 fallback, expose accessible like state, and show optional normalized metadata
-only when supported.
+only when supported. Listing detail adds an image gallery, exact cost breakdown,
+auction state, seller/shipping facts, price-trend evidence, source CTA, and
+similar-item recommendations without pretending a marketplace limitation is a
+ClosetSearch checkout feature.
 
 ### Accounts and saved features
 
@@ -87,27 +92,40 @@ verified admin identity and is rejected in production.
 Provider ingestion matches new/changed listings to enabled watchlists.
 PostgreSQL stores idempotent matches, in-app inbox state, frequency/quiet-hour
 scheduling, attempts, retry waits, suppression, and dead-letter state. Email,
-push, and SMS are disabled; no UI or API should imply otherwise.
+and SMS have fail-closed Resend and Twilio implementations with separate
+consent, verified destinations, delivery-time readiness checks, unsubscribe or
+STOP handling, and signed webhook processing. No outbound transport is
+configured in this checkout, so the UI must not imply that delivery is active.
+Push remains disabled.
 
 ## Launch boundary
 
 The internal production architecture is implemented, but a public live-data
-launch remains blocked until at least one authorized real provider is configured
-and the requested two-provider target remains externally blocked:
+launch remains blocked until authorized real providers are configured and the
+requested five-provider target is live-verified:
 
 - eBay: official adapter complete; production client credentials, Buy API
   partner eligibility/approval, and any required affiliate attribution absent
-- Grailed: adapter and fixtures complete; exact written permission and retained
-  authorization reference absent
+- Grailed: adapter and fixtures complete; operator authorization is established,
+  but the deployable authorization-reference value is not configured
+- Depop: adapter and fixtures complete; operator authorization is established,
+  but the deployable authorization-reference value is not configured
+- Yahoo! Auctions Japan: adapter and fixtures complete; operator authorization
+  is established, but the deployable authorization-reference value is not
+  configured
+- Mercari Japan: adapter and fixtures complete; operator authorization is
+  established, but the deployable authorization-reference value is not
+  configured
 
 Fixtures and contract tests are not live-provider evidence.
 
 ## Intentionally deferred
 
 - live billing until provider credentials and signed-webhook configuration exist
-- outbound email until a transactional provider and verified address flow are
-  configured end to end
-- push and SMS delivery
+- production email/SMS activation until approved Resend/Twilio accounts,
+  senders, callback origins, secrets, verified destinations, consent, and
+  staging evidence are configured end to end
+- push delivery
 - ML promotion until temporal production data and every quality/latency/diversity
   gate pass
 - authenticity/fake-risk claims until labeled data, calibration, abuse review,

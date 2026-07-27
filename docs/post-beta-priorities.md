@@ -2,10 +2,12 @@
 
 ## Public-launch blockers
 
-1. Obtain and retain authorized live provider access. The target is two real
-   providers; eBay and Grailed are both externally blocked.
-2. Run a no-mock HTTPS staging smoke with those providers.
-3. Configure transactional email and exercise verification/reset/export.
+1. Configure the retained provider-specific authorization references for the
+   four operator-authorized collection integrations and approved production
+   eBay credentials/agreements.
+2. Run a no-mock HTTPS staging smoke with all five target providers.
+3. Configure Resend/Twilio and exercise verification, reset, export,
+   notification opt-in, delivery callbacks, unsubscribe, and STOP.
 4. Add a Compose boot and encrypted off-host backup/restore drill to the
    completed local PostgreSQL concurrency/lease/restart/checksummed-restore
    evidence.
@@ -16,7 +18,8 @@
 
 - distributed auth/account rate limiting
 - approved exchange-rate provider and persisted refresh schedule
-- outbound email alert handler with bounce/suppression/retry operations
+- production Resend/Twilio sender and callback configuration plus delivery
+  reconciliation evidence
 - billing provider with signed idempotent webhooks
 - broader Playwright coverage against PostgreSQL staging
 - query-plan and capacity review with representative data volume
@@ -32,7 +35,7 @@
 
 ## Intentionally deferred
 
-- push and SMS
+- push
 - authenticity/fake verdicts
 - OAuth/social login and device management UI
 - seller posting/social tools

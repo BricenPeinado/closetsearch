@@ -282,8 +282,20 @@ export function normalizeEbayItemSummary(
   const providerListingId = toTrimmedString(raw.itemId);
   const title = toTrimmedString(raw.title);
   const sourceUrl = normalizeHttpUrl(raw.itemAffiliateWebUrl || raw.itemWebUrl);
-  const priceAmount = raw.price ?? raw.currentBidPrice;
-  const price = createMoneyFromMajor(toTrimmedString(priceAmount?.value), priceAmount?.currency);
+  const listingType = normalizeListingType(raw.buyingOptions);
+  const normalizedBuyingOptions = (raw.buyingOptions ?? []).map((option) =>
+    option.trim().toUpperCase(),
+  );
+  const currentBidAmount = raw.currentBidPrice ?? raw.price;
+  const currentBid =
+    listingType === "auction"
+      ? createMoneyFromMajor(toTrimmedString(currentBidAmount?.value), currentBidAmount?.currency)
+      : undefined;
+  const buyNowPrice =
+    listingType !== "auction" || normalizedBuyingOptions.includes("FIXED_PRICE")
+      ? createMoneyFromMajor(toTrimmedString(raw.price?.value), raw.price?.currency)
+      : undefined;
+  const price = currentBid ?? buyNowPrice;
   const images = normalizeImages(raw, title);
   const listedAt =
     normalizeTimestamp(raw.itemOriginDate) ?? normalizeTimestamp(raw.itemCreationDate);
@@ -340,7 +352,21 @@ export function normalizeEbayItemSummary(
     category: category || undefined,
     size: toTrimmedString(findAspect(raw.localizedAspects, "Size")) || undefined,
     condition: normalizeCondition(raw.condition),
-    listingType: normalizeListingType(raw.buyingOptions),
+    listingType,
+    auction:
+      listingType === "auction"
+        ? {
+            currentBid,
+            buyNowPrice,
+            bidCount:
+              typeof raw.bidCount === "number" &&
+              Number.isSafeInteger(raw.bidCount) &&
+              raw.bidCount >= 0
+                ? raw.bidCount
+                : undefined,
+            endsAt: endedAt,
+          }
+        : undefined,
     fetchedAt,
     analyticsEligibility: {
       eligible: !sellerIsUnverified,
@@ -375,7 +401,7 @@ export function normalizeEbayItemSummary(
       : undefined,
     market: {
       status: "active",
-      askingPrice: price,
+      askingPrice: listingType === "auction" ? buyNowPrice : price,
       isExcludedFromAnalytics: sellerIsUnverified,
     },
   };

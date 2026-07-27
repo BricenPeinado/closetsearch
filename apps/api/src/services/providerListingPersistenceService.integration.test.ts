@@ -42,7 +42,7 @@ const listing: Listing = {
     status: "fresh",
   },
   id: "ebay:search-listing-1",
-  imageUrl: "https://images.example.com/search-listing-1.jpg",
+  imageUrl: "https://i.ebayimg.com/images/g/search-listing-1/s-l1600.jpg",
   lifecycle: {
     observedAt: "2026-07-24T12:00:00.000Z",
     status: "active",

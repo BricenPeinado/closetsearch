@@ -5,6 +5,7 @@ import {
   runPostgresMigrations,
 } from "../db/postgres/index.js";
 import { createProviderRuntime } from "../providers/registry.js";
+import { validateStartupEnvironment } from "../startup-config.js";
 import { createCoreWorkerHandlers } from "./core-handlers.js";
 import { createProviderIngestionHandler } from "./ingestion.js";
 import { createWorkerProviderPlan, seedWorkerJobs } from "./provider-plan.js";
@@ -27,6 +28,12 @@ function integerEnv(name: string, fallback: number, minimum: number, maximum: nu
 }
 
 export async function runWorkerProcess() {
+  const startupConfig = validateStartupEnvironment();
+
+  if (startupConfig.persistenceDriver !== "postgres") {
+    throw new Error("The durable worker requires PERSISTENCE_DRIVER=postgres.");
+  }
+
   const database = createPostgresDatabase();
   const shutdown = new AbortController();
   const requestShutdown = () => shutdown.abort(new Error("Signal received."));

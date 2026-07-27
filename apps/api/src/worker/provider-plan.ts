@@ -180,6 +180,28 @@ function supportsScope(
     : provider.capabilities?.supportsActiveListings !== false;
 }
 
+function configuredResultCap(runtime: ProviderRuntime, providerId: string) {
+  const providerConfig =
+    providerId === "depop"
+      ? runtime.config.providers.depop
+      : providerId === "ebay"
+        ? runtime.config.providers.ebay
+        : providerId === "grailed"
+          ? runtime.config.providers.grailed
+          : providerId === "mercari-jp"
+            ? runtime.config.providers.mercariJp
+            : providerId === "yahoo-auctions-jp"
+              ? runtime.config.providers.yahooAuctionsJp
+              : undefined;
+  const configuredMaximum = providerConfig?.maxResultsPerSearch;
+
+  return typeof configuredMaximum === "number" &&
+    Number.isSafeInteger(configuredMaximum) &&
+    configuredMaximum >= 1
+    ? Math.min(200, configuredMaximum)
+    : undefined;
+}
+
 export function createWorkerProviderPlan(
   runtime: ProviderRuntime,
   env: Record<string, string | undefined> = process.env,
@@ -194,6 +216,7 @@ export function createWorkerProviderPlan(
 
   for (const registration of runtime.activeProviders) {
     const provider = registration.provider;
+    const resultCap = configuredResultCap(runtime, provider.id);
 
     if (
       registration.mode !== "real" ||
@@ -222,7 +245,7 @@ export function createWorkerProviderPlan(
       };
       providerQueries.push({
         key: queryKey,
-        pageSize: search.pageSize,
+        pageSize: resultCap === undefined ? search.pageSize : Math.min(search.pageSize, resultCap),
         query,
       });
       jobs.push({
@@ -251,6 +274,14 @@ export async function seedWorkerJobs(
   now = new Date(),
 ) {
   const coreJobs = [
+    {
+      intervalSeconds: 15,
+      jobKey: "alerts.deliver_due",
+      jobType: "alerts.deliver_due",
+      payload: {
+        limit: 25,
+      },
+    },
     {
       intervalSeconds: 3_600,
       jobKey: "listings.mark_stale",

@@ -1,6 +1,8 @@
 export type ListingType = "auction" | "buy_now" | "offer" | "unknown";
 export type MarketStatus = "active" | "sold" | "unknown";
 export type ListingAvailability = "available" | "removed" | "sold" | "stale" | "unavailable";
+export type PriceObservationKind =
+  "asking" | "completed_auction" | "confirmed_sold" | "current_bid";
 
 export interface ExactMoneyInput {
   amountMinor: bigint;
@@ -18,14 +20,27 @@ export interface ListingImageInput {
   width?: number;
 }
 
+export interface ListingMarketplaceLimitationsInput {
+  closetSearchRole: "discovery_only";
+  internationalShipping: "available" | "domestic_only" | "proxy_only" | "unknown";
+  notices?: string[];
+  proxyPurchaseRequired?: boolean;
+}
+
 export interface ListingObservationInput {
   analyticsEligible: boolean;
+  auctionBuyNowPrice?: ExactMoneyInput;
+  auctionCompletedPrice?: ExactMoneyInput;
+  auctionCurrentBid?: ExactMoneyInput;
+  auctionEndsAt?: Date;
   availability: ListingAvailability;
+  bidCount?: number;
   canonicalBrandId?: string;
   canonicalFingerprint?: string;
   category?: string;
   comparisonPrice?: ComparisonMoneyInput;
   condition?: string;
+  description?: string;
   fetchedAt: Date;
   id: string;
   idempotencyKey: string;
@@ -33,9 +48,19 @@ export interface ListingObservationInput {
   landedPrice?: ExactMoneyInput;
   listedAt?: Date;
   listingType: ListingType;
+  color?: string;
+  itemFamily?: string;
   marketStatus: MarketStatus;
+  material?: string;
+  marketplaceLimitations?: ListingMarketplaceLimitationsInput;
+  marketplaceRegion?: string;
+  model?: string;
   observedAt: Date;
+  observationKind?: PriceObservationKind;
+  originalDescription?: string;
+  originalLanguage?: string;
   originalPrice: ExactMoneyInput;
+  originalTitle?: string;
   providerBrand?: string;
   providerId: string;
   providerUpdatedAt?: Date;
@@ -51,6 +76,8 @@ export interface ListingObservationInput {
   sourceUrl: string;
   staleAfter?: Date;
   title: string;
+  translatedDescription?: string;
+  translatedTitle?: string;
 }
 
 export interface ListingObservationResult {

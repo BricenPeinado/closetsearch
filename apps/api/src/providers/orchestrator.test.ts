@@ -190,6 +190,41 @@ describe("runProviderSearch", () => {
     expect("rawPayload" in (result.listings[0] as unknown as Record<string, unknown>)).toBe(false);
   });
 
+  it("drops a listing whose normalized source identity does not match its provider runtime", async () => {
+    const provider: Provider = {
+      id: "ebay",
+      name: "eBay",
+      async search(): Promise<ProviderSearchResponse> {
+        return {
+          providerId: "ebay",
+          status: "success",
+          listings: [createListing("mock:cross-provider")],
+          pagination: {
+            page: 1,
+            pageSize: 24,
+            hasMore: false,
+            totalCount: 1,
+          },
+        };
+      },
+    };
+
+    const result = await runProviderSearch(
+      { text: "jacket", pageSize: 24 },
+      createRuntime([{ mode: "real", name: provider.name, provider }]),
+    );
+
+    expect(result.listings).toEqual([]);
+    expect(result.providers).toEqual([
+      expect.objectContaining({
+        degraded: true,
+        providerId: "ebay",
+        resultCount: 0,
+        warnings: ["Dropped 1 malformed provider listings."],
+      }),
+    ]);
+  });
+
   it("returns a failure summary when a provider cannot support the requested query capability", async () => {
     const provider: Provider = {
       id: "limited",
@@ -234,15 +269,15 @@ describe("runProviderSearch", () => {
   it("dedupes repeated provider batches across cursor pages and reuses the cached provider page", async () => {
     let searchCalls = 0;
     const provider: Provider = {
-      id: "cached",
+      id: "mock",
       name: "Cached Provider",
       async search() {
         searchCalls += 1;
 
         return {
-          providerId: "cached",
+          providerId: "mock",
           status: "success",
-          listings: [createListing("cached:1"), createListing("cached:2")],
+          listings: [createListing("mock:cached-1"), createListing("mock:cached-2")],
           pagination: {
             page: 1,
             pageSize: 2,
@@ -264,27 +299,27 @@ describe("runProviderSearch", () => {
       runtime,
     );
 
-    expect(firstPage.listings.map((listing) => listing.id)).toEqual(["cached:1"]);
-    expect(secondPage.listings.map((listing) => listing.id)).toEqual(["cached:2"]);
+    expect(firstPage.listings.map((listing) => listing.id)).toEqual(["mock:cached-1"]);
+    expect(secondPage.listings.map((listing) => listing.id)).toEqual(["mock:cached-2"]);
     expect(searchCalls).toBe(1);
     expect(secondPage.pagination.hasMore).toBe(false);
     expect(renderMetrics()).toContain(
-      'closetsearch_provider_cache_total{provider="cached",status="miss"} 1',
+      'closetsearch_provider_cache_total{provider="mock",status="miss"} 1',
     );
     expect(renderMetrics()).toContain(
-      'closetsearch_provider_cache_total{provider="cached",status="fresh"} 1',
+      'closetsearch_provider_cache_total{provider="mock",status="fresh"} 1',
     );
   });
 
   it("does not crash when a provider omits pagination metadata", async () => {
     const provider: Provider = {
-      id: "missing-pagination",
+      id: "mock",
       name: "Missing Pagination",
       async search() {
         return {
-          providerId: "missing-pagination",
+          providerId: "mock",
           status: "success",
-          listings: [createListing("missing-pagination:1")],
+          listings: [createListing("mock:missing-pagination-1")],
         };
       },
     };
@@ -304,18 +339,18 @@ describe("runProviderSearch", () => {
 
   it("ignores malformed provider listings instead of crashing the whole page", async () => {
     const provider: Provider = {
-      id: "malformed",
+      id: "mock",
       name: "Malformed Provider",
       async search() {
         return {
-          providerId: "malformed",
+          providerId: "mock",
           status: "success",
           listings: [
-            createListing("malformed:good-1"),
+            createListing("mock:malformed-good-1"),
             {
-              ...createListing("malformed:bad-1"),
+              ...createListing("mock:malformed-bad-1"),
               source: {
-                id: "malformed",
+                id: "mock",
               },
             } as unknown as Listing,
           ],
@@ -334,16 +369,17 @@ describe("runProviderSearch", () => {
       createRuntime([{ mode: "real", name: provider.name, provider }]),
     );
 
-    expect(result.listings).toEqual([createListing("malformed:good-1")]);
+    expect(result.listings).toEqual([createListing("mock:malformed-good-1")]);
     expect(result.providers).toMatchObject([
       {
         degraded: true,
-        providerId: "malformed",
+        providerId: "mock",
         providerName: "Malformed Provider",
         status: "success",
         resultCount: 1,
         warnings: ["Dropped 1 malformed provider listings."],
       },
     ]);
+    expect(result.pagination.totalCount).toBeUndefined();
   });
 });

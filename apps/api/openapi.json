@@ -3,7 +3,7 @@
   "info": {
     "title": "ClosetSearch HTTP API",
     "version": "0.1.0",
-    "description": "Contract for the HTTP routes implemented by apps/api/src/app.ts and its domain route modules. All responses include X-Request-ID. JSON request bodies are limited to 64 KiB by default (configurable with HTTP_BODY_LIMIT_BYTES). Browser requests using PUT, POST, PATCH, or DELETE must pass the configured same-origin CSRF check. Cookie-authenticated routes derive identity exclusively from the session cookie; request bodies and legacy URL suffixes never select the acting user. Account-security and durable alert-inbox routes require PostgreSQL. Billing webhooks and delivery-attempt APIs are intentionally absent because they are not wired to HTTP routes in the current implementation."
+    "description": "Contract for the HTTP routes implemented by apps/api/src/app.ts and its domain route modules. All responses include X-Request-ID. JSON request bodies are limited to 64 KiB by default (configurable with HTTP_BODY_LIMIT_BYTES). Browser requests using PUT, POST, PATCH, or DELETE must pass the configured same-origin CSRF check. Cookie-authenticated routes derive identity exclusively from the session cookie; request bodies and legacy URL suffixes never select the acting user. Account-security, notification, listing-history, and durable alert-inbox routes require PostgreSQL. Billing webhooks and direct delivery-attempt APIs are intentionally absent because they are not wired to HTTP routes in the current implementation."
   },
   "servers": [
     {
@@ -94,7 +94,11 @@
         "operationId": "getMetrics",
         "summary": "Prometheus metrics",
         "tags": ["Operations"],
-        "security": [],
+        "security": [
+          {
+            "operationsBearer": []
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/Metrics"
@@ -108,10 +112,14 @@
     "/operations/status": {
       "get": {
         "operationId": "getOperationsStatus",
-        "summary": "Durable worker, ingestion, and provider status",
-        "description": "Reads operational state from PostgreSQL without exposing job payloads, continuation cursors, provider metadata, credentials, or error messages.",
+        "summary": "Durable worker, ingestion, provider, and alert-delivery status",
+        "description": "Reads bounded operational aggregates from PostgreSQL without exposing notification destinations, job payloads, continuation cursors, provider metadata, credentials, or error messages.",
         "tags": ["Operations"],
-        "security": [],
+        "security": [
+          {
+            "operationsBearer": []
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/OperationsStatus"
@@ -128,7 +136,11 @@
         "summary": "Configured provider runtime status",
         "description": "Reports configuration and capability state without returning credentials or secrets.",
         "tags": ["Providers"],
-        "security": [],
+        "security": [
+          {
+            "operationsBearer": []
+          }
+        ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/ProviderHealth"
@@ -1656,7 +1668,7 @@
       "patch": {
         "operationId": "updateMyNotificationPreferences",
         "summary": "Update alert notification preferences",
-        "description": "Push and SMS preferences can be stored but those delivery channels are not implemented. Email delivery also requires external provider configuration and a verified address.",
+        "description": "Email and SMS require configured transports, verified destinations, explicit durable consent, no active suppression, and enabled per-watchlist policy. Push remains unavailable.",
         "tags": ["Alerts", "Account"],
         "security": [
           {
@@ -1682,6 +1694,510 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/me/notification-readiness": {
+      "get": {
+        "operationId": "getMyNotificationReadiness",
+        "summary": "Get verified-destination, consent, suppression, and transport readiness",
+        "tags": ["Alerts", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/NotificationReadiness"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/phone": {
+      "put": {
+        "operationId": "setMyPhone",
+        "summary": "Set an E.164 phone identity with explicit SMS consent",
+        "tags": ["Alerts", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneIdentityInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/PhoneIdentityCreated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMyPhone",
+        "summary": "Remove the phone identity and disable SMS delivery",
+        "tags": ["Alerts", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PhoneIdentityRemoved"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/me/phone/verification": {
+      "post": {
+        "operationId": "requestMyPhoneVerification",
+        "summary": "Send a rate-limited phone verification code",
+        "tags": ["Alerts", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/PhoneVerificationRequested"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/me/phone/verify": {
+      "post": {
+        "operationId": "verifyMyPhone",
+        "summary": "Verify the current phone identity",
+        "tags": ["Alerts", "Account"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneVerificationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PhoneVerified"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/me/watchlists/{watchlistId}/alert-settings": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WatchlistId"
+        }
+      ],
+      "get": {
+        "operationId": "getMyWatchlistAlertSettings",
+        "summary": "Get event and channel policy for one watchlist",
+        "tags": ["Alerts", "Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/WatchlistAlertSettings"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateMyWatchlistAlertSettings",
+        "summary": "Update event and channel policy for one watchlist",
+        "tags": ["Alerts", "Saved features"],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistAlertSettingsPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/WatchlistAlertSettings"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/listings/{listingId}": {
+      "parameters": [
+        {
+          "name": "listingId",
+          "in": "path",
+          "required": true,
+          "description": "Public provider:source identifier or internal UUID.",
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 337
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getListingDetail",
+        "summary": "Get normalized durable listing detail and typed auction evidence",
+        "tags": ["Discovery"],
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ListingDetail"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/listings/{listingId}/price-trends": {
+      "parameters": [
+        {
+          "name": "listingId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 337
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getListingPriceTrends",
+        "summary": "Get typed eligible price history, robust statistics, and changes",
+        "tags": ["Discovery", "Analytics"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Repeat or comma-separate up to 20 provider IDs.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ListingPriceTrend"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/listings/{listingId}/price-history": {
+      "parameters": [
+        {
+          "name": "listingId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 337
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getListingPriceHistory",
+        "summary": "Compatibility alias for typed listing price trends",
+        "tags": ["Discovery", "Analytics"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ListingPriceTrend"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/notifications/unsubscribe": {
+      "get": {
+        "operationId": "confirmEmailUnsubscribe",
+        "summary": "Validate an unsubscribe token without mutating state",
+        "description": "Safe for link scanners. Returns confirmation-required state; only POST records opt-out.",
+        "tags": ["Alerts"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EmailUnsubscribeToken"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EmailUnsubscribeConfirmation"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      },
+      "post": {
+        "operationId": "unsubscribeEmail",
+        "summary": "Confirm destination-bound email unsubscription",
+        "tags": ["Alerts"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EmailUnsubscribeToken"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/EmailUnsubscribed"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/webhooks/email": {
+      "post": {
+        "operationId": "receiveEmailWebhook",
+        "summary": "Receive a signed email delivery webhook",
+        "tags": ["Alerts"],
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ResendWebhookId"
+          },
+          {
+            "$ref": "#/components/parameters/ResendWebhookTimestamp"
+          },
+          {
+            "$ref": "#/components/parameters/ResendWebhookSignature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailWebhookEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/EmailWebhookAccepted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/webhooks/sms": {
+      "post": {
+        "operationId": "receiveSmsWebhook",
+        "summary": "Receive a Twilio-signed status callback or STOP/START/HELP message",
+        "tags": ["Alerts"],
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TwilioWebhookSignature"
+          },
+          {
+            "name": "deliveryId",
+            "in": "query",
+            "required": false,
+            "description": "Opaque delivery correlation identifier embedded in outbound status-callback URLs.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/SmsWebhookEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SmsWebhookAcknowledgement"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
@@ -1916,6 +2432,12 @@
         "in": "cookie",
         "name": "closetsearch_session",
         "description": "Opaque, HttpOnly session cookie. The cookie name is configurable with AUTH_SESSION_COOKIE_NAME; production cookies are Secure by default."
+      },
+      "operationsBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque",
+        "description": "Operations-only bearer token configured with OPERATIONS_BEARER_TOKEN."
       }
     },
     "headers": {
@@ -1965,6 +2487,49 @@
         "schema": {
           "type": "string",
           "minLength": 1
+        }
+      },
+      "ResendWebhookId": {
+        "name": "svix-id",
+        "in": "header",
+        "required": true,
+        "description": "Opaque provider event identifier covered by the webhook signature.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
+      "ResendWebhookTimestamp": {
+        "name": "svix-timestamp",
+        "in": "header",
+        "required": true,
+        "description": "Unix timestamp covered by the webhook signature.",
+        "schema": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "ResendWebhookSignature": {
+        "name": "svix-signature",
+        "in": "header",
+        "required": true,
+        "description": "Versioned signature generated by the configured email provider.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "TwilioWebhookSignature": {
+        "name": "X-Twilio-Signature",
+        "in": "header",
+        "required": true,
+        "description": "Twilio request signature calculated over the public callback URL and form fields.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
         }
       }
     },
@@ -2641,6 +3206,7 @@
       },
       "NotificationPreferencesPatch": {
         "type": "object",
+        "additionalProperties": false,
         "properties": {
           "emailEnabled": {
             "type": "boolean"
@@ -2656,17 +3222,1437 @@
           },
           "frequency": {
             "type": "string",
-            "enum": ["instant", "daily", "weekly"]
+            "enum": ["instant", "hourly", "daily", "weekly"]
           },
           "quietHoursStart": {
             "type": "string",
             "nullable": true,
-            "pattern": "^(?:[01]\\\\d|2[0-3]):[0-5]\\\\d$"
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
           },
           "quietHoursEnd": {
             "type": "string",
             "nullable": true,
-            "pattern": "^(?:[01]\\\\d|2[0-3]):[0-5]\\\\d$"
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "example": "America/New_York"
+          }
+        }
+      },
+      "NotificationPreferencesState": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "createdAt",
+          "emailEnabled",
+          "frequency",
+          "inAppEnabled",
+          "pushEnabled",
+          "smsEnabled",
+          "timezone",
+          "updatedAt",
+          "userId"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "emailEnabled": {
+            "type": "boolean"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": ["instant", "hourly", "daily", "weekly"]
+          },
+          "inAppEnabled": {
+            "type": "boolean"
+          },
+          "pushEnabled": {
+            "type": "boolean"
+          },
+          "quietHoursEnd": {
+            "type": "string",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "quietHoursStart": {
+            "type": "string",
+            "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "smsEnabled": {
+            "type": "boolean"
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "NotificationDestinationReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "available",
+          "configured",
+          "consented",
+          "identityPresent",
+          "ready",
+          "suppressed",
+          "verified"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "consented": {
+            "type": "boolean"
+          },
+          "identityPresent": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "suppressed": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NotificationCapabilityReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["available", "configured", "ready"],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NotificationDeliveryReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "inApp", "push", "sms"],
+        "properties": {
+          "email": {
+            "$ref": "#/components/schemas/NotificationDestinationReadiness"
+          },
+          "inApp": {
+            "$ref": "#/components/schemas/NotificationCapabilityReadiness"
+          },
+          "push": {
+            "$ref": "#/components/schemas/NotificationCapabilityReadiness"
+          },
+          "sms": {
+            "$ref": "#/components/schemas/NotificationDestinationReadiness"
+          }
+        }
+      },
+      "PhoneIdentityInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phone", "consent"],
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+[1-9][0-9]{7,14}$",
+            "writeOnly": true
+          },
+          "consent": {
+            "type": "boolean",
+            "enum": [true]
+          }
+        }
+      },
+      "PhoneVerificationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "writeOnly": true
+          }
+        }
+      },
+      "PhoneIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["createdAt", "id", "phoneE164", "updatedAt", "userId"],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disabledAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phoneE164": {
+            "type": "string",
+            "pattern": "^\\+[1-9][0-9]{7,14}$"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NotificationPreferencesEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deliveryReadiness", "notificationPreferences", "userId"],
+        "properties": {
+          "deliveryReadiness": {
+            "$ref": "#/components/schemas/NotificationDeliveryReadiness"
+          },
+          "notificationPreferences": {
+            "$ref": "#/components/schemas/NotificationPreferencesState"
+          },
+          "phoneIdentity": {
+            "$ref": "#/components/schemas/PhoneIdentity"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "NotificationReadinessEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deliveryReadiness", "userId"],
+        "properties": {
+          "deliveryReadiness": {
+            "$ref": "#/components/schemas/NotificationDeliveryReadiness"
+          },
+          "phoneIdentity": {
+            "$ref": "#/components/schemas/PhoneIdentity"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PhoneIdentityEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phoneIdentity", "userId"],
+        "properties": {
+          "phoneIdentity": {
+            "$ref": "#/components/schemas/PhoneIdentity"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PhoneIdentityRemovalResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["removed", "userId"],
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PhoneVerificationRequestResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["expiresAt", "status"],
+            "properties": {
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["requested"]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status"],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["already_verified"]
+              }
+            }
+          }
+        ]
+      },
+      "PhoneVerificationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phoneIdentity", "status"],
+        "properties": {
+          "phoneIdentity": {
+            "$ref": "#/components/schemas/PhoneIdentity"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["verified"]
+          }
+        }
+      },
+      "AlertEventType": {
+        "type": "string",
+        "enum": ["auction_ending", "new_listing", "price_drop"]
+      },
+      "WatchlistAlertChannels": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["email", "inApp", "sms"],
+        "properties": {
+          "email": {
+            "type": "boolean"
+          },
+          "inApp": {
+            "type": "boolean"
+          },
+          "sms": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WatchlistAlertSettingsPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "channels": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "email": {
+                "type": "boolean"
+              },
+              "inApp": {
+                "type": "boolean"
+              },
+              "sms": {
+                "type": "boolean"
+              }
+            }
+          },
+          "eventTypes": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/AlertEventType"
+            }
+          }
+        }
+      },
+      "WatchlistAlertSettingsState": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["channels", "eventTypes", "watchlistId"],
+        "properties": {
+          "channels": {
+            "$ref": "#/components/schemas/WatchlistAlertChannels"
+          },
+          "eventTypes": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/AlertEventType"
+            }
+          },
+          "watchlistId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "WatchlistAlertSettingsEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["userId", "watchlistAlertSettings"],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "watchlistAlertSettings": {
+            "$ref": "#/components/schemas/WatchlistAlertSettingsState"
+          }
+        }
+      },
+      "EmailUnsubscribeToken": {
+        "type": "string",
+        "minLength": 43,
+        "maxLength": 43,
+        "pattern": "^[A-Za-z0-9_-]{43}$",
+        "writeOnly": true,
+        "description": "Opaque destination-bound token. It is never returned by this endpoint."
+      },
+      "EmailUnsubscribeConfirmation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message", "status"],
+        "properties": {
+          "message": {
+            "type": "string",
+            "enum": ["Submit a POST request to confirm email unsubscription."]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["confirmation_required"]
+          }
+        }
+      },
+      "EmailUnsubscribed": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["unsubscribed"]
+          }
+        }
+      },
+      "EmailWebhookEvent": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "string",
+                "format": "email"
+              },
+              "failed": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "to": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {
+                      "type": "string",
+                      "format": "email"
+                    }
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "to": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "format": "email"
+                }
+              }
+            ]
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "additionalProperties": true,
+        "description": "The email provider may add fields; ClosetSearch only consumes the documented event type, recipient, and failure reason fields."
+      },
+      "SmsWebhookEvent": {
+        "type": "object",
+        "properties": {
+          "MessageSid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "SmsSid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "MessageStatus": {
+            "type": "string",
+            "enum": ["accepted", "queued", "sending", "sent", "delivered", "undelivered", "failed"]
+          },
+          "From": {
+            "type": "string",
+            "pattern": "^\\+[1-9][0-9]{7,14}$"
+          },
+          "To": {
+            "type": "string",
+            "pattern": "^\\+[1-9][0-9]{7,14}$"
+          },
+          "Body": {
+            "type": "string",
+            "maxLength": 1600
+          },
+          "ErrorCode": {
+            "type": "string",
+            "pattern": "^[0-9]{1,10}$"
+          }
+        },
+        "anyOf": [
+          {
+            "required": ["MessageSid"]
+          },
+          {
+            "required": ["SmsSid"]
+          }
+        ],
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Twilio may include additional signed form fields."
+      },
+      "WebhookAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["accepted", "duplicate"],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ListingDetailMoney": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["amount", "amountMinor", "currency", "fractionDigits"],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "amountMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "fractionDigits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          }
+        }
+      },
+      "ListingDetailConvertedMoney": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "amount",
+          "amountMinor",
+          "currency",
+          "exchangeRate",
+          "exchangeRateSource",
+          "exchangeRateTimestamp",
+          "fractionDigits",
+          "sourceAmountMinor",
+          "sourceCurrency"
+        ],
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "amountMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "exchangeRate": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]+)?$"
+          },
+          "exchangeRateSource": {
+            "type": "string"
+          },
+          "exchangeRateTimestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fractionDigits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "sourceAmountMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sourceCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          }
+        }
+      },
+      "ListingDetailBrand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "slug"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingDetailImage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["alt", "role", "url"],
+        "properties": {
+          "alt": {
+            "type": "string"
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": ["primary", "alternate"]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ListingDetailSeller": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "feedbackCount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "feedbackPercentage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "feedbackScore": {
+            "type": "number",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "location": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              }
+            }
+          },
+          "profileUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "trustTier": {
+            "type": "string",
+            "enum": ["trusted", "established", "unverified", "unknown"]
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingDetailShipping": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/ListingDetailMoney"
+          },
+          "destinationCountry": {
+            "type": "string"
+          },
+          "isFree": {
+            "type": "boolean"
+          },
+          "maxEstimatedDeliveryAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "minEstimatedDeliveryAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "originCountry": {
+            "type": "string"
+          },
+          "payer": {
+            "type": "string",
+            "enum": ["buyer", "seller", "shared", "unknown"]
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingDetailState": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "analyticsEligibility",
+          "attribution",
+          "brand",
+          "fetchedAt",
+          "freshness",
+          "id",
+          "imageUrl",
+          "images",
+          "lifecycle",
+          "listingType",
+          "price",
+          "pricing",
+          "providerId",
+          "providerListingId",
+          "source",
+          "sourceUrl",
+          "title"
+        ],
+        "properties": {
+          "analyticsEligibility": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["eligible"],
+            "properties": {
+              "eligible": {
+                "type": "boolean"
+              },
+              "exclusionReasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "attribution": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["destinationUrl", "displayText", "marketplaceName", "required"],
+            "properties": {
+              "destinationUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "displayText": {
+                "type": "string"
+              },
+              "marketplaceName": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean",
+                "enum": [true]
+              }
+            }
+          },
+          "auction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "bidCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "buyNowPrice": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              },
+              "completedPrice": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              },
+              "currentBid": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              },
+              "endsAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "brand": {
+            "$ref": "#/components/schemas/ListingDetailBrand"
+          },
+          "category": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "condition": {
+            "type": "string",
+            "enum": ["new_with_tags", "new_without_tags", "excellent", "good", "fair", "unknown"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "fetchedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "freshness": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["observedAt", "status"],
+            "properties": {
+              "observedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "sourceUpdatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "staleAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["fresh", "stale"]
+              }
+            }
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable provider:source public listing identifier."
+          },
+          "imageUrl": {
+            "type": "string"
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListingDetailImage"
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lastSeenAt", "observedAt", "status"],
+            "properties": {
+              "lastSeenAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "listedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "soldAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "sourceUpdatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["active", "sold", "stale", "removed", "unavailable", "unknown"]
+              }
+            }
+          },
+          "listingType": {
+            "type": "string",
+            "enum": ["auction", "buy_now", "unknown"]
+          },
+          "market": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["askingPrice", "isExcludedFromAnalytics", "status"],
+            "properties": {
+              "askingPrice": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              },
+              "isExcludedFromAnalytics": {
+                "type": "boolean"
+              },
+              "soldPrice": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["active", "sold"]
+              }
+            }
+          },
+          "marketplaceLimitations": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["closetSearchRole", "internationalShipping"],
+            "properties": {
+              "closetSearchRole": {
+                "type": "string",
+                "enum": ["discovery_only"]
+              },
+              "internationalShipping": {
+                "type": "string",
+                "enum": ["available", "domestic_only", "proxy_only", "unknown"]
+              },
+              "notices": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "proxyPurchaseRequired": {
+                "type": "boolean"
+              }
+            }
+          },
+          "material": {
+            "type": "string"
+          },
+          "originalDescription": {
+            "type": "string"
+          },
+          "originalLanguage": {
+            "type": "string"
+          },
+          "originalTitle": {
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ListingDetailMoney"
+          },
+          "pricing": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["original"],
+            "properties": {
+              "comparison": {
+                "$ref": "#/components/schemas/ListingDetailConvertedMoney"
+              },
+              "display": {
+                "$ref": "#/components/schemas/ListingDetailConvertedMoney"
+              },
+              "landed": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              },
+              "original": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              },
+              "shipping": {
+                "$ref": "#/components/schemas/ListingDetailMoney"
+              }
+            }
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "providerListingId": {
+            "type": "string"
+          },
+          "seller": {
+            "$ref": "#/components/schemas/ListingDetailSeller"
+          },
+          "shipping": {
+            "$ref": "#/components/schemas/ListingDetailShipping"
+          },
+          "size": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "marketplaceId", "name"],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "isMock": {
+                "type": "boolean"
+              },
+              "marketplaceId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "sourceUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "translatedDescription": {
+            "type": "string"
+          },
+          "translatedTitle": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingDetailEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["listing"],
+        "properties": {
+          "listing": {
+            "$ref": "#/components/schemas/ListingDetailState"
+          }
+        }
+      },
+      "PriceTrendState": {
+        "type": "string",
+        "enum": ["analytics_excluded", "insufficient_data", "no_data", "ready"]
+      },
+      "PriceTrendSeriesPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "marketStatus",
+          "marketplace",
+          "observationKind",
+          "observationVersion",
+          "observedAt",
+          "providerId"
+        ],
+        "properties": {
+          "amountMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "auctionEndsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bidCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "buyNowPriceMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "comparisonCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "comparisonPriceMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "landedCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "landedPriceMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "marketStatus": {
+            "type": "string",
+            "enum": ["active", "sold", "unknown"]
+          },
+          "marketplace": {
+            "type": "string"
+          },
+          "observationKind": {
+            "type": "string",
+            "enum": ["asking", "completed_auction", "confirmed_sold", "current_bid"]
+          },
+          "observationVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "shippingCurrency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "shippingPriceMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      },
+      "PriceTrendChange": {
+        "type": "object",
+        "nullable": true,
+        "additionalProperties": false,
+        "required": ["absoluteMinor", "baselineAmountMinor", "baselineObservedAt"],
+        "properties": {
+          "absoluteMinor": {
+            "type": "integer"
+          },
+          "baselineAmountMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "baselineObservedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "percent": {
+            "type": "number"
+          }
+        }
+      },
+      "PriceTrendSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "changes",
+          "confidence",
+          "excludedCurrencyCount",
+          "inlierCount",
+          "outlierCount",
+          "sampleSize",
+          "uniqueDayCount"
+        ],
+        "properties": {
+          "changes": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["days7", "days30", "days90", "days365"],
+            "properties": {
+              "days7": {
+                "$ref": "#/components/schemas/PriceTrendChange"
+              },
+              "days30": {
+                "$ref": "#/components/schemas/PriceTrendChange"
+              },
+              "days90": {
+                "$ref": "#/components/schemas/PriceTrendChange"
+              },
+              "days365": {
+                "$ref": "#/components/schemas/PriceTrendChange"
+              }
+            }
+          },
+          "confidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["level", "reasons", "score"],
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": ["low", "medium", "high"]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "score": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              }
+            }
+          },
+          "excludedCurrencyCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "freshness": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ageSeconds", "isStale", "latestObservedAt", "status"],
+            "properties": {
+              "ageSeconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "isStale": {
+                "type": "boolean"
+              },
+              "latestObservedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["fresh", "aging", "stale"]
+              }
+            }
+          },
+          "inlierCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "iqrMinor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lowerFenceMinor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "medianMinor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outlierCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "q1Minor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "q3Minor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sampleSize": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uniqueDayCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "upperFenceMinor": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PriceTrendResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["counts", "filters", "listingId", "series", "state", "summary", "truncated"],
+        "properties": {
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["byMarketStatus", "byMarketplace", "byObservationKind"],
+            "properties": {
+              "byMarketStatus": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["active", "sold", "unknown"],
+                "properties": {
+                  "active": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sold": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unknown": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "byMarketplace": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "byObservationKind": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["asking", "completed_auction", "confirmed_sold", "current_bid"],
+                "properties": {
+                  "asking": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "completed_auction": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "confirmed_sold": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "current_bid": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["providers"],
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "providers": {
+                "type": "array",
+                "maxItems": 20,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "listingId": {
+            "type": "string"
+          },
+          "series": {
+            "type": "array",
+            "maxItems": 5000,
+            "items": {
+              "$ref": "#/components/schemas/PriceTrendSeriesPoint"
+            }
+          },
+          "state": {
+            "$ref": "#/components/schemas/PriceTrendState"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PriceTrendSummary"
+          },
+          "truncated": {
+            "type": "boolean"
           }
         }
       },
@@ -2911,8 +4897,45 @@
           "application/json": {
             "schema": {
               "type": "object",
-              "required": ["checkpoints", "jobs", "providers", "status", "timestamp"],
+              "required": [
+                "alertDeliveries",
+                "checkpoints",
+                "jobs",
+                "providers",
+                "status",
+                "timestamp"
+              ],
               "properties": {
+                "alertDeliveries": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["channel", "count", "status"],
+                    "properties": {
+                      "channel": {
+                        "type": "string",
+                        "enum": ["email", "in_app", "sms"]
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "dead_letter",
+                          "delivered",
+                          "failed",
+                          "processing",
+                          "queued",
+                          "retry_wait",
+                          "suppressed"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
                 "checkpoints": {
                   "type": "array",
                   "items": {
@@ -3391,7 +5414,200 @@
         "$ref": "#/components/responses/ObjectOk"
       },
       "NotificationPreferences": {
-        "$ref": "#/components/responses/ObjectOk"
+        "description": "Current notification preferences and delivery readiness.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationPreferencesEnvelope"
+            }
+          }
+        }
+      },
+      "NotificationReadiness": {
+        "description": "Current destination, consent, suppression, and transport readiness. The response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationReadinessEnvelope"
+            }
+          }
+        }
+      },
+      "PhoneIdentityCreated": {
+        "description": "Phone identity stored with explicit SMS consent. Verification is still required and the response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PhoneIdentityEnvelope"
+            }
+          }
+        }
+      },
+      "PhoneIdentityRemoved": {
+        "description": "Phone identity removed and SMS delivery disabled. The response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PhoneIdentityRemovalResult"
+            }
+          }
+        }
+      },
+      "PhoneVerificationRequested": {
+        "description": "Phone verification request accepted without returning the code or provider details. The response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PhoneVerificationRequestResult"
+            }
+          }
+        }
+      },
+      "PhoneVerified": {
+        "description": "Phone identity verified. The response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PhoneVerificationResult"
+            }
+          }
+        }
+      },
+      "WatchlistAlertSettings": {
+        "description": "User-owned watchlist alert policy. The response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WatchlistAlertSettingsEnvelope"
+            }
+          }
+        }
+      },
+      "ListingDetail": {
+        "description": "Normalized durable listing detail with typed source, pricing, lifecycle, seller, shipping, and auction evidence.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ListingDetailEnvelope"
+            }
+          }
+        }
+      },
+      "ListingPriceTrend": {
+        "description": "Eligible typed price evidence, state, series, counts, filters, and robust summary statistics.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PriceTrendResponse"
+            }
+          }
+        }
+      },
+      "EmailUnsubscribeConfirmation": {
+        "description": "Token is valid and a POST confirmation is required. GET never mutates subscription state and the response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmailUnsubscribeConfirmation"
+            }
+          }
+        }
+      },
+      "EmailUnsubscribed": {
+        "description": "Email destination unsubscribed without echoing the destination or token. The response uses Cache-Control: no-store.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmailUnsubscribed"
+            }
+          }
+        }
+      },
+      "EmailWebhookAccepted": {
+        "description": "Signed email webhook accepted. Duplicate delivery is acknowledged without replaying side effects.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebhookAccepted"
+            }
+          }
+        }
+      },
+      "SmsWebhookAcknowledgement": {
+        "description": "TwiML acknowledgement or standards-compliant keyword response. No provider or delivery internals are returned.",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/xml": {
+            "schema": {
+              "type": "string",
+              "example": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>"
+            }
+          }
+        }
       },
       "AlertMatches": {
         "description": "Compatibility alert-match envelope. Delivery state depends on the active persistence driver.",

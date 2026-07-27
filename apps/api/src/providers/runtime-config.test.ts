@@ -9,9 +9,14 @@ describe("loadProviderRuntimeConfig", () => {
       mode: "mock",
       allowMockFallback: true,
       requestTimeoutMs: 10_000,
-      maxProvidersPerRequest: 2,
+      maxProvidersPerRequest: 5,
       providers: {
         mock: { enabled: true, configured: true },
+        depop: {
+          enabled: false,
+          maxResultsPerSearch: 48,
+          scrapingAllowed: false,
+        },
         grailed: {
           enabled: false,
           configured: true,
@@ -28,7 +33,65 @@ describe("loadProviderRuntimeConfig", () => {
           circuitBreakerCooldownMs: 30_000,
           userAgent: "ClosetSearchBot/0.1 contact:<project-contact-email>",
         },
+        mercariJp: {
+          enabled: false,
+          maxResultsPerSearch: 48,
+          scrapingAllowed: false,
+        },
+        yahooAuctionsJp: {
+          enabled: false,
+          maxResultsPerSearch: 48,
+          scrapingAllowed: false,
+        },
       },
+    });
+  });
+
+  it("loads every authorized marketplace independently and keeps references out of status defaults", () => {
+    const config = loadProviderRuntimeConfig({
+      PROVIDER_RUNTIME_MODE: "real",
+      PROVIDER_MAX_ACTIVE_PROVIDERS: "5",
+      DEPOP_SCRAPING_ALLOWED: "true",
+      DEPOP_AUTHORIZATION_REFERENCE: "depop-approval-2026",
+      DEPOP_MAX_RESULTS_PER_SEARCH: "12",
+      YAHOO_AUCTIONS_JP_SCRAPING_ALLOWED: "true",
+      YAHOO_AUCTIONS_JP_AUTHORIZATION_REFERENCE: "yahoo-jp-approval-2026",
+      YAHOO_AUCTIONS_JP_MAX_RESULTS_PER_SEARCH: "13",
+      MERCARI_JP_SCRAPING_ALLOWED: "true",
+      MERCARI_JP_AUTHORIZATION_REFERENCE: "mercari-jp-approval-2026",
+      MERCARI_JP_MAX_RESULTS_PER_SEARCH: "14",
+      EBAY_PROVIDER_ENABLED: "true",
+      EBAY_CLIENT_ID: "client-id",
+      EBAY_CLIENT_SECRET: "client-secret",
+      EBAY_AUTHORIZATION_REFERENCE: "ebay-buy-approval-2026",
+    });
+
+    expect(config.providers.depop).toMatchObject({
+      enabled: true,
+      scrapingAllowed: true,
+      authorizationReference: "depop-approval-2026",
+      baseUrl: "https://webapi.depop.com",
+      maxResultsPerSearch: 12,
+    });
+    expect(config.providers.yahooAuctionsJp).toMatchObject({
+      enabled: true,
+      scrapingAllowed: true,
+      authorizationReference: "yahoo-jp-approval-2026",
+      baseUrl: "https://auctions.yahoo.co.jp",
+      maxResultsPerSearch: 13,
+    });
+    expect(config.providers.mercariJp).toMatchObject({
+      enabled: true,
+      scrapingAllowed: true,
+      authorizationReference: "mercari-jp-approval-2026",
+      baseUrl: "https://api.mercari.jp",
+      maxResultsPerSearch: 14,
+    });
+    expect(config.providers.ebay).toMatchObject({
+      enabled: true,
+      configured: true,
+      authorizationReference: "ebay-buy-approval-2026",
+      locale: "en-US",
     });
   });
 
@@ -106,5 +169,19 @@ describe("loadProviderRuntimeConfig", () => {
       circuitBreakerFailureThreshold: 1,
       circuitBreakerCooldownMs: 1_000,
     });
+  });
+
+  it("bounds marketplace result caps to each reviewed adapter contract", () => {
+    const config = loadProviderRuntimeConfig({
+      DEPOP_MAX_RESULTS_PER_SEARCH: "500",
+      GRAILED_MAX_RESULTS_PER_SEARCH: "500",
+      MERCARI_JP_MAX_RESULTS_PER_SEARCH: "500",
+      YAHOO_AUCTIONS_JP_MAX_RESULTS_PER_SEARCH: "500",
+    });
+
+    expect(config.providers.depop.maxResultsPerSearch).toBe(100);
+    expect(config.providers.grailed.maxResultsPerSearch).toBe(100);
+    expect(config.providers.mercariJp.maxResultsPerSearch).toBe(120);
+    expect(config.providers.yahooAuctionsJp.maxResultsPerSearch).toBe(100);
   });
 });

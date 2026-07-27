@@ -140,6 +140,9 @@ async function main() {
       "api:",
       "worker:",
       "web:",
+      "CLOSETSEARCH_API_IMAGE:",
+      "CLOSETSEARCH_WORKER_IMAGE:",
+      "CLOSETSEARCH_WEB_IMAGE:",
       "condition: service_healthy",
       "condition: service_completed_successfully",
       "PROVIDER_ALLOW_MOCK_FALLBACK:",
@@ -203,6 +206,9 @@ async function main() {
       "PROVIDER_MOCK_ENABLED=false",
       "PERSISTENCE_DRIVER=postgres",
       "AUTH_SESSION_PEPPER=",
+      "CLOSETSEARCH_API_IMAGE=",
+      "CLOSETSEARCH_WORKER_IMAGE=",
+      "CLOSETSEARCH_WEB_IMAGE=",
       "POSTGRES_PASSWORD=",
     ],
     ".env.compose.example",
@@ -212,11 +218,16 @@ async function main() {
   assertContains(
     workflow,
     [
+      "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+      "actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f",
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "anchore/scan-action/download-grype@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2",
       "pnpm install --frozen-lockfile",
       "pnpm format:check",
       "pnpm lint",
       "pnpm typecheck",
       "pnpm build",
+      "pnpm test:sites",
       "pnpm test",
       "pnpm deps:check",
       "pnpm test:e2e",
@@ -224,14 +235,26 @@ async function main() {
       "pnpm db:migrate",
       "test:integration",
       "CLOSETSEARCH_EXPECTED_PROVIDER_IDS",
+      "LIVE_PROVIDER_SMOKE_TESTS",
+      "Authorization: Bearer",
       "POSTGRES_INTEGRATION_DATABASE_URL",
       "PLAYWRIGHT_PERSISTENCE_DRIVER: postgres",
       "docker compose",
       "postgres-backup.sh",
       "postgres-restore.sh",
       "playwright install --with-deps chromium",
+      "config --images",
+      "--fail-on high",
     ],
     "CI workflow",
+  );
+  const externalActionReferences = [...workflow.matchAll(/uses:\s*([^\s#]+)/g)].map(
+    (match) => match[1],
+  );
+  assert(
+    externalActionReferences.length > 0 &&
+      externalActionReferences.every((reference) => /@[a-f0-9]{40}$/.test(reference)),
+    "Every external GitHub Action must be pinned to an immutable full-length commit SHA.",
   );
 
   for (const script of ["scripts/postgres-backup.sh", "scripts/postgres-restore.sh"]) {

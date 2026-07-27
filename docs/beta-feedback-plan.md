@@ -76,7 +76,7 @@ Collect structured feedback that helps ClosetSearch become stable and honest eno
 - testers can complete feed, search, auth, saved-feature, analytics, and watchlist flows
 - core routes avoid obvious crashes
 - copy stays honest about analytics, trust signals, active PostgreSQL in-app
-  alerts, and disabled outbound email/push/SMS delivery
+  alerts, fail-closed unconfigured email/SMS delivery, and disabled push
 - the team gets actionable feedback instead of vague “it feels broken” reports
 
 ## Wider Launch Blockers

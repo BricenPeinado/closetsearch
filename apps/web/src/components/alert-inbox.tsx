@@ -37,6 +37,10 @@ export function describeAlertReasons(reasons: AlertReason[]) {
   );
 }
 
+export function alertListingPath(listingId: string) {
+  return `/listings/${encodeURIComponent(listingId)}`;
+}
+
 function formatAlertDate(value: string) {
   const date = new Date(value);
 
@@ -160,7 +164,9 @@ export function AlertInboxPage({
               <h2 id="alert-inbox-heading">In-app inbox</h2>
               <p>
                 In-app matching runs only with the production PostgreSQL worker. Email additionally
-                requires a configured provider and verified address. Push and SMS are unavailable.
+                requires a configured provider and verified address. SMS requires configured
+                delivery plus a verified, explicitly consented phone. Push is not available in this
+                deployment.
               </p>
             </div>
             <Link className="secondary-button link-button" to="/profile">
@@ -229,6 +235,12 @@ export function AlertInboxPage({
                     Listing {alert.listingId} • Watchlist {alert.watchlistId}
                   </p>
                   <div className="inline-actions">
+                    <Link
+                      className="secondary-button link-button"
+                      to={alertListingPath(alert.listingId)}
+                    >
+                      Open listing
+                    </Link>
                     {alert.state === "unseen" ? (
                       <button
                         aria-label={`Mark alert ${alert.id} as seen`}

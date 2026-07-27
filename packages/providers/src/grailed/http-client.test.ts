@@ -92,4 +92,27 @@ describe("createGrailedHttpClient", () => {
       }),
     );
   });
+
+  it("classifies malformed JSON as a terminal provider response error", async () => {
+    const client = createGrailedHttpClient({
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => "{not-json",
+      }),
+      minRequestIntervalMs: 0,
+      requestTimeoutMs: 5_000,
+      userAgent: "ClosetSearchBot/0.1 contact:team@example.com",
+    });
+
+    await expect(
+      client.postJson("https://example-dsn.algolia.net/1/indexes/Listing_production/query", {
+        params: "query=kapital",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_response",
+      retryable: false,
+      statusCode: 200,
+    });
+  });
 });

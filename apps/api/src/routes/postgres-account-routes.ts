@@ -2,6 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { ApiError } from "../api-error.js";
 import { requireAuth } from "../auth/auth-context.js";
 import { PostgresAccountSecurityService } from "../auth/postgres-account-security-service.js";
+import { createAccountEmailSenderFromEnvironment } from "../auth/email-sender.js";
 import { clearSessionCookie } from "../auth/session-service.js";
 import { parseJsonRequestBody } from "../http/request-body.js";
 import { FixedWindowRateLimiter, getRequestIpHint } from "../http/rate-limit.js";
@@ -76,6 +77,7 @@ export async function handlePostgresAccountRoute(
     const dataPlane = await getRequestDataPlane();
     const service = new PostgresAccountSecurityService(dataPlane, {
       actionBaseUrl: process.env.ACCOUNT_ACTION_BASE_URL?.trim() || undefined,
+      emailSender: createAccountEmailSenderFromEnvironment(),
     });
     const body = await payload(request);
 

@@ -18,14 +18,18 @@ rate enforcement. Do not rotate identities or proxies to evade controls.
 
 ## Implemented providers
 
-| Provider | Adapter                                       | Capability                                             | Live state in this checkout                             |
-| -------- | --------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------- |
-| mock     | deterministic fixtures                        | active/sold fixture flows                              | local/test only; prohibited in production               |
-| eBay     | official Browse API + OAuth application token | active purchasable inventory; native offset pagination | blocked: production credentials/partner approval absent |
-| Grailed  | HTML configuration plus Algolia adapter       | adapter models active/sold pages                       | blocked: written authorization reference absent         |
+| Provider              | Adapter                                       | Capability                                                            | Live state in this checkout                                     |
+| --------------------- | --------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| mock                  | deterministic fixtures                        | active/sold fixture flows                                             | local/test only; prohibited in production                       |
+| eBay                  | official Browse API + OAuth application token | active inventory, auction metadata, offset pagination                 | blocked: credentials, approval reference, and live smoke absent |
+| Grailed               | HTML configuration plus Algolia adapter       | active/sold fixed-price pages                                         | blocked: durable authorization reference absent                 |
+| Depop                 | reviewed web API adapter                      | active/sold fixed-price listings, cursor pagination                   | blocked: durable authorization reference absent                 |
+| Yahoo! Auctions Japan | reviewed marketplace adapter                  | active auctions/fixed price, confirmed sold outcomes, page pagination | blocked: durable authorization reference absent                 |
+| Mercari Japan         | reviewed marketplace adapter                  | active/sold fixed-price listings, cursor pagination                   | blocked: durable authorization reference absent                 |
 
 There are zero authorized live providers in the repository state. The target of
-two independently working real providers is externally blocked.
+five working real providers is externally blocked by deployment inputs, not by
+the adapter implementation.
 
 ## Provider contract
 
@@ -75,8 +79,9 @@ Do not scrape eBay when its supported API is the approved path.
 ## Grailed activation
 
 The code can extract public-page configuration and query normalized active/sold
-indices, but ClosetSearch does not possess the required permission in this
-checkout.
+indices. The operator has established authorization for this integration, but
+this checkout does not contain the required deployable
+`GRAILED_AUTHORIZATION_REFERENCE` value.
 
 Before activation, retain a non-secret reference to written permission covering:
 
@@ -97,6 +102,27 @@ GRAILED_AUTHORIZATION_REFERENCE=<retained-reference>
 Pacing in code is not a grant. Robots/terms/permission changes require immediate
 disablement and compliance review. Do not add proxy rotation or browser
 automation to work around a block.
+
+## Depop and Japan activation
+
+Depop, Yahoo! Auctions Japan, and Mercari Japan follow the same three-part
+activation gate:
+
+```sh
+<PREFIX>_PROVIDER_ENABLED=true
+<PREFIX>_SCRAPING_ALLOWED=true
+<PREFIX>_AUTHORIZATION_REFERENCE=<retained-reference>
+```
+
+Use prefixes `DEPOP`, `YAHOO_AUCTIONS_JP`, and `MERCARI_JP`. Before activation,
+verify the retained reference covers exact origins/endpoints, deployment
+identities/regions, request rate, fields, active/sold semantics, attribution,
+translation, retention/deletion, analytics/ML, and incident contacts. Validate
+domestic-only/proxy notices for the Japanese sources. A technical response,
+operator flag, or fixture is not a substitute for that record.
+
+See the provider-specific notes under
+[`docs/marketplace-notes`](../marketplace-notes/).
 
 ## Partial failure behavior
 
@@ -145,7 +171,8 @@ Normal test suites:
   429, circuit, and normalization behavior
 - must not call a marketplace or require live credentials
 
-Credentialed staging smoke is a separate, explicitly authorized operation.
+Credentialed staging smoke is a separate, explicitly authorized operation and
+requires `LIVE_PROVIDER_SMOKE_TESTS=true`.
 Never record secret headers or raw tokens in fixtures, logs, metrics, CI
 artifacts, or issue reports.
 

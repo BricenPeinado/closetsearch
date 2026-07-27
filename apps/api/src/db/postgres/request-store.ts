@@ -284,10 +284,13 @@ export class PostgresRequestStore {
       }
 
       const [
+        activeNotificationSuppressions,
         alertMatches,
         emailIdentities,
         likes,
+        notificationConsents,
         notificationPreferences,
+        phoneIdentities,
         recentSearches,
         savedFilters,
         savedSearches,
@@ -295,10 +298,51 @@ export class PostgresRequestStore {
         settings,
         watchlists,
       ] = await Promise.all([
+        store.queryable.query<{
+          channel: "email" | "sms";
+          created_at: Date | string;
+          reason: string;
+        }>(
+          `SELECT channel, reason, created_at
+           FROM notification_suppressions
+           WHERE user_id = $1 AND released_at IS NULL
+           ORDER BY created_at, id`,
+          [userId],
+        ),
         store.features.listAlertMatchesForExport(userId),
         store.accounts.listEmailIdentities(userId),
         store.features.listLikes(userId),
+        store.queryable.query<{
+          action: "opt_in" | "opt_out";
+          channel: "email" | "sms";
+          occurred_at: Date | string;
+          source: string;
+        }>(
+          `SELECT channel, action, source, occurred_at
+           FROM notification_channel_consents
+           WHERE user_id = $1
+           ORDER BY occurred_at, id`,
+          [userId],
+        ),
         store.features.getNotificationPreferences(userId),
+        store.queryable.query<{
+          created_at: Date | string;
+          disabled_at: Date | string | null;
+          phone_e164: string;
+          updated_at: Date | string;
+          verified_at: Date | string | null;
+        }>(
+          `SELECT
+             phone_e164,
+             verified_at,
+             disabled_at,
+             created_at,
+             updated_at
+           FROM user_phone_identities
+           WHERE user_id = $1
+           ORDER BY created_at, id`,
+          [userId],
+        ),
         store.features.listRecentSearches(userId),
         store.features.listSavedFilters(userId),
         store.features.listSavedSearches(userId),
@@ -309,17 +353,35 @@ export class PostgresRequestStore {
 
       return {
         account,
+        activeNotificationSuppressions: activeNotificationSuppressions.rows.map((suppression) => ({
+          channel: suppression.channel,
+          createdAt: toIso(suppression.created_at),
+          reason: suppression.reason,
+        })),
         alertMatches,
         emailIdentities,
         exportedAt: toIso(exportedAt),
         likes,
+        notificationConsents: notificationConsents.rows.map((consent) => ({
+          action: consent.action,
+          channel: consent.channel,
+          occurredAt: toIso(consent.occurred_at),
+          source: consent.source,
+        })),
         notificationPreferences,
+        phoneIdentities: phoneIdentities.rows.map((phone) => ({
+          createdAt: toIso(phone.created_at),
+          disabledAt: phone.disabled_at ? toIso(phone.disabled_at) : undefined,
+          phoneE164: phone.phone_e164,
+          updatedAt: toIso(phone.updated_at),
+          verifiedAt: phone.verified_at ? toIso(phone.verified_at) : undefined,
+        })),
         recentSearches,
         savedFilters,
         savedSearches,
         schemaVersion: 2,
         securityNotice:
-          "Password hashes, session-token hashes, IP-hint hashes, and one-time account-token hashes are excluded.",
+          "Password hashes, session-token hashes, IP-hint hashes, one-time token hashes, destination HMACs, webhook IDs, and provider-internal metadata are excluded. Consent evidence is retained in pseudonymous form after account deletion where required for compliance.",
         sessions,
         settings,
         watchlists,

@@ -2,6 +2,7 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -12,6 +13,7 @@ import type {
   Brand,
   BrandMarketSummary,
   CategoryMarketSummary,
+  FeedRecommendationMetadata,
   FeedResponse,
   LikedListing,
   Like,
@@ -24,7 +26,6 @@ import type {
   SavedSearch,
   SearchProviderSummary,
   SearchResponse,
-  SearchSortMode,
   UnderpricedListingSignal,
   UserSettings,
   Watchlist,
@@ -43,6 +44,7 @@ import {
 import { fetchJson, sendJson } from "./api-client";
 import { mergeUniqueListings } from "./listing-pagination";
 import { ListingCard, type ListingCardEngagementContext } from "./components/listing-card";
+import { ListingDetailRoutePage } from "./components/listing-detail-page";
 import { InfiniteScrollSentinel } from "./components/infinite-scroll-sentinel";
 import { ScrollPositionRestoration } from "./components/scroll-position-restoration";
 import { AccountSecurityPanel } from "./components/account-security";
@@ -53,6 +55,12 @@ import {
   PasswordResetRequestPage,
 } from "./components/account-action-pages";
 import { AlertInboxPage } from "./components/alert-inbox";
+import { PhoneVerificationPanel, type PhoneIdentity } from "./components/phone-verification-panel";
+import {
+  WatchlistAlertSettingsPanel,
+  type DeliveryChannelReadiness,
+  type DeliveryReadiness,
+} from "./components/watchlist-alert-settings";
 import {
   createEngagementId,
   isListingEngagementEligible,
@@ -71,23 +79,42 @@ import {
   saveRecentSearch,
   type RecentSearchEntry,
   type SearchFormValues,
+  type WebSearchSortMode,
 } from "./search-utils";
 import { getAuthErrorMessage, isAuthRequiredError, loadUserSession } from "./user-session";
+import {
+  loadDismissedRecommendationIds,
+  persistDismissedRecommendationId,
+  recommendationReasonForListing,
+} from "./recommendation-ui";
+import { formatDateTime, getPreferredLocale, getPreferredTimeZone } from "./product-formatting";
 
 const primaryNavigationItems = [
   { label: "Home", path: "/" },
+  { label: "Suggested", path: "/suggested" },
   { label: "Search", path: "/search" },
   { label: "Brands", path: "/brands" },
   { label: "Analytics", path: "/analytics" },
   { label: "Alerts", path: "/alerts" },
   { label: "Profile", path: "/profile" },
 ] as const;
+const bottomNavigationItems = primaryNavigationItems.filter((item) => item.path !== "/suggested");
 const betaFeedbackUrl = "https://github.com/BricenPeinado/closetsearch/issues/new/choose";
+const marketplaceTickerItems = [
+  { label: "eBay", region: "Global" },
+  { label: "Grailed", region: "US / EU" },
+  { label: "Depop", region: "Global" },
+  { label: "Yahoo Auctions", region: "Japan" },
+  { label: "Mercari", region: "Japan" },
+] as const;
 
 const homeFeedPageSize = 12;
 const searchResultsPageSize = 24;
-const sortOptions: Array<{ label: string; value: SearchSortMode }> = [
+const sortOptions: Array<{ label: string; value: WebSearchSortMode }> = [
   { label: "Relevance", value: "relevance" },
+  { label: "Recommended", value: "recommended" },
+  { label: "Ending soon", value: "ending_soon" },
+  { label: "Popularity", value: "popularity" },
   { label: "Price low to high", value: "price_asc" },
   { label: "Price high to low", value: "price_desc" },
   { label: "Newest first", value: "newest" },
@@ -131,6 +158,7 @@ interface FeedRequestState {
   pagination?: PaginationInfo;
   personalizationSummary?: PersonalizationSummary;
   providers?: SearchProviderSummary[];
+  recommendation?: FeedRecommendationMetadata;
   status: "loading" | "success" | "error";
 }
 
@@ -213,8 +241,14 @@ interface WatchlistsResponse {
   userId: string;
 }
 
+interface ExtendedNotificationPreferences extends NotificationPreferences {
+  timezone?: string;
+}
+
 interface NotificationPreferencesResponse {
-  notificationPreferences: NotificationPreferences;
+  deliveryReadiness?: DeliveryReadiness;
+  notificationPreferences: ExtendedNotificationPreferences;
+  phoneIdentity?: PhoneIdentity;
   userId: string;
 }
 
@@ -224,13 +258,63 @@ interface SettingsResponse {
 }
 
 interface ProfileCollectionsState {
+  deliveryReadiness?: DeliveryReadiness;
   errorMessage?: string;
-  notificationPreferences?: NotificationPreferences;
+  notificationPreferences?: ExtendedNotificationPreferences;
+  phoneIdentity?: PhoneIdentity;
   savedFilters: SavedFilter[];
   savedSearches: SavedSearch[];
   settings?: UserSettings;
   status: "loading" | "success" | "error";
   watchlists: Watchlist[];
+}
+
+const unavailableDeliveryChannel: DeliveryChannelReadiness = {
+  available: false,
+  configured: false,
+  ready: false,
+};
+
+const conservativeDeliveryReadiness: DeliveryReadiness = {
+  email: unavailableDeliveryChannel,
+  inApp: {
+    available: true,
+    configured: true,
+    ready: true,
+  },
+  push: unavailableDeliveryChannel,
+  sms: unavailableDeliveryChannel,
+};
+
+function describeDeliveryReadiness(
+  channel: "email" | "inApp" | "push" | "sms",
+  readiness: DeliveryChannelReadiness,
+) {
+  const label = channel === "inApp" ? "In-app" : channel.toUpperCase();
+
+  if (readiness.ready) {
+    return `${label} is ready.`;
+  }
+  if (!readiness.available) {
+    return `${label} delivery is not available in this deployment.`;
+  }
+  if (!readiness.configured) {
+    return `${label} delivery needs provider configuration.`;
+  }
+  if (readiness.suppressed) {
+    return `${label} delivery is suppressed after an opt-out or delivery failure.`;
+  }
+  if (!readiness.identityPresent) {
+    return `${label} needs a destination first.`;
+  }
+  if (!readiness.verified) {
+    return `${label} identity needs verification.`;
+  }
+  if (!readiness.consented) {
+    return `${label} needs explicit consent.`;
+  }
+
+  return `${label} is not ready.`;
 }
 
 interface WatchlistFormState {
@@ -413,10 +497,10 @@ function getSearchEmptyStateMessage(query: string, providers: SearchProviderSumm
 }
 
 function formatCurrencyAmount(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat(getPreferredLocale(), {
     style: "currency",
     currency,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: currency.toUpperCase() === "JPY" ? 0 : 2,
   }).format(amount);
 }
 
@@ -659,6 +743,58 @@ function getActiveSearchFilterNames(values: SearchFormValues) {
   return activeFilters;
 }
 
+type RemovableSearchFilterKey =
+  | "brand"
+  | "category"
+  | "condition"
+  | "currency"
+  | "listingType"
+  | "marketStatus"
+  | "maxPrice"
+  | "minPrice"
+  | "size"
+  | "sort"
+  | "source";
+
+function getRemovableSearchFilters(values: SearchFormValues) {
+  const filters: Array<{ key: RemovableSearchFilterKey; label: string }> = [];
+  if (values.brand?.trim()) filters.push({ key: "brand", label: `Brand: ${values.brand}` });
+  if (values.category?.trim())
+    filters.push({ key: "category", label: `Category: ${values.category}` });
+  if (values.size?.trim()) filters.push({ key: "size", label: `Size: ${values.size}` });
+  if (values.condition)
+    filters.push({
+      key: "condition",
+      label: `Condition: ${formatConditionLabel(values.condition)}`,
+    });
+  if (values.source.trim()) filters.push({ key: "source", label: `Marketplace: ${values.source}` });
+  if (values.listingType)
+    filters.push({
+      key: "listingType",
+      label: values.listingType === "auction" ? "Auction" : "Fixed price",
+    });
+  if (values.marketStatus)
+    filters.push({ key: "marketStatus", label: `Status: ${values.marketStatus}` });
+  if (values.currency?.trim())
+    filters.push({ key: "currency", label: `Currency: ${values.currency}` });
+  if (values.minPrice.trim())
+    filters.push({
+      key: "minPrice",
+      label: `Min: ${values.currency || "original"} ${values.minPrice}`,
+    });
+  if (values.maxPrice.trim())
+    filters.push({
+      key: "maxPrice",
+      label: `Max: ${values.currency || "original"} ${values.maxPrice}`,
+    });
+  if (values.sort !== "relevance") {
+    const sortLabel =
+      sortOptions.find((option) => option.value === values.sort)?.label ?? values.sort;
+    filters.push({ key: "sort", label: `Sort: ${sortLabel}` });
+  }
+  return filters;
+}
+
 function recordSearchInteraction(
   values: SearchFormValues,
   surface: SearchInteractionSurface,
@@ -877,12 +1013,16 @@ function ListingGrid({
   engagement,
   listings,
   likedListingIds,
+  onDismissRecommendation,
   onToggleLike,
+  recommendationReasons,
 }: {
   engagement: Omit<ListingCardEngagementContext, "rankedPosition">;
   listings: Listing[];
   likedListingIds?: Set<string>;
+  onDismissRecommendation?: (listing: Listing) => void;
   onToggleLike?: (listing: Listing, nextLiked: boolean) => Promise<void>;
+  recommendationReasons?: Map<string, string>;
 }) {
   return (
     <div className="listing-grid">
@@ -895,7 +1035,9 @@ function ListingGrid({
           key={listing.id}
           isLiked={likedListingIds?.has(listing.id)}
           listing={listing}
+          onDismissRecommendation={onDismissRecommendation}
           onToggleLike={onToggleLike}
+          recommendationReason={recommendationReasons?.get(listing.id)}
         />
       ))}
     </div>
@@ -937,11 +1079,11 @@ function GlobalSearchBar() {
           id="global-search-input"
           name="q"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search brands, pieces, or styles"
+          placeholder="Search the global rack"
           value={query}
         />
         <button className="global-search__button" type="submit">
-          Explore
+          Scan
         </button>
       </div>
     </form>
@@ -975,6 +1117,9 @@ function HomePage({
   const navigate = useNavigate();
   const { likedListingIds, toggleLike } = useLikes(session, onAuthFailure);
   const [reloadCount, setReloadCount] = useState(0);
+  const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState(
+    loadDismissedRecommendationIds,
+  );
   const needsPreferenceReminder = Boolean(session) && !hasCompletedOnboarding(session);
   const [state, setState] = useState<FeedRequestState>({
     isLoadingMore: false,
@@ -1024,6 +1169,7 @@ function HomePage({
           pagination: response.pagination,
           personalizationSummary: response.personalizationSummary,
           providers: response.providers,
+          recommendation: response.recommendation,
           status: "success",
         });
       })
@@ -1085,6 +1231,7 @@ function HomePage({
           personalizationSummary:
             response.personalizationSummary ?? currentState.personalizationSummary,
           providers: response.providers,
+          recommendation: response.recommendation ?? currentState.recommendation,
           status: "success",
         }));
       })
@@ -1113,6 +1260,21 @@ function HomePage({
     });
   }
 
+  function handleDismissRecommendation(listing: Listing) {
+    setDismissedRecommendationIds(new Set(persistDismissedRecommendationId(listing.id)));
+    if (isListingEngagementEligible(listing)) {
+      void recordEngagementEvent({
+        eventType: "hide",
+        listingId: listing.id,
+        properties: {
+          providerId: listing.providerId,
+          surface: "home_feed",
+        },
+        requestId: state.engagementRequestId,
+      });
+    }
+  }
+
   const presentation = getHomeFeedPresentation(session, state.personalizationSummary);
   const listingCount = state.pagination?.totalCount ?? state.listings.length;
   const showLowSignalPrompt =
@@ -1121,20 +1283,58 @@ function HomePage({
     !state.isPersonalized &&
     !needsPreferenceReminder;
   const providerAvailabilityMessage = getProviderAvailabilityMessage(state.providers, "feed");
+  const visibleListings = state.listings.filter(
+    (listing) => !dismissedRecommendationIds.has(listing.id),
+  );
+  const recommendationReasons = new Map(
+    visibleListings.map((listing) => [
+      listing.id,
+      recommendationReasonForListing(state.recommendation, listing, state.isPersonalized),
+    ]),
+  );
 
   return (
     <section className="page-shell page-shell--home">
-      <header className="market-header">
-        <div>
-          <h1>Find your next piece</h1>
-          <p className="page-description">{presentation.introCopy}</p>
+      <header className="market-header market-header--editorial">
+        <div className="market-header__index">
+          <span>CS / 01</span>
+          <span>Cross-market edit</span>
         </div>
-        <div className="chip-row chip-row--tabs">
-          <span className="info-chip info-chip--accent">{presentation.chipLabel}</span>
-          <span className="info-chip">New Finds</span>
-          <span className="info-chip">
-            {listingCount > 0 ? String(listingCount) + " listings" : "Fresh updates"}
+        <div className="market-header__hero-copy">
+          <p className="eyebrow">One search. Five resale markets.</p>
+          <h1>Find your next piece</h1>
+          <p className="page-description">
+            {presentation.introCopy} Compare the rack, catch the signal, and move before it
+            disappears.
+          </p>
+          <nav aria-label="Popular searches" className="home-quicklinks">
+            <Link to="/search?q=archive+outerwear">Archive outerwear</Link>
+            <Link to="/search?q=designer+denim">Designer denim</Link>
+            <Link to="/search?q=Japanese+workwear">Japanese workwear</Link>
+          </nav>
+        </div>
+        <aside aria-label="Current feed signal" className="market-header__signal-panel">
+          <span className="market-header__signal-label">
+            <i aria-hidden="true" /> Market signal
           </span>
+          <strong>{listingCount > 0 ? listingCount : "—"}</strong>
+          <p>pieces in the current drop</p>
+          <Link to="/search">
+            Open the full rack <span aria-hidden="true">↗</span>
+          </Link>
+        </aside>
+        <div className="market-header__feed-rail">
+          <span>Feed mode</span>
+          <div className="chip-row chip-row--tabs">
+            <span className="info-chip info-chip--accent">{presentation.chipLabel}</span>
+            <span className="info-chip">New Finds</span>
+            <span className="info-chip">
+              {listingCount > 0 ? String(listingCount) + " listings" : "Fresh updates"}
+            </span>
+            <Link className="info-chip info-chip--link" to="/suggested">
+              Suggested edit <span aria-hidden="true">→</span>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -1193,16 +1393,25 @@ function HomePage({
 
       {state.status === "success" && state.listings.length > 0 ? (
         <>
-          <ListingGrid
-            engagement={{
-              recommendationRequestId: state.engagementRequestId,
-              surface: "home_feed",
-              viewContextId: "home_feed",
-            }}
-            likedListingIds={likedListingIds}
-            listings={state.listings}
-            onToggleLike={handleToggleLike}
-          />
+          {visibleListings.length > 0 ? (
+            <ListingGrid
+              engagement={{
+                recommendationRequestId: state.engagementRequestId,
+                surface: "home_feed",
+                viewContextId: "home_feed",
+              }}
+              likedListingIds={likedListingIds}
+              listings={visibleListings}
+              onDismissRecommendation={handleDismissRecommendation}
+              onToggleLike={handleToggleLike}
+              recommendationReasons={recommendationReasons}
+            />
+          ) : (
+            <StateCard
+              body="You dismissed every suggestion on this page. Load more to explore a broader mix."
+              title="Suggestions cleared"
+            />
+          )}
           {state.loadMoreErrorMessage ? (
             <StateCard
               action={
@@ -1240,9 +1449,198 @@ function HomePage({
   );
 }
 
+function SuggestedPiecesRoutePage({
+  onAuthFailure,
+  session,
+}: {
+  onAuthFailure: () => void;
+  session: AuthResponse | null;
+}) {
+  const navigate = useNavigate();
+  const { likedListingIds, toggleLike } = useLikes(session, onAuthFailure);
+  const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState(
+    loadDismissedRecommendationIds,
+  );
+  const [reloadCount, setReloadCount] = useState(0);
+  const [state, setState] = useState<FeedRequestState>({
+    isLoadingMore: false,
+    isPersonalized: false,
+    listings: [],
+    status: "loading",
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const requestId = createEngagementId();
+    void recordEngagementEvent({
+      eventType: "recommendation_request",
+      properties: {
+        pageSize: searchResultsPageSize,
+        personalizationRequested: Boolean(session?.userId),
+        surface: "suggested_pieces",
+      },
+      requestId,
+    });
+
+    setState({
+      engagementRequestId: requestId,
+      isLoadingMore: false,
+      isPersonalized: false,
+      listings: [],
+      status: "loading",
+    });
+
+    void fetchJson<FeedResponse>(
+      `/feed?page=1&pageSize=${searchResultsPageSize}`,
+      controller.signal,
+    )
+      .then((response) => {
+        setState({
+          engagementRequestId: requestId,
+          isLoadingMore: false,
+          isPersonalized: response.isPersonalized,
+          listings: response.listings,
+          pagination: response.pagination,
+          personalizationSummary: response.personalizationSummary,
+          providers: response.providers,
+          recommendation: response.recommendation,
+          status: "success",
+        });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setState({
+            errorMessage:
+              error instanceof Error ? error.message : "Suggested pieces could not be loaded.",
+            isLoadingMore: false,
+            isPersonalized: false,
+            listings: [],
+            status: "error",
+          });
+        }
+      });
+
+    return () => controller.abort();
+  }, [reloadCount, session?.userId]);
+
+  async function handleToggleLike(listing: Listing, nextLiked: boolean) {
+    if (!session) {
+      startTransition(() => navigate("/login"));
+      return;
+    }
+
+    await toggleLike(listing, nextLiked, "home_feed");
+  }
+
+  function handleDismissRecommendation(listing: Listing) {
+    setDismissedRecommendationIds(new Set(persistDismissedRecommendationId(listing.id)));
+    if (isListingEngagementEligible(listing)) {
+      void recordEngagementEvent({
+        eventType: "hide",
+        listingId: listing.id,
+        properties: {
+          providerId: listing.providerId,
+          surface: "suggested_pieces",
+        },
+        requestId: state.engagementRequestId,
+      });
+    }
+  }
+
+  const visibleListings = state.listings.filter(
+    (listing) => !dismissedRecommendationIds.has(listing.id),
+  );
+  const recommendationReasons = new Map(
+    visibleListings.map((listing) => [
+      listing.id,
+      recommendationReasonForListing(state.recommendation, listing, state.isPersonalized),
+    ]),
+  );
+  const providerAvailabilityMessage = getProviderAvailabilityMessage(state.providers, "feed");
+
+  return (
+    <PageTemplate
+      description={
+        state.personalizationSummary?.message ??
+        "A privacy-conscious mix of relevant, fresh, and marketplace-diverse finds."
+      }
+      title="Suggested Pieces"
+    >
+      <section className="suggested-pieces">
+        <div className="inline-banner">
+          <p>
+            Reasons describe safe product signals only. They never expose private scores or
+            sensitive inferences.
+          </p>
+          {session ? (
+            <Link className="secondary-button link-button" to="/onboarding">
+              Tune preferences
+            </Link>
+          ) : (
+            <Link className="secondary-button link-button" to="/signup">
+              Personalize your feed
+            </Link>
+          )}
+        </div>
+
+        {providerAvailabilityMessage ? (
+          <section className="inline-banner">
+            <p>{providerAvailabilityMessage}</p>
+          </section>
+        ) : null}
+
+        {state.status === "loading" ? <LoadingListings count={searchResultsPageSize} /> : null}
+        {state.status === "error" ? (
+          <StateCard
+            action={
+              <button
+                className="secondary-button"
+                onClick={() => setReloadCount((count) => count + 1)}
+                type="button"
+              >
+                Try again
+              </button>
+            }
+            body={state.errorMessage ?? "Suggested pieces could not be loaded."}
+            title="Suggestions unavailable"
+          />
+        ) : null}
+        {state.status === "success" && visibleListings.length === 0 ? (
+          <StateCard
+            action={
+              <Link className="secondary-button link-button" to="/search">
+                Explore search
+              </Link>
+            }
+            body="No eligible suggestions remain in this set. Search directly or return when fresh listings arrive."
+            title="No suggestions right now"
+          />
+        ) : null}
+        {state.status === "success" && visibleListings.length > 0 ? (
+          <ListingGrid
+            engagement={{
+              recommendationRequestId: state.engagementRequestId,
+              surface: "home_feed",
+              viewContextId: "suggested_pieces",
+            }}
+            likedListingIds={likedListingIds}
+            listings={visibleListings}
+            onDismissRecommendation={handleDismissRecommendation}
+            onToggleLike={handleToggleLike}
+            recommendationReasons={recommendationReasons}
+          />
+        ) : null}
+      </section>
+    </PageTemplate>
+  );
+}
+
 function SearchPage({ children }: { children?: ReactNode }) {
   return (
-    <PageTemplate title="Search" description="Search brands, pieces, and styles.">
+    <PageTemplate
+      title="Search"
+      description="Cut across five resale markets, then tune the rack to your exact signal."
+    >
       {children}
     </PageTemplate>
   );
@@ -1360,6 +1758,8 @@ function SearchControlPanel({
   secondaryActions?: ReactNode;
 }) {
   const [values, setValues] = useState(initialValues);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setValues(initialValues);
@@ -1387,210 +1787,286 @@ function SearchControlPanel({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setFilterDrawerOpen(false);
     onSubmit(values, "submit");
   }
 
   function handleClear() {
     const nextValues = createDefaultSearchFormValues();
     setValues(nextValues);
+    setFilterDrawerOpen(false);
     onSubmit(nextValues, "clear", values);
   }
+
+  useEffect(() => {
+    if (!filterDrawerOpen || typeof window === "undefined") {
+      return;
+    }
+
+    const isMobile = window.matchMedia("(max-width: 979px)").matches;
+    const previousOverflow = document.body.style.overflow;
+    if (isMobile) {
+      document.body.style.overflow = "hidden";
+    }
+    closeButtonRef.current?.focus();
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setFilterDrawerOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [filterDrawerOpen]);
 
   return (
     <form className="search-panel" onSubmit={handleSubmit}>
       <div className="search-panel__header">
         <div>
-          <h2>Search the marketplace</h2>
-          <p>
-            Search brands, pieces, and styles, then narrow the results with a few quick filters.
-          </p>
+          <p className="eyebrow">Rack controls / 01—10</p>
+          <h2>Build your rack</h2>
+          <p>Search every connected market, then cut by source, condition, size, and price.</p>
         </div>
-        <Link className="secondary-button link-button" to="/recent-searches">
-          Recent searches
-        </Link>
+        <div className="inline-actions">
+          <button
+            aria-controls="search-filter-drawer"
+            aria-expanded={filterDrawerOpen}
+            className="secondary-button search-panel__mobile-trigger"
+            onClick={() => setFilterDrawerOpen(true)}
+            type="button"
+          >
+            Filters &amp; sort
+          </button>
+          <Link className="secondary-button link-button" to="/recent-searches">
+            Recent searches
+          </Link>
+        </div>
       </div>
 
-      <div className="search-panel__grid">
-        <label className="field-group field-group--wide" htmlFor="search-page-query">
-          <span>Search</span>
-          <input
-            id="search-page-query"
-            onChange={(event) => updateValue("query", event.target.value)}
-            placeholder="Search brands, pieces, or styles"
-            value={values.query}
-          />
-        </label>
-
-        <label className="field-group" htmlFor="search-page-source">
-          <span>Marketplace</span>
-          <select
-            id="search-page-source"
-            onChange={(event) => updateValue("source", event.target.value)}
-            value={values.source}
+      <button
+        aria-label="Close filters"
+        className={
+          filterDrawerOpen
+            ? "filter-drawer-backdrop filter-drawer-backdrop--open"
+            : "filter-drawer-backdrop"
+        }
+        onClick={() => setFilterDrawerOpen(false)}
+        tabIndex={filterDrawerOpen ? 0 : -1}
+        type="button"
+      />
+      <div
+        aria-label={filterDrawerOpen ? "Search filters and sorting" : undefined}
+        aria-modal={filterDrawerOpen ? "true" : undefined}
+        className={
+          filterDrawerOpen
+            ? "search-panel__drawer search-panel__drawer--open"
+            : "search-panel__drawer"
+        }
+        id="search-filter-drawer"
+        role={filterDrawerOpen ? "dialog" : undefined}
+      >
+        <div className="filter-drawer__header">
+          <div>
+            <p className="eyebrow">Refine results</p>
+            <h2>Filters &amp; sort</h2>
+          </div>
+          <button
+            className="secondary-button filter-drawer__close"
+            onClick={() => setFilterDrawerOpen(false)}
+            ref={closeButtonRef}
+            type="button"
           >
-            {marketplaceOptions.map((option) => (
-              <option key={option.value || "all"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            Close
+          </button>
+        </div>
+        <div className="search-panel__grid">
+          <label className="field-group field-group--wide" htmlFor="search-page-query">
+            <span>Search</span>
+            <input
+              id="search-page-query"
+              onChange={(event) => updateValue("query", event.target.value)}
+              placeholder="Search brands, pieces, or styles"
+              value={values.query}
+            />
+          </label>
 
-        <label className="field-group" htmlFor="search-page-listing-type">
-          <span>Type</span>
-          <select
-            id="search-page-listing-type"
-            onChange={(event) =>
-              updateValue("listingType", event.target.value as SearchFormValues["listingType"])
-            }
-            value={values.listingType}
-          >
-            {listingTypeOptions.map((option) => (
-              <option key={option.value || "all"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="field-group" htmlFor="search-page-source">
+            <span>Marketplace</span>
+            <select
+              id="search-page-source"
+              onChange={(event) => updateValue("source", event.target.value)}
+              value={values.source}
+            >
+              {marketplaceOptions.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="field-group" htmlFor="search-page-brand">
-          <span>Brand</span>
-          <input
-            id="search-page-brand"
-            onChange={(event) => updateValue("brand", event.target.value)}
-            placeholder="Rick Owens"
-            value={values.brand ?? ""}
-          />
-        </label>
+          <label className="field-group" htmlFor="search-page-listing-type">
+            <span>Type</span>
+            <select
+              id="search-page-listing-type"
+              onChange={(event) =>
+                updateValue("listingType", event.target.value as SearchFormValues["listingType"])
+              }
+              value={values.listingType}
+            >
+              {listingTypeOptions.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="field-group" htmlFor="search-page-category">
-          <span>Category</span>
-          <input
-            id="search-page-category"
-            onChange={(event) => updateValue("category", event.target.value)}
-            placeholder="Jackets"
-            value={values.category ?? ""}
-          />
-        </label>
+          <label className="field-group" htmlFor="search-page-brand">
+            <span>Brand</span>
+            <input
+              id="search-page-brand"
+              onChange={(event) => updateValue("brand", event.target.value)}
+              placeholder="Rick Owens"
+              value={values.brand ?? ""}
+            />
+          </label>
 
-        <label className="field-group" htmlFor="search-page-size">
-          <span>Size</span>
-          <input
-            id="search-page-size"
-            onChange={(event) => updateValue("size", event.target.value)}
-            placeholder="M, 32, 44"
-            value={values.size ?? ""}
-          />
-        </label>
+          <label className="field-group" htmlFor="search-page-category">
+            <span>Category</span>
+            <input
+              id="search-page-category"
+              onChange={(event) => updateValue("category", event.target.value)}
+              placeholder="Jackets"
+              value={values.category ?? ""}
+            />
+          </label>
 
-        <label className="field-group" htmlFor="search-page-condition">
-          <span>Condition</span>
-          <select
-            id="search-page-condition"
-            onChange={(event) =>
-              updateValue("condition", event.target.value as SearchFormValues["condition"])
-            }
-            value={values.condition ?? ""}
-          >
-            {conditionOptions.map((option) => (
-              <option key={option.value || "all"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="field-group" htmlFor="search-page-size">
+            <span>Size</span>
+            <input
+              id="search-page-size"
+              onChange={(event) => updateValue("size", event.target.value)}
+              placeholder="M, 32, 44"
+              value={values.size ?? ""}
+            />
+          </label>
 
-        <label className="field-group" htmlFor="search-page-status">
-          <span>Market status</span>
-          <select
-            id="search-page-status"
-            onChange={(event) =>
-              updateValue("marketStatus", event.target.value as SearchFormValues["marketStatus"])
-            }
-            value={values.marketStatus ?? ""}
-          >
-            {marketStatusOptions.map((option) => (
-              <option key={option.value || "all"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="field-group" htmlFor="search-page-condition">
+            <span>Condition</span>
+            <select
+              id="search-page-condition"
+              onChange={(event) =>
+                updateValue("condition", event.target.value as SearchFormValues["condition"])
+              }
+              value={values.condition ?? ""}
+            >
+              {conditionOptions.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="field-group" htmlFor="search-page-sort">
-          <span>Sort</span>
-          <select
-            id="search-page-sort"
-            onChange={(event) => updateValue("sort", event.target.value as SearchSortMode)}
-            value={values.sort}
-          >
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="field-group" htmlFor="search-page-status">
+            <span>Market status</span>
+            <select
+              id="search-page-status"
+              onChange={(event) =>
+                updateValue("marketStatus", event.target.value as SearchFormValues["marketStatus"])
+              }
+              value={values.marketStatus ?? ""}
+            >
+              {marketStatusOptions.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="field-group" htmlFor="search-page-currency">
-          <span>Comparison currency</span>
-          <select
-            id="search-page-currency"
-            onChange={(event) => updateValue("currency", event.target.value)}
-            value={values.currency ?? ""}
-          >
-            {currencyOptions.map((currency) => (
-              <option key={currency || "original"} value={currency}>
-                {currency || "Original currency"}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="field-group" htmlFor="search-page-sort">
+            <span>Sort</span>
+            <select
+              id="search-page-sort"
+              onChange={(event) => updateValue("sort", event.target.value as WebSearchSortMode)}
+              value={values.sort}
+            >
+              {sortOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="field-group" htmlFor="search-page-min-price">
-          <span>Min price</span>
-          <input
-            id="search-page-min-price"
-            inputMode="numeric"
-            min="0"
-            onChange={(event) => updateValue("minPrice", event.target.value)}
-            placeholder="0"
-            type="number"
-            value={values.minPrice}
-          />
-        </label>
+          <label className="field-group" htmlFor="search-page-currency">
+            <span>Comparison currency</span>
+            <select
+              id="search-page-currency"
+              onChange={(event) => updateValue("currency", event.target.value)}
+              value={values.currency ?? ""}
+            >
+              {currencyOptions.map((currency) => (
+                <option key={currency || "original"} value={currency}>
+                  {currency || "Original currency"}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="field-group" htmlFor="search-page-max-price">
-          <span>Max price</span>
-          <input
-            id="search-page-max-price"
-            inputMode="numeric"
-            min="0"
-            onChange={(event) => updateValue("maxPrice", event.target.value)}
-            placeholder="500"
-            type="number"
-            value={values.maxPrice}
-          />
-        </label>
+          <label className="field-group" htmlFor="search-page-min-price">
+            <span>Min price</span>
+            <input
+              id="search-page-min-price"
+              inputMode="numeric"
+              min="0"
+              onChange={(event) => updateValue("minPrice", event.target.value)}
+              placeholder="0"
+              type="number"
+              value={values.minPrice}
+            />
+          </label>
+
+          <label className="field-group" htmlFor="search-page-max-price">
+            <span>Max price</span>
+            <input
+              id="search-page-max-price"
+              inputMode="numeric"
+              min="0"
+              onChange={(event) => updateValue("maxPrice", event.target.value)}
+              placeholder="500"
+              type="number"
+              value={values.maxPrice}
+            />
+          </label>
+        </div>
+
+        <div className="search-panel__actions">
+          <button className="search-form__button" type="submit">
+            Explore results
+          </button>
+          <button className="secondary-button" onClick={handleClear} type="button">
+            Clear filters
+          </button>
+        </div>
+
+        {secondaryActions ? <div className="state-card__action">{secondaryActions}</div> : null}
       </div>
-
-      <div className="search-panel__actions">
-        <button className="search-form__button" type="submit">
-          Explore results
-        </button>
-        <button className="secondary-button" onClick={handleClear} type="button">
-          Clear filters
-        </button>
-      </div>
-
-      {secondaryActions ? <div className="state-card__action">{secondaryActions}</div> : null}
     </form>
   );
 }
 
 function SearchResults({
+  activeFilters,
   likedListingIds,
   onLoadMore,
+  onRemoveFilter,
   onRetry,
   onToggleLike,
   query,
@@ -1598,8 +2074,10 @@ function SearchResults({
   summary,
   viewContextId,
 }: {
+  activeFilters: Array<{ key: RemovableSearchFilterKey; label: string }>;
   likedListingIds: Set<string>;
   onLoadMore: () => void;
+  onRemoveFilter: (key: RemovableSearchFilterKey) => void;
   onRetry: () => void;
   onToggleLike: (listing: Listing, nextLiked: boolean) => Promise<void>;
   query: string;
@@ -1633,13 +2111,32 @@ function SearchResults({
 
   const response = state.response;
   const providerAvailabilityMessage = getProviderAvailabilityMessage(response?.providers, "search");
+  const activeFilterControls =
+    activeFilters.length > 0 ? (
+      <div aria-label="Active search filters" className="active-filter-list">
+        {activeFilters.map((filter) => (
+          <button
+            aria-label={`Remove ${filter.label}`}
+            className="active-filter-chip"
+            key={filter.key}
+            onClick={() => onRemoveFilter(filter.key)}
+            type="button"
+          >
+            {filter.label} <span aria-hidden="true">×</span>
+          </button>
+        ))}
+      </div>
+    ) : null;
 
   if (!response || response.listings.length === 0) {
     return (
-      <StateCard
-        body={getSearchEmptyStateMessage(query, response?.providers)}
-        title="No results found"
-      />
+      <section className="search-results">
+        {activeFilterControls}
+        <StateCard
+          body={getSearchEmptyStateMessage(query, response?.providers)}
+          title="No results found"
+        />
+      </section>
     );
   }
 
@@ -1663,6 +2160,8 @@ function SearchResults({
           </span>
         </div>
       </div>
+
+      {activeFilterControls}
 
       {providerAvailabilityMessage ? (
         <section className="inline-banner">
@@ -1843,6 +2342,17 @@ function SearchRoutePage({
     });
   }
 
+  function handleRemoveFilter(key: RemovableSearchFilterKey) {
+    const nextValues: SearchFormValues = {
+      ...values,
+      [key]: key === "sort" ? "relevance" : "",
+    };
+    recordSearchInteraction(nextValues, "search_page", "submit", values);
+    startTransition(() => {
+      navigate(buildSearchPath(nextValues));
+    });
+  }
+
   function handleLoadMore() {
     if (!state.response?.pagination.hasMore || state.isLoadingMore) {
       return;
@@ -1957,8 +2467,15 @@ function SearchRoutePage({
 
     try {
       await sendJson<SavedFiltersResponse>("/me/saved-filters", "POST", {
+        brand: values.brand?.trim() || undefined,
+        category: values.category?.trim() || undefined,
+        condition: values.condition || undefined,
+        currency: values.currency?.trim() || undefined,
         label: buildSavedFilterLabel(values),
+        marketStatus: values.marketStatus || undefined,
+        params: createSearchParams(values).toString(),
         queryText: values.query.trim() || undefined,
+        size: values.size?.trim() || undefined,
         source: values.source.trim() || undefined,
         listingType: values.listingType || undefined,
         minPrice: values.minPrice ? Number(values.minPrice) : undefined,
@@ -2094,8 +2611,10 @@ function SearchRoutePage({
           secondaryActions={saveActions}
         />
         <SearchResults
+          activeFilters={getRemovableSearchFilters(values)}
           likedListingIds={likedListingIds}
           onLoadMore={handleLoadMore}
+          onRemoveFilter={handleRemoveFilter}
           onRetry={handleRetry}
           onToggleLike={handleToggleLike}
           query={query}
@@ -2109,12 +2628,10 @@ function SearchRoutePage({
 }
 
 function formatRecentSearchDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(value));
+  return formatDateTime(value, {
+    locale: getPreferredLocale(),
+    timeZone: getPreferredTimeZone(),
+  });
 }
 
 function RecentSearchesRoutePage({
@@ -2698,7 +3215,8 @@ function BetaInfoRoutePage() {
             <h2>Alert delivery has explicit dependencies</h2>
             <p>
               The production PostgreSQL worker can create in-app alerts. Email requires a configured
-              provider and verified address; push and SMS are unavailable.
+              provider and verified address. SMS additionally requires an explicitly consented,
+              verified phone; push is not available in this deployment.
             </p>
           </article>
         </div>
@@ -2750,7 +3268,9 @@ function ProfileRoutePage({
   const { likes, likedListingIds, likedListings, toggleLike } = useLikes(session, onAuthFailure);
   const [reloadCount, setReloadCount] = useState(0);
   const [collectionsState, setCollectionsState] = useState<ProfileCollectionsState>({
+    deliveryReadiness: conservativeDeliveryReadiness,
     notificationPreferences: undefined,
+    phoneIdentity: undefined,
     savedFilters: [],
     savedSearches: [],
     status: session ? "loading" : "success",
@@ -2771,10 +3291,12 @@ function ProfileRoutePage({
     emailEnabled: false,
     frequency: "daily" as NotificationPreferences["frequency"],
     inAppEnabled: true,
+    paused: false,
     pushEnabled: false,
     quietHoursEnd: "",
     quietHoursStart: "",
     smsEnabled: false,
+    timezone: getPreferredTimeZone(),
   });
   const [settingsErrorMessage, setSettingsErrorMessage] = useState<string | undefined>();
   const [settingsFeedback, setSettingsFeedback] = useState<string | undefined>();
@@ -2793,7 +3315,9 @@ function ProfileRoutePage({
   useEffect(() => {
     if (!session) {
       setCollectionsState({
+        deliveryReadiness: conservativeDeliveryReadiness,
         notificationPreferences: undefined,
+        phoneIdentity: undefined,
         savedFilters: [],
         savedSearches: [],
         status: "success",
@@ -2829,7 +3353,10 @@ function ProfileRoutePage({
           notificationPreferencesResponse,
         ]) => {
           setCollectionsState({
+            deliveryReadiness:
+              notificationPreferencesResponse.deliveryReadiness ?? conservativeDeliveryReadiness,
             notificationPreferences: notificationPreferencesResponse.notificationPreferences,
+            phoneIdentity: notificationPreferencesResponse.phoneIdentity,
             savedFilters: savedFilterResponse.savedFilters,
             savedSearches: savedSearchResponse.savedSearches,
             settings: settingsResponse.settings,
@@ -2846,12 +3373,20 @@ function ProfileRoutePage({
             emailEnabled: notificationPreferencesResponse.notificationPreferences.emailEnabled,
             frequency: notificationPreferencesResponse.notificationPreferences.frequency,
             inAppEnabled: notificationPreferencesResponse.notificationPreferences.inAppEnabled,
+            paused:
+              !notificationPreferencesResponse.notificationPreferences.emailEnabled &&
+              !notificationPreferencesResponse.notificationPreferences.inAppEnabled &&
+              !notificationPreferencesResponse.notificationPreferences.pushEnabled &&
+              !notificationPreferencesResponse.notificationPreferences.smsEnabled,
             pushEnabled: notificationPreferencesResponse.notificationPreferences.pushEnabled,
             quietHoursEnd:
               notificationPreferencesResponse.notificationPreferences.quietHoursEnd ?? "",
             quietHoursStart:
               notificationPreferencesResponse.notificationPreferences.quietHoursStart ?? "",
             smsEnabled: notificationPreferencesResponse.notificationPreferences.smsEnabled,
+            timezone:
+              notificationPreferencesResponse.notificationPreferences.timezone ??
+              getPreferredTimeZone(),
           });
           setWatchlistForm((currentState) => {
             const hasUserDraft =
@@ -2882,9 +3417,11 @@ function ProfileRoutePage({
         }
 
         setCollectionsState({
+          deliveryReadiness: conservativeDeliveryReadiness,
           errorMessage:
             error instanceof Error ? error.message : "Your saved account data could not be loaded.",
           notificationPreferences: undefined,
+          phoneIdentity: undefined,
           savedFilters: [],
           savedSearches: [],
           status: "error",
@@ -2922,6 +3459,7 @@ function ProfileRoutePage({
   const preferredCurrency =
     collectionsState.settings?.preferredCurrency ?? session.user.currencyPreference;
   const displayName = collectionsState.settings?.displayName?.trim() || session.user.username;
+  const deliveryReadiness = collectionsState.deliveryReadiness ?? conservativeDeliveryReadiness;
 
   function handleReload() {
     startTransition(() => {
@@ -3191,35 +3729,47 @@ function ProfileRoutePage({
     setNotificationPreferencesFeedback(undefined);
 
     try {
+      const deliveryPaused = notificationPreferencesForm.paused;
       const response = await sendJson<NotificationPreferencesResponse>(
         "/me/notification-preferences",
         "PATCH",
         {
-          emailEnabled: notificationPreferencesForm.emailEnabled,
+          emailEnabled: deliveryPaused ? false : notificationPreferencesForm.emailEnabled,
           frequency: notificationPreferencesForm.frequency,
-          inAppEnabled: notificationPreferencesForm.inAppEnabled,
-          pushEnabled: notificationPreferencesForm.pushEnabled,
+          inAppEnabled: deliveryPaused ? false : notificationPreferencesForm.inAppEnabled,
+          pushEnabled: deliveryPaused ? false : notificationPreferencesForm.pushEnabled,
           quietHoursEnd: notificationPreferencesForm.quietHoursEnd || null,
           quietHoursStart: notificationPreferencesForm.quietHoursStart || null,
-          smsEnabled: notificationPreferencesForm.smsEnabled,
+          smsEnabled: deliveryPaused ? false : notificationPreferencesForm.smsEnabled,
+          timezone: notificationPreferencesForm.timezone,
         },
       );
 
       setCollectionsState((currentState) => ({
         ...currentState,
+        deliveryReadiness: response.deliveryReadiness ?? currentState.deliveryReadiness,
         notificationPreferences: response.notificationPreferences,
+        phoneIdentity: response.phoneIdentity ?? currentState.phoneIdentity,
       }));
       setNotificationPreferencesForm({
         emailEnabled: response.notificationPreferences.emailEnabled,
         frequency: response.notificationPreferences.frequency,
         inAppEnabled: response.notificationPreferences.inAppEnabled,
+        paused:
+          !response.notificationPreferences.emailEnabled &&
+          !response.notificationPreferences.inAppEnabled &&
+          !response.notificationPreferences.pushEnabled &&
+          !response.notificationPreferences.smsEnabled,
         pushEnabled: response.notificationPreferences.pushEnabled,
         quietHoursEnd: response.notificationPreferences.quietHoursEnd ?? "",
         quietHoursStart: response.notificationPreferences.quietHoursStart ?? "",
         smsEnabled: response.notificationPreferences.smsEnabled,
+        timezone: response.notificationPreferences.timezone ?? notificationPreferencesForm.timezone,
       });
       setNotificationPreferencesFeedback(
-        "Saved notification preferences. In-app processing requires the PostgreSQL worker; email requires a configured provider and verified address. Push and SMS remain unavailable.",
+        deliveryPaused
+          ? "All notification delivery is paused."
+          : "Notification delivery preferences were saved.",
       );
     } catch (error: unknown) {
       if (isAuthRequiredError(error)) {
@@ -3419,7 +3969,9 @@ function ProfileRoutePage({
                 The production PostgreSQL worker matches new and changed listings against enabled
                 watchlists and adds results to your in-app inbox.
               </p>
-              <p>Email requires configuration and verification. Push and SMS are unavailable.</p>
+              <p>
+                Choose alert types and ready delivery channels separately for each saved watchlist.
+              </p>
             </div>
             <Link className="secondary-button link-button" to="/alerts">
               Open alert inbox
@@ -3680,6 +4232,12 @@ function ProfileRoutePage({
                       Delete
                     </button>
                   </div>
+                  <WatchlistAlertSettingsPanel
+                    deliveryReadiness={
+                      collectionsState.deliveryReadiness ?? conservativeDeliveryReadiness
+                    }
+                    watchlist={watchlist}
+                  />
                 </article>
               ))}
             </div>
@@ -3694,41 +4252,63 @@ function ProfileRoutePage({
             <div>
               <h2>Notification preferences</h2>
               <p>
-                In-app delivery runs with the production PostgreSQL worker. Email requires a
-                configured provider and verified address. Push and SMS are unavailable.
+                Set global delivery, quiet hours, and timezone here. Alert types and channel
+                overrides live on each watchlist above.
               </p>
             </div>
           </div>
 
           <form className="account-form" onSubmit={handleSaveNotificationPreferences}>
-            <label className="info-chip">
+            <label className="choice-card choice-card--pause">
               <input
-                checked={notificationPreferencesForm.inAppEnabled}
+                checked={notificationPreferencesForm.paused}
                 onChange={(event) =>
                   setNotificationPreferencesForm((currentState) => ({
                     ...currentState,
-                    inAppEnabled: event.target.checked,
+                    paused: event.target.checked,
                   }))
                 }
                 type="checkbox"
               />
-              In-app enabled
+              <span>Pause all notification delivery</span>
+              <small>
+                Saves every global channel as off. Your watchlists and their alert-type choices stay
+                intact.
+              </small>
             </label>
 
-            <label className="info-chip">
-              <input checked={notificationPreferencesForm.emailEnabled} disabled type="checkbox" />
-              Email (requires configured delivery)
-            </label>
-
-            <label className="info-chip">
-              <input checked={notificationPreferencesForm.pushEnabled} disabled type="checkbox" />
-              Push (unavailable)
-            </label>
-
-            <label className="info-chip">
-              <input checked={notificationPreferencesForm.smsEnabled} disabled type="checkbox" />
-              SMS (unavailable)
-            </label>
+            <fieldset className="notification-choice-group">
+              <legend>Global channels</legend>
+              <div className="notification-choice-grid">
+                {(
+                  [
+                    ["inApp", "In-app", "inAppEnabled"],
+                    ["email", "Email", "emailEnabled"],
+                    ["sms", "SMS", "smsEnabled"],
+                    ["push", "Push", "pushEnabled"],
+                  ] as const
+                ).map(([channel, label, formKey]) => (
+                  <label className="choice-card" key={channel}>
+                    <input
+                      checked={notificationPreferencesForm[formKey]}
+                      disabled={
+                        notificationPreferencesForm.paused ||
+                        (!deliveryReadiness[channel].ready && !notificationPreferencesForm[formKey])
+                      }
+                      onChange={(event) =>
+                        setNotificationPreferencesForm((currentState) => ({
+                          ...currentState,
+                          [formKey]: event.target.checked,
+                        }))
+                      }
+                      type="checkbox"
+                    />
+                    <span>{label}</span>
+                    <small>{describeDeliveryReadiness(channel, deliveryReadiness[channel])}</small>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             <label className="field-group" htmlFor="notification-frequency">
               <span>Frequency</span>
@@ -3743,11 +4323,46 @@ function ProfileRoutePage({
                 value={notificationPreferencesForm.frequency}
               >
                 <option value="instant">Instant</option>
-                <option value="hourly">Hourly</option>
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
               </select>
             </label>
+
+            <label className="field-group" htmlFor="notification-timezone">
+              <span>Quiet-hours timezone</span>
+              <input
+                autoComplete="off"
+                id="notification-timezone"
+                list="notification-timezone-options"
+                onChange={(event) =>
+                  setNotificationPreferencesForm((currentState) => ({
+                    ...currentState,
+                    timezone: event.target.value,
+                  }))
+                }
+                placeholder="America/New_York"
+                required
+                value={notificationPreferencesForm.timezone}
+              />
+              <small>Use an IANA timezone. It is validated when preferences are saved.</small>
+            </label>
+            <datalist id="notification-timezone-options">
+              {Array.from(
+                new Set([
+                  getPreferredTimeZone(),
+                  "UTC",
+                  "America/New_York",
+                  "America/Chicago",
+                  "America/Denver",
+                  "America/Los_Angeles",
+                  "Europe/London",
+                  "Europe/Paris",
+                  "Asia/Tokyo",
+                ]),
+              ).map((timezone) => (
+                <option key={timezone} value={timezone} />
+              ))}
+            </datalist>
 
             <label className="field-group" htmlFor="notification-quiet-start">
               <span>Quiet hours start</span>
@@ -3800,6 +4415,12 @@ function ProfileRoutePage({
               </button>
             </div>
           </form>
+
+          <PhoneVerificationPanel
+            deliveryReadiness={deliveryReadiness}
+            onChanged={handleReload}
+            phoneIdentity={collectionsState.phoneIdentity}
+          />
 
           <div className="section-heading section-heading--split">
             <div>
@@ -4486,6 +5107,41 @@ function OnboardingRoutePage({
   );
 }
 
+function RouteMetadata() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const routeTitle =
+      location.pathname === "/"
+        ? "Discover"
+        : location.pathname === "/suggested"
+          ? "Suggested Pieces"
+          : location.pathname === "/search"
+            ? "Search"
+            : location.pathname.startsWith("/listings/")
+              ? "Listing Details"
+              : location.pathname === "/brands"
+                ? "Brands"
+                : location.pathname.startsWith("/brands/")
+                  ? "Brand"
+                  : location.pathname === "/analytics"
+                    ? "Market Analytics"
+                    : location.pathname === "/alerts"
+                      ? "Alerts"
+                      : location.pathname === "/profile"
+                        ? "Profile"
+                        : location.pathname === "/login"
+                          ? "Log in"
+                          : location.pathname === "/signup"
+                            ? "Sign up"
+                            : "ClosetSearch";
+
+    document.title = routeTitle === "ClosetSearch" ? routeTitle : `${routeTitle} · ClosetSearch`;
+  }, [location.pathname]);
+
+  return null;
+}
+
 export function AppLayout() {
   const navigate = useNavigate();
   const [session, setSession] = useState<AuthResponse | null>(null);
@@ -4562,15 +5218,19 @@ export function AppLayout() {
 
   return (
     <div className="app-shell">
+      <RouteMetadata />
       <ScrollPositionRestoration />
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <header className="topbar">
         <Link className="topbar-mark" to="/">
           <div className="mark-badge" aria-hidden="true">
-            CS
+            CS—
           </div>
           <div>
             <p className="brand-kicker">ClosetSearch</p>
-            <h1>Fashion resale discovery</h1>
+            <p className="topbar-title">Cross-market signal desk</p>
           </div>
         </Link>
         <GlobalSearchBar />
@@ -4601,22 +5261,47 @@ export function AppLayout() {
         </div>
       </header>
 
+      <div aria-label="Connected marketplace network" className="marketplace-ticker">
+        <div className="marketplace-ticker__track">
+          {[0, 1].map((setIndex) => (
+            <div
+              aria-hidden={setIndex === 1 ? "true" : undefined}
+              className="marketplace-ticker__set"
+              key={setIndex}
+            >
+              <span className="marketplace-ticker__lead">
+                <i aria-hidden="true" /> Live network
+              </span>
+              {marketplaceTickerItems.map((marketplace) => (
+                <span className="marketplace-ticker__market" key={marketplace.label}>
+                  <strong>{marketplace.label}</strong>
+                  <small>{marketplace.region}</small>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <nav aria-label="Primary" className="primary-nav">
         <div className="primary-nav__scroll">
-          {primaryNavigationItems.map((item) => (
+          {primaryNavigationItems.map((item, index) => (
             <NavLink
               key={item.path}
               className={({ isActive }) => (isActive ? "nav-pill nav-pill--active" : "nav-pill")}
               end={item.path === "/"}
               to={item.path}
             >
+              <span aria-hidden="true" className="nav-pill__index">
+                {String(index + 1).padStart(2, "0")}
+              </span>
               {item.label}
             </NavLink>
           ))}
         </div>
       </nav>
 
-      <main className="page-main">
+      <main className="page-main" id="main-content">
         {sessionNotice ? (
           <section className="inline-banner">
             <p>{sessionNotice}</p>
@@ -4640,6 +5325,12 @@ export function AppLayout() {
           <Route
             element={<HomePage onAuthFailure={handleSessionExpired} session={session} />}
             path="/"
+          />
+          <Route
+            element={
+              <SuggestedPiecesRoutePage onAuthFailure={handleSessionExpired} session={session} />
+            }
+            path="/suggested"
           />
           <Route
             element={<SearchRoutePage onAuthFailure={handleSessionExpired} session={session} />}
@@ -4694,6 +5385,7 @@ export function AppLayout() {
           />
           <Route element={<BrandsRoutePage />} path="/brands" />
           <Route element={<BrandDetailRoutePage />} path="/brands/:slug" />
+          <Route element={<ListingDetailRoutePage />} path="/listings/:listingId" />
           <Route element={<NotFoundPage />} path="*" />
         </Routes>
       </main>
@@ -4724,7 +5416,7 @@ export function AppLayout() {
 
       <nav aria-label="Bottom navigation" className="bottom-nav">
         <div className="bottom-nav__bar">
-          {primaryNavigationItems.map((item) => (
+          {bottomNavigationItems.map((item) => (
             <NavLink
               key={item.path}
               className={({ isActive }) =>

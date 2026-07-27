@@ -66,8 +66,11 @@ Watchlists support query, canonical/provider brand, category, source, listing
 type, market status, price/currency, size, condition, label, frequency, and
 enabled state. Worker ingestion matches new/changed durable listings.
 
-In-app alerts are active. Email, push, and SMS preferences cannot be enabled:
-the API returns `delivery_channel_unavailable` until real providers exist.
+In-app alerts are active. Email and SMS preferences are readiness-gated: each
+channel remains unavailable until its transport, verified destination, current
+consent, global preference, and per-watchlist channel are all ready.
+The API returns a bounded readiness reason rather than pretending a send will
+occur. Push remains unavailable.
 See [Alerts and watchlists](alerts-watchlists.md).
 
 ## Verification

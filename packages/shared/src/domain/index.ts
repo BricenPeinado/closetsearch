@@ -25,6 +25,7 @@ export type {
   ConvertedMoney,
   Listing,
   ListingAnalyticsEligibility,
+  ListingAuction,
   ListingAttribution,
   ListingAvailabilityStatus,
   ListingCondition,
@@ -35,12 +36,15 @@ export type {
   ListingLifecycle,
   ListingMarketMetrics,
   ListingMarketStatus,
+  ListingMarketplaceLimitations,
   ListingPricing,
   ListingSeller,
   ListingShipping,
   ListingSource,
   ListingType,
   Money,
+  MarketplaceProviderId,
+  ProviderId,
   SellerTrustTier,
 } from "./listing.js";
 export type { PaginationInfo } from "./pagination.js";

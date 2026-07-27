@@ -77,6 +77,32 @@ describe("createResilientHttpClient", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("applies bounded exponential-backoff jitter with deterministic random injection", async () => {
+    const slept: number[] = [];
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(response(503))
+      .mockResolvedValueOnce(response(200));
+    const client = createResilientHttpClient({
+      backoffJitterRatio: 0.25,
+      baseBackoffMs: 100,
+      fetchImpl,
+      maxRetries: 1,
+      randomImpl: () => 1,
+      sleepImpl: async (ms) => {
+        slept.push(ms);
+      },
+    });
+
+    await expect(
+      client.request({
+        operation: "jittered_search",
+        url: "https://api.example.test/search",
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(slept).toEqual([125]);
+  });
+
   it("bounds concurrent requests", async () => {
     let active = 0;
     let maximumActive = 0;

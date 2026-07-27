@@ -74,6 +74,7 @@ export const ebayBrowseSearchFixture = {
         value: "80.00",
         currency: "USD",
       },
+      bidCount: 7,
       categories: [{ categoryId: "11484", categoryName: "Sweaters" }],
       condition: "Pre-owned - Good",
       buyingOptions: ["AUCTION"],
@@ -98,6 +99,19 @@ export const ebayBrowseSearchFixture = {
     },
   ],
 } satisfies EbayRawBrowseResponse;
+
+export const ebayEmptySearchFixture = {
+  href: "https://api.ebay.com/buy/browse/v1/item_summary/search?q=missing",
+  total: 0,
+  limit: 50,
+  offset: 0,
+  itemSummaries: [],
+} satisfies EbayRawBrowseResponse;
+
+export const ebayChangedSchemaFixture = {
+  total: 1,
+  items: ebayBrowseSearchFixture.itemSummaries,
+};
 
 export const ebayMalformedSearchFixture = {
   ...ebayBrowseSearchFixture,

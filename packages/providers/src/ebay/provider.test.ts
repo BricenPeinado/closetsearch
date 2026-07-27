@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderFetch } from "../http/resilient-http.js";
-import { ebayBrowseSearchFixture, ebayMalformedSearchFixture } from "./fixtures.js";
+import {
+  ebayBrowseSearchFixture,
+  ebayChangedSchemaFixture,
+  ebayEmptySearchFixture,
+  ebayMalformedSearchFixture,
+} from "./fixtures.js";
 import { createEbayProvider } from "./provider.js";
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}) {
@@ -44,6 +49,7 @@ describe("createEbayProvider", () => {
       clientId: "fixture-client",
       clientSecret: "fixture-secret",
       fetchImpl,
+      locale: "ja-JP",
       maxRetries: 0,
       minRequestIntervalMs: 0,
       nowImpl: () => now,
@@ -149,6 +155,21 @@ describe("createEbayProvider", () => {
       freshness: "fresh",
       resultCount: 2,
     });
+    expect(response.listings[1]).toMatchObject({
+      listingType: "auction",
+      price: { amountMinor: 8_000, currency: "USD" },
+      auction: {
+        currentBid: { amountMinor: 8_000, currency: "USD" },
+        bidCount: 7,
+        endsAt: "2026-08-02T10:00:00.000Z",
+      },
+      market: {
+        status: "active",
+      },
+    });
+    expect(response.listings[1]?.auction?.completedPrice).toBeUndefined();
+    expect(response.listings[1]?.market?.askingPrice).toBeUndefined();
+    expect(response.listings[1]?.market?.soldPrice).toBeUndefined();
 
     const tokenCall = fetchImpl.mock.calls[0];
     expect(tokenCall?.[0]).toBe("https://api.ebay.com/identity/v1/oauth2/token");
@@ -173,6 +194,7 @@ describe("createEbayProvider", () => {
     );
     expect(searchCall?.[1]).toMatchObject({
       headers: {
+        "accept-language": "ja-JP",
         authorization: "Bearer fixture-application-token",
         "x-ebay-c-marketplace-id": "EBAY_US",
         "x-ebay-c-enduserctx":
@@ -233,6 +255,41 @@ describe("createEbayProvider", () => {
         severity: "warning",
       },
     ]);
+  });
+
+  it("accepts an explicit empty result but degrades safely on a changed root schema", async () => {
+    const emptyFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, tokenResponse))
+      .mockResolvedValueOnce(jsonResponse(200, ebayEmptySearchFixture));
+    const emptyProvider = createEbayProvider({
+      clientId: "fixture-client",
+      clientSecret: "fixture-secret",
+      fetchImpl: emptyFetch,
+      maxRetries: 0,
+    });
+
+    await expect(emptyProvider.search({ query: { text: "missing" } })).resolves.toMatchObject({
+      status: "success",
+      listings: [],
+      pagination: { hasMore: false, totalCount: 0 },
+    });
+
+    const changedFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, tokenResponse))
+      .mockResolvedValueOnce(jsonResponse(200, ebayChangedSchemaFixture));
+    const changedProvider = createEbayProvider({
+      clientId: "fixture-client",
+      clientSecret: "fixture-secret",
+      fetchImpl: changedFetch,
+      maxRetries: 0,
+    });
+
+    await expect(changedProvider.search({ query: { text: "kapital" } })).resolves.toMatchObject({
+      status: "failure",
+      failure: { code: "invalid_response", retryable: false },
+    });
   });
 
   it("honors Retry-After and classifies exhausted rate limits as retryable", async () => {
@@ -311,6 +368,14 @@ describe("createEbayProvider", () => {
         identityBaseUrl: "https://attacker.invalid",
       }),
     ).toThrow(/official absolute HTTPS origin/);
+    expect(() =>
+      createEbayProvider({
+        clientId: "fixture-client",
+        clientSecret: "fixture-secret",
+        fetchImpl,
+        locale: "not a locale",
+      }),
+    ).toThrow(/valid language tag/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

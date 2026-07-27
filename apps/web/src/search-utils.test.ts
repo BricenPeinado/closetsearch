@@ -96,6 +96,23 @@ describe("search utils", () => {
     );
   });
 
+  it.each(["ending_soon", "popularity", "recommended"] as const)(
+    "round-trips the %s product sort through the URL",
+    (sort) => {
+      const values = parseSearchFormValues(new URLSearchParams(`q=coat&sort=${sort}`));
+
+      expect(values.sort).toBe(sort);
+      expect(createSearchParams(values).toString()).toBe(`q=coat&sort=${sort}`);
+      expect(describeSearch(values)).toContain(
+        sort === "ending_soon"
+          ? "Ending soon"
+          : sort === "popularity"
+            ? "Most popular"
+            : "Recommended",
+      );
+    },
+  );
+
   it("describes active filters in recent searches", () => {
     expect(
       describeSearch({

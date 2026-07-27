@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { QueryResultRow } from "pg";
 import type { PostgresDatabase } from "../database.js";
-import type { ListingObservationInput, ListingObservationResult } from "../model.js";
+import type {
+  ListingObservationInput,
+  ListingObservationResult,
+  PriceObservationKind,
+} from "../model.js";
 import type { PgQueryable } from "../types.js";
 
 interface ExistingListingRow extends QueryResultRow {
@@ -20,7 +24,13 @@ interface CurrentStateRow extends QueryResultRow {
 }
 
 interface ObservationRow extends QueryResultRow {
+  analytics_eligible: boolean;
+  auction_ends_at: Date | string | null;
+  bid_count: number | null;
+  buy_now_currency: string | null;
+  buy_now_price_minor: string | number | bigint | null;
   observation_version: string | number | bigint;
+  observation_kind: PriceObservationKind;
   original_price_minor: string | number | bigint;
   original_currency: string;
   comparison_price_minor: string | number | bigint | null;
@@ -29,6 +39,12 @@ interface ObservationRow extends QueryResultRow {
   sold_currency: string | null;
   shipping_price_minor: string | number | bigint | null;
   shipping_currency: string | null;
+  landed_price_minor: string | number | bigint | null;
+  landed_currency: string | null;
+  current_bid_minor: string | number | bigint | null;
+  current_bid_currency: string | null;
+  completed_auction_price_minor: string | number | bigint | null;
+  completed_auction_currency: string | null;
   market_status: ListingObservationInput["marketStatus"];
 }
 
@@ -64,8 +80,31 @@ function sameNullableBigInt(left: string | number | bigint | null, right: bigint
   return asBigInt(left) === right;
 }
 
+function sameNullableDate(left: Date | string | null, right: Date | undefined) {
+  return left === null ? right === undefined : new Date(left).getTime() === right?.getTime();
+}
+
+function observationKind(input: ListingObservationInput): PriceObservationKind {
+  if (input.observationKind) {
+    return input.observationKind;
+  }
+
+  if (input.listingType === "auction" && (input.auctionCompletedPrice || input.soldPrice)) {
+    return "completed_auction";
+  }
+
+  if (input.soldPrice) {
+    return "confirmed_sold";
+  }
+
+  return input.listingType === "auction" && input.marketStatus === "active"
+    ? "current_bid"
+    : "asking";
+}
+
 function latestObservationMatches(row: ObservationRow, input: ListingObservationInput) {
   return (
+    row.analytics_eligible === input.analyticsEligible &&
     asBigInt(row.original_price_minor) === input.originalPrice.amountMinor &&
     row.original_currency === normalizedCurrency(input.originalPrice.currency) &&
     sameNullableBigInt(row.comparison_price_minor, input.comparisonPrice?.amountMinor) &&
@@ -76,7 +115,27 @@ function latestObservationMatches(row: ObservationRow, input: ListingObservation
     sameNullableBigInt(row.shipping_price_minor, input.shippingPrice?.amountMinor) &&
     row.shipping_currency ===
       (input.shippingPrice ? normalizedCurrency(input.shippingPrice.currency) : null) &&
-    row.market_status === input.marketStatus
+    sameNullableBigInt(row.landed_price_minor, input.landedPrice?.amountMinor) &&
+    row.landed_currency ===
+      (input.landedPrice ? normalizedCurrency(input.landedPrice.currency) : null) &&
+    sameNullableBigInt(row.current_bid_minor, input.auctionCurrentBid?.amountMinor) &&
+    row.current_bid_currency ===
+      (input.auctionCurrentBid ? normalizedCurrency(input.auctionCurrentBid.currency) : null) &&
+    sameNullableBigInt(
+      row.completed_auction_price_minor,
+      input.auctionCompletedPrice?.amountMinor,
+    ) &&
+    row.completed_auction_currency ===
+      (input.auctionCompletedPrice
+        ? normalizedCurrency(input.auctionCompletedPrice.currency)
+        : null) &&
+    sameNullableBigInt(row.buy_now_price_minor, input.auctionBuyNowPrice?.amountMinor) &&
+    row.buy_now_currency ===
+      (input.auctionBuyNowPrice ? normalizedCurrency(input.auctionBuyNowPrice.currency) : null) &&
+    row.bid_count === (input.bidCount ?? null) &&
+    sameNullableDate(row.auction_ends_at, input.auctionEndsAt) &&
+    row.market_status === input.marketStatus &&
+    row.observation_kind === observationKind(input)
   );
 }
 
@@ -127,11 +186,19 @@ async function upsertListingRecord(client: PgQueryable, input: ListingObservatio
        provider_updated_at,
        fetched_at,
        analytics_eligible,
-       raw_fingerprint
+       raw_fingerprint,
+       description,
+       original_title,
+       original_description,
+       original_language,
+       translated_title,
+       translated_description,
+       marketplace_limitations
      ) VALUES (
        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
        $11, $12, $13, $14::jsonb, $15::jsonb, $16, $17, $18, $19, $20,
-       $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
+       $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+       $31, $32, $33, $34, $35, $36, $37::jsonb
      )
      ON CONFLICT (provider_id, source_listing_id) DO UPDATE SET
        source_marketplace = EXCLUDED.source_marketplace,
@@ -161,6 +228,13 @@ async function upsertListingRecord(client: PgQueryable, input: ListingObservatio
        fetched_at = EXCLUDED.fetched_at,
        analytics_eligible = EXCLUDED.analytics_eligible,
        raw_fingerprint = EXCLUDED.raw_fingerprint,
+       description = EXCLUDED.description,
+       original_title = EXCLUDED.original_title,
+       original_description = EXCLUDED.original_description,
+       original_language = EXCLUDED.original_language,
+       translated_title = EXCLUDED.translated_title,
+       translated_description = EXCLUDED.translated_description,
+       marketplace_limitations = EXCLUDED.marketplace_limitations,
        updated_at = CURRENT_TIMESTAMP
      WHERE EXCLUDED.fetched_at >= listings.fetched_at
      RETURNING id, fetched_at`,
@@ -195,6 +269,13 @@ async function upsertListingRecord(client: PgQueryable, input: ListingObservatio
       input.fetchedAt,
       input.analyticsEligible,
       input.rawFingerprint ?? null,
+      input.description ?? null,
+      input.originalTitle ?? null,
+      input.originalDescription ?? null,
+      input.originalLanguage ?? null,
+      input.translatedTitle ?? null,
+      input.translatedDescription ?? null,
+      input.marketplaceLimitations ? JSON.stringify(input.marketplaceLimitations) : null,
     ],
   );
 
@@ -329,7 +410,19 @@ async function recordPriceObservation(
        sold_currency,
        shipping_price_minor,
        shipping_currency,
-       market_status
+       landed_price_minor,
+       landed_currency,
+       current_bid_minor,
+       current_bid_currency,
+       completed_auction_price_minor,
+       completed_auction_currency,
+       buy_now_price_minor,
+       buy_now_currency,
+       bid_count,
+       auction_ends_at,
+       market_status,
+       observation_kind,
+       analytics_eligible
      FROM price_observations
      WHERE listing_id = $1
      ORDER BY observation_version DESC
@@ -357,9 +450,37 @@ async function recordPriceObservation(
        shipping_price_minor,
        shipping_currency,
        market_status,
-       observed_at
+       observed_at,
+       observation_kind,
+       landed_price_minor,
+       landed_currency,
+       current_bid_minor,
+       current_bid_currency,
+       completed_auction_price_minor,
+       completed_auction_currency,
+       buy_now_price_minor,
+       buy_now_currency,
+       bid_count,
+       auction_ends_at,
+       source_marketplace,
+       provider_id,
+       canonical_brand_id,
+       provider_brand,
+       category,
+       listing_type,
+       condition,
+       size,
+       material,
+       color,
+       model,
+       item_family,
+       marketplace_region,
+       analytics_eligible
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+       $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+       $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+       $31, $32, $33, $34, $35, $36, $37, $38
      )
      RETURNING observation_version`,
     [
@@ -376,6 +497,31 @@ async function recordPriceObservation(
       input.shippingPrice ? normalizedCurrency(input.shippingPrice.currency) : null,
       input.marketStatus,
       input.observedAt,
+      observationKind(input),
+      input.landedPrice?.amountMinor ?? null,
+      input.landedPrice ? normalizedCurrency(input.landedPrice.currency) : null,
+      input.auctionCurrentBid?.amountMinor ?? null,
+      input.auctionCurrentBid ? normalizedCurrency(input.auctionCurrentBid.currency) : null,
+      input.auctionCompletedPrice?.amountMinor ?? null,
+      input.auctionCompletedPrice ? normalizedCurrency(input.auctionCompletedPrice.currency) : null,
+      input.auctionBuyNowPrice?.amountMinor ?? null,
+      input.auctionBuyNowPrice ? normalizedCurrency(input.auctionBuyNowPrice.currency) : null,
+      input.bidCount ?? null,
+      input.auctionEndsAt ?? null,
+      input.sourceMarketplace,
+      input.providerId,
+      input.canonicalBrandId ?? null,
+      input.providerBrand ?? null,
+      input.category ?? null,
+      input.listingType,
+      input.condition ?? null,
+      input.size ?? null,
+      input.material ?? null,
+      input.color ?? null,
+      input.model ?? null,
+      input.itemFamily ?? null,
+      input.marketplaceRegion ?? null,
+      input.analyticsEligible,
     ],
   );
 
@@ -577,7 +723,18 @@ export class ListingRepository {
          po.sold_currency,
          po.shipping_price_minor,
          po.shipping_currency,
-         po.market_status
+         po.landed_price_minor,
+         po.landed_currency,
+         po.current_bid_minor,
+         po.current_bid_currency,
+         po.completed_auction_price_minor,
+         po.completed_auction_currency,
+         po.buy_now_price_minor,
+         po.buy_now_currency,
+         po.bid_count,
+         po.auction_ends_at,
+         po.market_status,
+         po.observation_kind
        FROM price_observations po
        JOIN listings l ON l.id = po.listing_id
        WHERE l.provider_id = $1 AND l.source_listing_id = $2
@@ -587,10 +744,13 @@ export class ListingRepository {
 
     return result.rows.map((row) => ({
       comparisonPriceMinor: asBigInt(row.comparison_price_minor),
+      observationKind: row.observation_kind,
       marketStatus: row.market_status,
       observationVersion: BigInt(row.observation_version),
       originalCurrency: row.original_currency,
       originalPriceMinor: BigInt(row.original_price_minor),
+      currentBidMinor: asBigInt(row.current_bid_minor),
+      completedAuctionPriceMinor: asBigInt(row.completed_auction_price_minor),
       soldPriceMinor: asBigInt(row.sold_price_minor),
     }));
   }

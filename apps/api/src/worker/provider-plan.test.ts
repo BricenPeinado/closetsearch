@@ -1,5 +1,5 @@
 import type { Provider } from "@closetsearch/providers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createPostgresTestHarness } from "../db/postgres/test-harness.js";
 import type { ProviderRuntime } from "../providers/registry.js";
 import { createWorkerProviderPlan, seedWorkerJobs } from "./provider-plan.js";
@@ -16,6 +16,10 @@ function runtimeWithProviders(providers: Provider[]): ProviderRuntime {
       maxProvidersPerRequest: 5,
       mode: "real",
       providers: {
+        depop: {
+          configured: false,
+          enabled: false,
+        },
         ebay: {
           configured: true,
           enabled: true,
@@ -24,8 +28,16 @@ function runtimeWithProviders(providers: Provider[]): ProviderRuntime {
           configured: false,
           enabled: false,
         },
+        mercariJp: {
+          configured: false,
+          enabled: false,
+        },
         mock: {
           configured: true,
+          enabled: false,
+        },
+        yahooAuctionsJp: {
+          configured: false,
           enabled: false,
         },
       },
@@ -142,6 +154,53 @@ describe("worker provider plan", () => {
     ).toThrow("must be valid JSON");
   });
 
+  it("caps scheduled ingestion page sizes to the provider runtime guardrail", async () => {
+    const search = vi.fn<Provider["search"]>().mockResolvedValue({
+      listings: [],
+      providerId: "depop",
+      status: "success",
+    });
+    const runtime = runtimeWithProviders([
+      {
+        capabilities: {
+          dataOrigin: "authorized_scraping",
+          supportsActiveListings: true,
+        },
+        dataOrigin: "authorized_scraping",
+        id: "depop",
+        name: "Depop",
+        search,
+      },
+    ]);
+    runtime.config.providers.depop = {
+      configured: true,
+      enabled: true,
+      maxResultsPerSearch: 12,
+    };
+    const plan = createWorkerProviderPlan(runtime, {
+      WORKER_INGESTION_SEARCHES_JSON: JSON.stringify([
+        {
+          key: "capped",
+          pageSize: 200,
+          scope: "active",
+          text: "archive jacket",
+        },
+      ]),
+    });
+
+    expect(plan.sources).toHaveLength(1);
+    await plan.sources[0]?.fetchPage({
+      ingestionScope: "active",
+      queryKey: "active:capped",
+      signal: new AbortController().signal,
+    });
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pagination: expect.objectContaining({ pageSize: 12 }),
+      }),
+    );
+  });
+
   it("seeds core and provider schedules idempotently without stealing leases", async () => {
     const harness = await createPostgresTestHarness();
     const now = new Date("2026-07-24T12:00:00.000Z");
@@ -175,7 +234,7 @@ describe("worker provider plan", () => {
         leaseToken: claimed?.leaseToken,
         status: "running",
       });
-      expect(await harness.dataPlane.jobs.listStatuses()).toHaveLength(3);
+      expect(await harness.dataPlane.jobs.listStatuses()).toHaveLength(4);
     } finally {
       await harness.database.close();
     }

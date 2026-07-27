@@ -1,5 +1,6 @@
 import type { ListingObservationInput } from "../db/postgres/model.js";
 import type { ProviderHealthState } from "../db/postgres/repositories/providers.js";
+import { isProviderEligibleForAlerts } from "../services/alertDeliveryService.js";
 import { WorkerJobError, type WorkerJobHandler } from "./types.js";
 
 export interface ProviderIngestionRequest {
@@ -71,6 +72,8 @@ function parsePayload(payload: Record<string, unknown>): IngestionJobPayload {
 export function createProviderIngestionHandler(
   sources: readonly ProviderIngestionSource[],
   now: () => Date = () => new Date(),
+  providerEligible: (providerId: string) => boolean = (providerId) =>
+    isProviderEligibleForAlerts(providerId, process.env),
 ): WorkerJobHandler {
   const sourcesById = new Map(sources.map((source) => [source.providerId, source]));
 
@@ -113,7 +116,11 @@ export function createProviderIngestionHandler(
         const persisted = await dataPlane.listings.upsertObservation(listing);
 
         if (persisted.persisted) {
-          await dataPlane.alerts.matchListing(persisted.listingId, listing.observedAt);
+          await dataPlane.alerts.matchListing(
+            persisted.listingId,
+            listing.observedAt,
+            providerEligible(listing.providerId),
+          );
         }
       }
 

@@ -3,6 +3,24 @@
 Audited from the repository state at `fb0d117` on 2026-07-24. This is the
 pre-implementation baseline for the production-hardening program.
 
+## Current reconciliation
+
+The matrix below is intentionally preserved as the baseline gap record. As of
+the 2026-07-26 working tree, the following gaps have implementation but still
+need final release or external evidence:
+
+| Area                  | Current repository capability                                                                                                                                                             | Evidence still missing                                                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Marketplace adapters  | eBay, Grailed, Depop, Yahoo! Auctions Japan, and Mercari Japan adapters, fixtures, normalization, resilience, strict origins, authorization gates, runtime registration, and worker plans | provider-specific authorization references for all five; eBay production credentials/approval; explicitly gated authorized live smoke                |
+| Durable product data  | PostgreSQL data plane, worker, migration `007`, normalized listing detail, original/translated Japanese content, typed price observations, and price-trend API/UI                         | current real-PostgreSQL migration/upgrade/restart/backup/browser evidence for `007`; production database                                             |
+| Alerts                | in-app inbox plus opt-in Resend email/Twilio SMS transports, phone verification, consent/suppression history, worker delivery, unsubscribe/STOP, and signed deduplicated webhooks         | approved accounts/senders/numbers/secrets/callback origins; verified-user consent; retention/subprocessor review; staging delivery/webhook evidence  |
+| Operations/deployment | PostgreSQL-only production checks, no-mock runtime, bearer-protected operations endpoints, containers/Compose/CI definitions, Sites edge proxy                                            | current CI artifacts; local Compose unavailable because Docker is absent; production bearer secret; configured Sites API origin; HTTPS no-mock smoke |
+| ML and analytics      | reproducible hybrid recommendation and fair-value candidates with guarded fallback; exact descriptive price trends                                                                        | adequate privacy-reviewed production datasets and promoted artifacts; approved FX source for conversion; no billing integration                      |
+| Security scans        | dependency audit command plus immutable-SHA CI actions and a pinned Grype gate across every configured Compose image                                                                      | local audit blocked by the managed environment's outbound dependency-metadata policy; approved CI dependency/image results are still required        |
+
+Implemented code does not change an external status to authorized, configured,
+deployed, or production-proven.
+
 Status meanings:
 
 - **working**: implemented and supported by executable evidence at the current scope

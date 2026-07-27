@@ -758,7 +758,8 @@ describe("handleRequest", () => {
     expect(body.query.text).toBe("jacket");
     expect(body.pagination.page).toBe(1);
     expect(body.pagination.pageSize).toBe(24);
-    expect(body.pagination.totalCount).toBeGreaterThan(0);
+    expect(body.pagination.totalCount).toBeUndefined();
+    expect(body.listings.length).toBeGreaterThan(0);
     expect(body.listings[0]).toMatchObject({
       providerId: "mock",
       riskSignal: {

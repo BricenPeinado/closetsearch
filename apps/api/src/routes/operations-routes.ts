@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import {
   createPersistenceLifecycleHooks,
   getPostgresDataPlane,
@@ -17,7 +18,18 @@ const workerJobStatuses = [
   "succeeded",
 ] as const;
 const providerHealthStates = ["blocked", "degraded", "disabled", "healthy", "unavailable"] as const;
+const alertDeliveryChannels = ["email", "in_app", "sms"] as const;
+const alertDeliveryStatuses = [
+  "dead_letter",
+  "delivered",
+  "failed",
+  "processing",
+  "queued",
+  "retry_wait",
+  "suppressed",
+] as const;
 const operationsGaugeFamilies = [
+  "closetsearch_alert_deliveries",
   "closetsearch_ingestion_consecutive_failures",
   "closetsearch_ingestion_lag_seconds",
   "closetsearch_ingestion_never_succeeded",
@@ -27,16 +39,56 @@ const operationsGaugeFamilies = [
   "closetsearch_provider_health_state",
   "closetsearch_worker_jobs",
 ];
+const protectedOperationsPaths = new Set(["/metrics", "/operations/status", "/providers/health"]);
+
+function isOperationsAuthorized(request: IncomingMessage, env: Record<string, string | undefined>) {
+  const expected = env.OPERATIONS_BEARER_TOKEN?.trim();
+
+  if (!expected && env.NODE_ENV !== "production") {
+    return true;
+  }
+
+  const authorization = request.headers?.authorization;
+  const provided = authorization?.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length).trim()
+    : "";
+
+  if (!expected || !provided) {
+    return false;
+  }
+
+  const expectedBytes = Buffer.from(expected);
+  const providedBytes = Buffer.from(provided);
+  return (
+    expectedBytes.length === providedBytes.length && timingSafeEqual(expectedBytes, providedBytes)
+  );
+}
+
+function operationsUnauthorizedResult(): RouteResult {
+  return {
+    body: {
+      error: "operations_unauthorized",
+      message: "Valid operations credentials are required.",
+    },
+    headers: {
+      "www-authenticate": 'Bearer realm="closetsearch-operations"',
+    },
+    kind: "json",
+    statusCode: 401,
+  };
+}
 
 async function getPostgresOperationsState() {
   const dataPlane = await getPostgresDataPlane();
-  const [jobs, checkpoints, providerHealth] = await Promise.all([
+  const [jobs, checkpoints, providerHealth, alertDeliveries] = await Promise.all([
     dataPlane.jobs.listStatuses(),
     dataPlane.jobs.listIngestionCheckpoints(),
     dataPlane.providers.listHealth(),
+    dataPlane.alerts.listDeliveryStatusCounts(),
   ]);
 
   return {
+    alertDeliveries,
     checkpoints,
     jobs,
     providerHealth,
@@ -59,10 +111,15 @@ async function operationsStatusResult(): Promise<RouteResult> {
           provider.state === "blocked" ||
           provider.state === "degraded" ||
           provider.state === "unavailable",
+      ) ||
+      state.alertDeliveries.some(
+        (delivery) =>
+          delivery.count > 0 && (delivery.status === "dead_letter" || delivery.status === "failed"),
       );
 
     return {
       body: {
+        alertDeliveries: state.alertDeliveries,
         checkpoints: state.checkpoints.map((checkpoint) => ({
           consecutiveFailures: checkpoint.consecutiveFailures,
           ingestionScope: checkpoint.ingestionScope,
@@ -211,6 +268,18 @@ async function metricsResult(): Promise<RouteResult> {
     try {
       const state = await getPostgresOperationsState();
 
+      for (const channel of alertDeliveryChannels) {
+        for (const status of alertDeliveryStatuses) {
+          setGauge(
+            "closetsearch_alert_deliveries",
+            { channel, status },
+            state.alertDeliveries.find(
+              (delivery) => delivery.channel === channel && delivery.status === status,
+            )?.count ?? 0,
+          );
+        }
+      }
+
       for (const status of workerJobStatuses) {
         setGauge(
           "closetsearch_worker_jobs",
@@ -330,9 +399,14 @@ export async function handleOperationsRoute(
   request: IncomingMessage,
   requestUrl: URL,
   providerRuntime: ProviderRuntime = createProviderRuntime(),
+  env: Record<string, string | undefined> = process.env,
 ): Promise<RouteResult | undefined> {
   if ((request.method ?? "GET") !== "GET") {
     return undefined;
+  }
+
+  if (protectedOperationsPaths.has(requestUrl.pathname) && !isOperationsAuthorized(request, env)) {
+    return operationsUnauthorizedResult();
   }
 
   switch (requestUrl.pathname) {

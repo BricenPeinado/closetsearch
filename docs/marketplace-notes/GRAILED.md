@@ -3,11 +3,12 @@
 ## Status
 
 The adapter, fixtures, normalization, pagination, credential refresh, resilience,
-and contract tests are implemented. **Live access is blocked.** No retained
-written-authorization reference exists in this checkout.
+and contract tests are implemented. The operator has asserted permission for
+this integration, but **authorized-live access remains fail-closed** because no
+retained, non-secret provider-specific authorization reference is configured.
 
 The current approach reads public-page configuration and accesses undocumented
-Algolia indices. Grailed terms/robots considerations are recorded in the
+Algolia indexes. Grailed terms/robots considerations are recorded in the
 [provider acquisition matrix](../provider-acquisition-matrix.md). Technical
 reachability is not permission.
 

@@ -10,11 +10,14 @@
 
 - discovery/providers:
 - PostgreSQL/schema:
+- listing detail/price intelligence:
+- social-preview asset/metadata:
 - worker/ingestion:
 - accounts/saved state:
 - engagement/recommendations:
 - analytics:
 - entitlements/alerts:
+- email/SMS transport, consent, webhook, and activation state:
 - security/operations:
 
 ## Provider/compliance
@@ -41,14 +44,17 @@
 - required command run:
 - five-run evidence:
 - PostgreSQL/restore:
+- dependency/image scans:
 - Playwright/staging smoke:
+- deployed Open Graph/Twitter preview:
+- operations bearer/Sites API-origin checks:
 
 ## External blockers/deferred
 
 - provider:
-- email/billing/FX:
+- email/SMS/billing/FX:
 - ML data:
-- push/SMS/authenticity:
+- push/authenticity:
 
 ## Deployment/rollback
 
@@ -57,5 +63,6 @@
 - prior image digests:
 - rollback owner/deadline:
 
-Never describe fixtures as live, development entitlements as billing, in-app
-alerts as outbound delivery, or synthetic ML metrics as production performance.
+Never describe fixtures as live, development entitlements as billing, an
+unconfigured transport or provider acceptance as delivered notification, or
+synthetic ML metrics as production performance.

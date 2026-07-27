@@ -17,6 +17,29 @@ describe("canonical brand registry", () => {
     });
   });
 
+  it("resolves Japanese aliases without collapsing Unicode brand keys", () => {
+    expect(resolveCanonicalBrand("キャピタル")).toMatchObject({
+      name: "Kapital",
+      slug: "kapital",
+    });
+    expect(resolveCanonicalBrand("コム デ ギャルソン")).toMatchObject({
+      name: "Comme des Garçons",
+      slug: "comme-des-garcons",
+    });
+    expect(resolveCanonicalBrand("ヴィズヴィム")).toMatchObject({
+      name: "Visvim",
+      slug: "visvim",
+    });
+
+    expect(resolveCanonicalBrand("未知ブランド")).toMatchObject({
+      name: "未知ブランド",
+      slug: "未知ブランド",
+    });
+    expect(resolveCanonicalBrand("別ブランド").slug).not.toBe(
+      resolveCanonicalBrand("未知ブランド").slug,
+    );
+  });
+
   it("returns a stable unknown brand without mutating maintained data", () => {
     const unknown = resolveCanonicalBrand("");
 

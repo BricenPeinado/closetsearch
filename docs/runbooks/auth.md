@@ -105,9 +105,18 @@ the hash, consumes/invalidate reset tokens, and revokes all user sessions in one
 transaction.
 
 The email sender defaults to disabled and reports `not_configured`; no raw token
-is returned through the API. To activate, inject a real sender and set an
-explicit HTTPS `ACCOUNT_ACTION_BASE_URL`. This checkout has no email provider, so
-users cannot receive action links in a deployed environment yet.
+is returned through the API. `EMAIL_TRANSPORT=resend` connects account-action
+delivery to the shared Resend transport and requires `RESEND_API_KEY`,
+`EMAIL_FROM_ADDRESS`, an explicit HTTPS `ACCOUNT_ACTION_BASE_URL`, and the
+production webhook/public-origin controls documented in
+[Alerts and watchlists](alerts-watchlists.md). The repository contains the
+transport, not production credentials, sender verification, or staging delivery
+evidence, so users cannot receive deployed action links from this checkout.
+
+Verifying an email identity does not silently opt the user into marketing or
+watchlist alerts. Alert email requires a separate current consent record and
+global/per-watchlist enablement. Account-security messages are transactional and
+remain limited to the action the user requested.
 
 ## Export and deletion
 
@@ -149,13 +158,15 @@ Tests cover:
 - export secret exclusion
 - delete confirmation and cascade behavior
 - PostgreSQL production route behavior
+- Resend transport mapping and fail-closed disabled behavior
 - account-security/action-page component behavior
 - PostgreSQL-backed browser account deletion and session invalidation when the
   Playwright persistence driver is PostgreSQL
 
 ## Remaining blockers
 
-- transactional email provider and verified sender domain
+- approved Resend account, API key, verified sender/domain, webhook secret,
+  HTTPS action/callback origins, and staging account-action evidence
 - approved breached-password service
 - distributed rate limiter/session abuse controls for broad horizontal scale
 - OAuth/social login and device/session management UI (intentionally deferred)

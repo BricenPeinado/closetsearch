@@ -27,6 +27,7 @@ export const PROVIDER_SEARCH_CACHE_STALE_MS = 60_000;
 const cursorVersion = 1;
 const defaultRequestedPageSize = 24;
 const maxProviderBatchAdvances = 8;
+const locallyAppliedSortModes = new Set(["ending_soon", "popularity", "recommended"]);
 
 interface ProviderCursorState {
   cursor?: string;
@@ -34,6 +35,7 @@ interface ProviderCursorState {
   page?: number;
   providerId: string;
   totalCount?: number;
+  totalCountReliable?: boolean;
 }
 
 interface SearchCursorPayload {
@@ -177,7 +179,7 @@ function supportsQuery(
     }
   }
 
-  if (query.sort && capabilities?.supportedSortModes) {
+  if (query.sort && !locallyAppliedSortModes.has(query.sort) && capabilities?.supportedSortModes) {
     const supportsSortMode = capabilities.supportedSortModes.includes(query.sort);
 
     if (!supportsSortMode) {
@@ -206,6 +208,27 @@ function supportsQuery(
   }
 
   return null;
+}
+
+function adaptQueryForProvider(
+  provider: Provider,
+  query: ProviderSearchRequest["query"],
+): ProviderSearchRequest["query"] {
+  if (!query.sort || !locallyAppliedSortModes.has(query.sort)) {
+    return query;
+  }
+
+  const supportedSortModes = provider.capabilities?.supportedSortModes ?? [];
+  const fallbackSort = supportedSortModes.includes("relevance")
+    ? "relevance"
+    : supportedSortModes.includes("newest")
+      ? "newest"
+      : undefined;
+
+  return {
+    ...query,
+    sort: fallbackSort,
+  };
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, provider: Provider) {
@@ -281,6 +304,26 @@ function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
     new Date(
       listing.lifecycle?.sourceUpdatedAt ?? listing.lifecycle?.listedAt ?? listing.fetchedAt,
     ).getTime();
+  const auctionEnd = (listing: Listing) => {
+    const value = listing.auction?.endsAt;
+    const timestamp = value ? new Date(value).getTime() : Number.POSITIVE_INFINITY;
+    return Number.isFinite(timestamp) && timestamp >= Date.now()
+      ? timestamp
+      : Number.POSITIVE_INFINITY;
+  };
+  const popularityScore = (listing: Listing) => {
+    const tagScore =
+      listing.market?.tags?.reduce(
+        (score, tag) => score + (/popular|trending|watched|featured/i.test(tag) ? 10 : 0),
+        0,
+      ) ?? 0;
+    const sellerScore = Math.log10(1 + (listing.seller?.feedbackCount ?? 0));
+    const qualityScore =
+      Math.min(4, listing.images?.length ?? (listing.imageUrl ? 1 : 0)) +
+      (listing.description ? 1 : 0) +
+      (listing.shipping ? 1 : 0);
+    return tagScore + sellerScore + qualityScore + (listing.market?.priceDropsCount ?? 0);
+  };
 
   switch (sort) {
     case "price_asc":
@@ -302,6 +345,30 @@ function sortListings(listings: Listing[], sort: SearchQuery["sort"]) {
           stableTieBreak(left, right)
         );
       });
+      break;
+    case "ending_soon":
+      sorted.sort(
+        (left, right) =>
+          auctionEnd(left) - auctionEnd(right) ||
+          getTimestamp(right) - getTimestamp(left) ||
+          stableTieBreak(left, right),
+      );
+      break;
+    case "popularity":
+      sorted.sort(
+        (left, right) =>
+          popularityScore(right) - popularityScore(left) ||
+          getTimestamp(right) - getTimestamp(left) ||
+          stableTieBreak(left, right),
+      );
+      break;
+    case "recommended":
+      sorted.sort(
+        (left, right) =>
+          popularityScore(right) - popularityScore(left) ||
+          getTimestamp(right) - getTimestamp(left) ||
+          stableTieBreak(left, right),
+      );
       break;
     case "newest":
     case "relevance":
@@ -337,7 +404,8 @@ function normalizeFingerprintText(value: string) {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -400,10 +468,16 @@ function createListingDedupeKeys(listing: Listing) {
   return keys;
 }
 
-function sanitizeProviderResult(result: ProviderSearchResult): ProviderSearchResult {
+function sanitizeProviderResult(
+  result: ProviderSearchResult,
+  expectedProviderId: string,
+): ProviderSearchResult {
   const sanitizedListings = result.listings
     .map((listing) => sanitizeProviderListing(listing))
-    .filter((listing): listing is Listing => listing !== null);
+    .filter(
+      (listing): listing is Listing =>
+        listing !== null && listing.providerId === expectedProviderId,
+    );
 
   if (sanitizedListings.length !== result.listings.length) {
     const droppedCount = result.listings.length - sanitizedListings.length;
@@ -427,10 +501,12 @@ function sanitizeProviderResult(result: ProviderSearchResult): ProviderSearchRes
 
   return {
     ...result,
+    providerId: expectedProviderId,
     listings: sanitizedListings,
     metadata: result.metadata
       ? {
           ...result.metadata,
+          providerId: expectedProviderId,
           pagination: result.metadata.pagination ? { ...result.metadata.pagination } : undefined,
         }
       : undefined,
@@ -547,6 +623,7 @@ function advanceProviderState(
       providerId: state.providerId,
       exhausted: true,
       totalCount: state.totalCount,
+      totalCountReliable: state.totalCountReliable,
     };
   }
 
@@ -555,6 +632,7 @@ function advanceProviderState(
       providerId: state.providerId,
       cursor: pagination.nextCursor,
       totalCount: pagination.totalCount ?? state.totalCount,
+      totalCountReliable: state.totalCountReliable,
     };
   }
 
@@ -563,6 +641,7 @@ function advanceProviderState(
       providerId: state.providerId,
       page: pagination.nextPage,
       totalCount: pagination.totalCount ?? state.totalCount,
+      totalCountReliable: state.totalCountReliable,
     };
   }
 
@@ -571,6 +650,7 @@ function advanceProviderState(
       providerId: state.providerId,
       page: pagination.page + 1,
       totalCount: pagination.totalCount ?? state.totalCount,
+      totalCountReliable: state.totalCountReliable,
     };
   }
 
@@ -579,6 +659,7 @@ function advanceProviderState(
       providerId: state.providerId,
       page: state.page + 1,
       totalCount: pagination.totalCount ?? state.totalCount,
+      totalCountReliable: state.totalCountReliable,
     };
   }
 
@@ -586,6 +667,7 @@ function advanceProviderState(
     providerId: state.providerId,
     exhausted: true,
     totalCount: pagination?.totalCount ?? state.totalCount,
+    totalCountReliable: state.totalCountReliable,
   };
 }
 
@@ -604,12 +686,14 @@ function mergeProviderState(
       exhausted: previousState.exhausted,
       page: previousState.page,
       totalCount: previousState.totalCount,
+      totalCountReliable: previousState.totalCountReliable,
     };
   }
 
   return {
     providerId: registration.provider.id,
     page: 1,
+    totalCountReliable: true,
   };
 }
 
@@ -652,7 +736,7 @@ async function fetchProviderBatch(
       );
 
       if (response.status === "success") {
-        const sanitizedResponse = sanitizeProviderResult(response);
+        const sanitizedResponse = sanitizeProviderResult(response, registration.provider.id);
         setCachedProviderBatch(cacheKey, sanitizedResponse);
         outcome = "success";
         return sanitizedResponse;
@@ -761,7 +845,8 @@ async function collectProviderCandidates(
     };
   }
 
-  const unsupportedFailure = supportsQuery(registration.provider, query, initialState);
+  const providerQuery = adaptQueryForProvider(registration.provider, query);
+  const unsupportedFailure = supportsQuery(registration.provider, providerQuery, initialState);
 
   if (unsupportedFailure) {
     return {
@@ -770,6 +855,7 @@ async function collectProviderCandidates(
         providerId: initialState.providerId,
         exhausted: true,
         totalCount: initialState.totalCount,
+        totalCountReliable: initialState.totalCountReliable,
       },
       summary: {
         providerId: registration.provider.id,
@@ -790,7 +876,7 @@ async function collectProviderCandidates(
     try {
       const response = await fetchProviderBatch(
         registration,
-        query,
+        providerQuery,
         state,
         requestedPageSize,
         runtime,
@@ -805,9 +891,16 @@ async function collectProviderCandidates(
         };
       }
 
+      const droppedListings = response.warnings?.some(
+        (warning) => warning.code === "normalization_dropped",
+      );
+      const totalCountReliable = state.totalCountReliable !== false && droppedListings !== true;
       const nextStateBase = {
         ...state,
-        totalCount: response.pagination?.totalCount ?? state.totalCount,
+        totalCount: totalCountReliable
+          ? (response.pagination?.totalCount ?? state.totalCount)
+          : undefined,
+        totalCountReliable,
       };
       const availableListings = response.listings
         .map((listing) => {
@@ -873,6 +966,7 @@ async function collectProviderCandidates(
       providerId: state.providerId,
       exhausted: true,
       totalCount: state.totalCount,
+      totalCountReliable: state.totalCountReliable,
     },
     summary: {
       providerId: registration.provider.id,
@@ -1007,7 +1101,9 @@ export async function runProviderSearch(
       mergeProviderState(registration, cursorState),
   );
   const hasMore = normalizedProviderStates.some(hasProviderWork);
-  const totalCount = normalizedProviderStates.every((state) => typeof state.totalCount === "number")
+  const totalCount = normalizedProviderStates.every(
+    (state) => state.totalCountReliable !== false && typeof state.totalCount === "number",
+  )
     ? normalizedProviderStates.reduce((sum, state) => sum + (state.totalCount ?? 0), 0)
     : undefined;
 

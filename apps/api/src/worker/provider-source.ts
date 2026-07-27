@@ -188,7 +188,8 @@ function canonicalFingerprint(listing: Listing) {
   const normalizedTitle = listing.title
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
   const normalizedBrand = listing.brand.slug.trim().toLowerCase();
 
@@ -216,9 +217,12 @@ function idempotencyKey(
 ) {
   const observationIdentity = stableSerialize({
     analyticsEligibility: listing.analyticsEligibility,
+    auction: listing.auction,
     brand: listing.brand,
     category: listing.category,
+    color: listing.color,
     condition: listing.condition,
+    description: listing.description,
     images: listing.images?.map((image) => image.url) ?? [listing.imageUrl],
     lifecycle: {
       endedAt: listing.lifecycle?.endedAt,
@@ -227,7 +231,9 @@ function idempotencyKey(
       status: listing.lifecycle?.status,
     },
     listingType: listing.listingType,
+    marketplaceLimitations: listing.marketplaceLimitations,
     marketStatus: normalizedMarketStatus,
+    material: listing.material,
     observation: {
       fetchedAt: fetchedAt.toISOString(),
       observedAt: observedAt.toISOString(),
@@ -235,6 +241,13 @@ function idempotencyKey(
     pricing: listing.pricing ?? { original: listing.price },
     providerId: listing.providerId,
     providerListingId: listing.providerListingId,
+    provenance: {
+      originalDescription: listing.originalDescription,
+      originalLanguage: listing.originalLanguage,
+      originalTitle: listing.originalTitle,
+      translatedDescription: listing.translatedDescription,
+      translatedTitle: listing.translatedTitle,
+    },
     seller: listing.seller,
     shipping: listing.shipping,
     size: listing.size,
@@ -272,6 +285,16 @@ export function toListingObservation(
   }
 
   const normalizedMarketStatus = marketStatus(listing, scope);
+  const auctionCompletedPrice = exactMoney(listing.auction?.completedPrice);
+  const soldPrice = exactMoney(listing.market?.soldPrice);
+  const observationKind =
+    listing.listingType === "auction" && normalizedMarketStatus === "active"
+      ? ("current_bid" as const)
+      : listing.listingType === "auction" && auctionCompletedPrice
+        ? ("completed_auction" as const)
+        : normalizedMarketStatus === "sold" && soldPrice
+          ? ("confirmed_sold" as const)
+          : ("asking" as const);
   const fetchedAt = requiredDate(listing.fetchedAt, "fetchedAt");
   const observedAt = optionalDate(listing.lifecycle?.observedAt) ?? fetchedAt;
   const images = (
@@ -293,10 +316,22 @@ export function toListingObservation(
       listing.analyticsEligibility?.eligible !== false &&
       listing.market?.isExcludedFromAnalytics !== true,
     availability: availability(listing.lifecycle?.status, normalizedMarketStatus),
+    auctionBuyNowPrice: exactMoney(listing.auction?.buyNowPrice),
+    auctionCompletedPrice,
+    auctionCurrentBid: exactMoney(listing.auction?.currentBid),
+    auctionEndsAt: optionalDate(listing.auction?.endsAt),
+    bidCount:
+      typeof listing.auction?.bidCount === "number" &&
+      Number.isSafeInteger(listing.auction.bidCount) &&
+      listing.auction.bidCount >= 0
+        ? listing.auction.bidCount
+        : undefined,
     canonicalFingerprint: canonicalFingerprint(listing),
     category: listing.category,
     comparisonPrice: comparisonMoney(listing.pricing?.comparison),
     condition: listing.condition,
+    color: listing.color,
+    description: listing.description,
     fetchedAt,
     id: deterministicUuid(`listing:${listing.providerId}:${listing.providerListingId}`),
     idempotencyKey: idempotencyKey(listing, normalizedMarketStatus, fetchedAt, observedAt),
@@ -305,8 +340,22 @@ export function toListingObservation(
     listedAt: optionalDate(listing.lifecycle?.listedAt),
     listingType: listing.listingType,
     marketStatus: normalizedMarketStatus,
+    marketplaceLimitations: listing.marketplaceLimitations
+      ? (JSON.parse(
+          JSON.stringify(listing.marketplaceLimitations),
+        ) as ListingObservationInput["marketplaceLimitations"])
+      : undefined,
+    marketplaceRegion:
+      listing.source.marketplaceId ??
+      listing.shipping?.originCountry ??
+      listing.seller?.location?.country,
+    material: listing.material,
     observedAt,
+    observationKind,
+    originalDescription: listing.originalDescription,
+    originalLanguage: listing.originalLanguage,
     originalPrice,
+    originalTitle: listing.originalTitle,
     providerBrand: listing.brand.name,
     providerId: listing.providerId,
     providerUpdatedAt: optionalDate(
@@ -317,12 +366,14 @@ export function toListingObservation(
     shippingPrice: exactMoney(listing.pricing?.shipping ?? listing.shipping?.cost),
     size: listing.size,
     soldAt: optionalDate(listing.lifecycle?.soldAt),
-    soldPrice: exactMoney(listing.market?.soldPrice),
+    soldPrice,
     sourceListingId: listing.providerListingId,
     sourceMarketplace: listing.source.name,
     sourceUrl: listing.sourceUrl,
     staleAfter: optionalDate(listing.freshness?.staleAt),
     title: listing.title,
+    translatedDescription: listing.translatedDescription,
+    translatedTitle: listing.translatedTitle,
   };
 }
 
